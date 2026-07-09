@@ -1,0 +1,154 @@
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: gewu-mysql-prod
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:-root123456}
+      MYSQL_DATABASE: gewu_prod
+      MYSQL_USER: gewu
+      MYSQL_PASSWORD: ${MYSQL_PASSWORD:-gewu123456}
+    command: >
+      --character-set-server=utf8mb4
+      --collation-server=utf8mb4_unicode_ci
+      --max-connections=200
+      --innodb-buffer-pool-size=1G
+      --slow-query-log=ON
+      --long-query-time=1
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root123456}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 40s
+    networks:
+      - gewu-net
+
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
+    container_name: gewu-dragonfly-prod
+    restart: unless-stopped
+    command: ["dragonfly", "--logtostderr", "-- maxmemory=1G"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - dragonfly-data:/data
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gewu-net
+
+  rocketmq-nameserver:
+    image: apache/rocketmq:5.3.1
+    container_name: gewu-rocketmq-nameserver-prod
+    restart: unless-stopped
+    command: ["sh", "mqnamesrv"]
+    ports:
+      - "9876:9876"
+    environment:
+      JAVA_OPT_EXT: "-server -Xms512m -Xmx512m -Xmn256m"
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    healthcheck:
+      test: ["CMD-SHELL", "netstat -an | grep 9876 || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 6
+      start_period: 30s
+    networks:
+      - gewu-net
+
+  rocketmq-broker:
+    image: apache/rocketmq:5.3.1
+    container_name: gewu-rocketmq-broker-prod
+    restart: unless-stopped
+    command: ["sh", "mqbroker", "-n", "rocketmq-nameserver:9876", "--enable-controller-mode", "true"]
+    ports:
+      - "10909:10909"
+      - "10911:10911"
+    environment:
+      JAVA_OPT_EXT: "-server -Xms1g -Xmx1g -Xmn512m"
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    depends_on:
+      rocketmq-nameserver:
+        condition: service_healthy
+    networks:
+      - gewu-net
+
+  gewu-platform:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: gewu-platform-prod
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/gewu_prod?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+      SPRING_DATASOURCE_USERNAME: gewu
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-gewu123456}
+      SPRING_DATA_REDIS_HOST: dragonfly
+      SPRING_DATA_REDIS_PORT: "6379"
+      ROCKETMQ_NAME_SERVER: rocketmq-nameserver:9876
+    deploy:
+      resources:
+        limits:
+          cpus: '2.0'
+          memory: 2G
+        reservations:
+          cpus: '0.5'
+          memory: 512M
+    depends_on:
+      mysql:
+        condition: service_healthy
+      dragonfly:
+        condition: service_healthy
+      rocketmq-broker:
+        condition: service_started
+    networks:
+      - gewu-net
+
+volumes:
+  mysql-data:
+  dragonfly-data:
+
+networks:
+  gewu-net:
+    driver: bridge

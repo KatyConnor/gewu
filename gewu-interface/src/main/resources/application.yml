@@ -1,0 +1,167 @@
+# 格物平台 - 开发环境配置
+
+server:
+  port: 8080
+
+spring:
+  profiles:
+    active: dev
+
+  # 数据库配置
+  datasource:
+    url: jdbc:mysql://localhost:3306/gewu_dev?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
+    username: gewu
+    password: gewu123456
+    driver-class-name: com.mysql.cj.jdbc.Driver
+    hikari:
+      minimum-idle: 5
+      maximum-pool-size: 20
+      idle-timeout: 30000
+      max-lifetime: 1800000
+      connection-timeout: 30000
+
+  # Flyway 数据库迁移
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    baseline-version: 0
+
+  # Redis/DragonflyDB 配置
+  data:
+    redis:
+      host: localhost
+      port: 6379
+      password:
+      database: 0
+      timeout: 5000ms
+
+  # Jackson 配置
+  jackson:
+    date-format: yyyy-MM-dd HH:mm:ss
+    time-zone: Asia/Shanghai
+    default-property-inclusion: non_null
+
+# RocketMQ 配置
+rocketmq:
+  name-server: localhost:9876
+  producer:
+    group: gewu-producer
+    send-message-timeout: 5000
+    retry-times-when-send-failed: 3
+
+# MyBatis-Plus 配置
+mybatis-plus:
+  mapper-locations: classpath*:mapper/**/*.xml
+  type-aliases-package: com.gewu.domain
+  global-config:
+    db-config:
+      id-type: ASSIGN_UUID
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+  configuration:
+    map-underscore-to-camel-case: true
+    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+
+# 格物平台配置
+gewu:
+  project:
+    name: 格物平台
+    version: 1.0.0-SNAPSHOT
+
+  # 安全配置
+  security:
+    jwt:
+      secret: gewu-jwt-secret-key-2026-needs-at-least-32-characters
+      access-expiration: 1800000  # 30分钟
+      refresh-expiration: 604800000  # 7天
+    password:
+      min-length: 8
+      require-uppercase: true
+      require-lowercase: true
+      require-digit: true
+      require-special: true
+    audit:
+      enabled: true
+      retention-days: 1095
+    xss:
+      enabled: true
+    headers:
+      enabled: true
+
+  database:
+    type: oceanbase
+
+  cache:
+    type: dragonfly
+    ttl: 300000  # 5分钟
+
+  # 性能优化配置
+  performance:
+    slow-sql-threshold-ms: 1000
+    cache:
+      user-ttl: 1800000
+      project-ttl: 1800000
+      session-ttl: 600000
+      agent-ttl: 3600000
+      workflow-ttl: 3600000
+      permission-ttl: 7200000
+    rate-limit:
+      default-limit: 100
+      default-window: 60
+
+  sandbox:
+    type: docker
+    runtime: runc
+    image: gewu/sandbox:latest
+
+  ai:
+    gateway:
+      url: http://localhost:8081
+    models:
+      - name: qwen
+        provider: alibaba
+        api-key: ${QWEN_API_KEY:}
+      - name: deepseek
+        provider: deepseek
+        api-key: ${DEEPSEEK_API_KEY:}
+
+# Actuator + Prometheus
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  metrics:
+    tags:
+      application: gewu-platform
+    distribution:
+      percentiles-histogram:
+        http.server.requests: true
+  endpoint:
+    prometheus:
+      enabled: true
+    health:
+      show-details: always
+
+# SpringDoc 配置
+springdoc:
+  api-docs:
+    path: /v3/api-docs
+  swagger-ui:
+    path: /swagger-ui.html
+    operationsSorter: method
+    tagsSorter: alpha
+    doc-expansion: none
+    display-request-duration: true
+    groups-order: desc
+
+# 日志配置
+logging:
+  level:
+    root: INFO
+    com.gewu: DEBUG
+    org.springframework.security: DEBUG
+  pattern:
+    dateformat: yyyy-MM-dd HH:mm:ss.SSS

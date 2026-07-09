@@ -1,0 +1,121 @@
+# 格物平台 - 开发环境配置（精简版）
+# Sprint 1 基础设施服务
+# 版本：V1.0（精简版）
+
+services:
+  # ==================== 数据库服务 ====================
+
+  # MySQL 8.0 (开发数据库)
+  # 注意：生产环境切换为 OceanBase 4.4.2
+  mysql:
+    image: mysql:8.0
+    container_name: gewu-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root123456
+      - MYSQL_DATABASE=gewu_dev
+      - MYSQL_USER=gewu
+      - MYSQL_PASSWORD=gewu123456
+    volumes:
+      - mysql-data:/var/lib/mysql
+    command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot123456"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 30s
+    networks:
+      - gewu-network
+
+  # ==================== 缓存服务 ====================
+
+  # DragonflyDB (主缓存)
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:v1.27.1
+    container_name: gewu-dragonfly
+    ports:
+      - "6379:6379"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - dragonfly-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gewu-network
+
+  # ==================== 消息队列服务 ====================
+
+  # RocketMQ NameServer
+  rocketmq-namesrv:
+    image: apache/rocketmq:5.1.4
+    container_name: gewu-rocketmq-namesrv
+    ports:
+      - "9876:9876"
+    command: sh mqnamesrv
+    environment:
+      - JAVA_OPT_EXT=-server -Xms256m -Xmx256m
+    healthcheck:
+      test: ["CMD", "sh", "-c", "echo 'test' | nc localhost 9876"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+  # RocketMQ Broker
+  rocketmq-broker:
+    image: apache/rocketmq:5.1.4
+    container_name: gewu-rocketmq-broker
+    ports:
+      - "10911:10911"
+    command: sh mqbroker -n gewu-rocketmq-namesrv:9876
+    environment:
+      - JAVA_OPT_EXT=-server -Xms256m -Xmx256m
+    depends_on:
+      - rocketmq-namesrv
+    healthcheck:
+      test: ["CMD", "sh", "-c", "echo 'test' | nc localhost 10911"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+  # RocketMQ Console (调试用)
+  rocketmq-console:
+    image: apacherocketmq/rocketmq-dashboard:latest
+    container_name: gewu-rocketmq-console
+    ports:
+      - "9877:8080"
+    environment:
+      - JAVA_OPT_EXT=-Drocketmq.namesrv.addr=gewu-rocketmq-namesrv:9876
+    depends_on:
+      - rocketmq-namesrv
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+volumes:
+  # 数据库数据卷
+  mysql-data:
+    driver: local
+
+  # 缓存数据卷
+  dragonfly-data:
+    driver: local
+
+networks:
+  gewu-network:
+    driver: bridge

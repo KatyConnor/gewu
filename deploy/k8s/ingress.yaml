@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: gewu-platform
+  namespace: gewu
+  labels:
+    app: gewu-platform
+spec:
+  rules:
+    - host: gewu.local
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: gewu-platform
+                port:
+                  number: 8080

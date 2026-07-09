@@ -1,0 +1,534 @@
+# 格物平台 - 开发环境配置（完整版）
+# 使用 Docker Compose 启动开发所需的基础设施服务
+# 版本：V5.1（完整版）
+
+services:
+  # ==================== 数据库服务 ====================
+
+  # OceanBase (主数据库)
+  ob:
+    image: quay.io/oceanbase/oceanbase-ce:4.4.2-lts
+    container_name: gewu-ob
+    ports:
+      - "2881:2881"
+      - "2882:2882"
+    environment:
+      - MODE=standalone
+      - OB_MEMORY_LIMIT=8G
+      - OB_DATAFILE_SIZE=4G
+      - OB_LOG_DISK_SIZE=4G
+    volumes:
+      - ob-data:/root/ob
+    healthcheck:
+      test: ["CMD", "obclient", "-h", "localhost", "-P", "2881", "-u", "root", "-p", "root", "-e", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - gewu-network
+
+  # MySQL (备选数据库)
+  mysql:
+    image: mysql:8.0
+    container_name: gewu-mysql
+    ports:
+      - "3306:3306"
+    environment:
+      - MYSQL_ROOT_PASSWORD=root123456
+      - MYSQL_DATABASE=gewu
+      - MYSQL_USER=gewu
+      - MYSQL_PASSWORD=gewu123456
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gewu-network
+
+  # 达梦数据库
+  dameng:
+    image: dameng/dm8:v8.1.2.123
+    container_name: gewu-dameng
+    ports:
+      - "5236:5236"
+    environment:
+      - DM_HOME=/opt/dmdbms
+      - DM_USER=SYSDBA
+      - DM_PASSWORD=SYSDBA
+    volumes:
+      - dameng-data:/opt/dmdbms/data
+    healthcheck:
+      test: ["CMD", "/opt/dmdbms/bin/disql", "SYSDBA/SYSDBA@localhost:5236", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - gewu-network
+
+  # 人大金仓数据库
+  kingbase:
+    image: kingbase/kingbasees:v8r6
+    container_name: gewu-kingbase
+    ports:
+      - "54321:54321"
+    environment:
+      - KINGBASE_PASSWORD=kingbase
+    volumes:
+      - kingbase-data:/opt/kingbase/data
+    healthcheck:
+      test: ["CMD", "kingbase", "-h", "localhost", "-p", "54321", "-U", "SYSDBA", "-W", "kingbase", "-c", "SELECT 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+    networks:
+      - gewu-network
+
+  # ==================== 缓存服务 ====================
+
+  # DragonflyDB (主缓存)
+  dragonfly:
+    image: docker.dragonflydb.io/dragonflydb/dragonfly:v1.27.1
+    container_name: gewu-dragonfly
+    ports:
+      - "6379:6379"
+    ulimits:
+      memlock:
+        soft: -1
+        hard: -1
+    volumes:
+      - dragonfly-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gewu-network
+
+  # Redis (备选缓存)
+  redis:
+    image: redis:7.0.12
+    container_name: gewu-redis
+    ports:
+      - "6380:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - gewu-network
+
+  # ==================== 监控服务 ====================
+
+  # Nightingale (监控平台)
+  nightingale:
+    image: flashcatcloud/nightingale:latest
+    container_name: gewu-nightingale
+    ports:
+      - "17000:17000"
+      - "20090:20090"
+    volumes:
+      - ./deploy/docker/nightingale:/app/etc
+    depends_on:
+      - mysql
+      - dragonfly
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:17000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+    networks:
+      - gewu-network
+
+  # VictoriaMetrics (时序数据库)
+  victoriametrics:
+    image: victoriametrics/victoria-metrics:latest
+    container_name: gewu-victoriametrics
+    ports:
+      - "8428:8428"
+    volumes:
+      - vm-data:/victoria-metrics-data
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8428/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+  # Categraf (监控数据采集器)
+  categraf:
+    image: flashcatcloud/categraf:latest
+    container_name: gewu-categraf
+    volumes:
+      - ./deploy/docker/categraf:/etc/categraf
+    depends_on:
+      - nightingale
+    healthcheck:
+      test: ["CMD", "categraf", "health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+  # Grafana (可视化平台)
+  grafana:
+    image: grafana/grafana:latest
+    container_name: gewu-grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin123456
+    volumes:
+      - grafana-data:/var/lib/grafana
+    depends_on:
+      - victoriametrics
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+  # ==================== 消息队列服务 ====================
+
+  # RocketMQ NameServer
+  rocketmq-namesrv:
+    image: apache/rocketmq:5.1.4
+    container_name: gewu-rocketmq-namesrv
+    ports:
+      - "9876:9876"
+    command: sh mqnamesrv
+    environment:
+      - JAVA_OPT_EXT=-server -Xms256m -Xmx256m
+    healthcheck:
+      test: ["CMD", "sh", "-c", "echo 'test' | nc localhost 9876"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+  # RocketMQ Broker
+  rocketmq-broker:
+    image: apache/rocketmq:5.1.4
+    container_name: gewu-rocketmq-broker
+    ports:
+      - "10911:10911"
+    command: sh mqbroker -n gewu-rocketmq-namesrv:9876
+    environment:
+      - JAVA_OPT_EXT=-server -Xms256m -Xmx256m
+    depends_on:
+      - rocketmq-namesrv
+    healthcheck:
+      test: ["CMD", "sh", "-c", "echo 'test' | nc localhost 10911"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+  # RocketMQ Console
+  rocketmq-console:
+    image: apacherocketmq/rocketmq-dashboard:latest
+    container_name: gewu-rocketmq-console
+    ports:
+      - "9877:8080"
+    environment:
+      - JAVA_OPT_EXT=-Drocketmq.namesrv.addr=gewu-rocketmq-namesrv:9876
+    depends_on:
+      - rocketmq-namesrv
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+  # Kafka
+  kafka:
+    image: confluentinc/cp-kafka:3.5.0
+    container_name: gewu-kafka
+    ports:
+      - "9092:9092"
+      - "29092:29092"
+    environment:
+      - KAFKA_BROKER_ID=1
+      - KAFKA_ZOOKEEPER_CONNECT=zookeeper:2181
+      - KAFKA_ADVERTISED_LISTENERS=PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      - KAFKA_INTER_BROKER_LISTENER_NAME=PLAINTEXT
+      - KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR=1
+    depends_on:
+      - zookeeper
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server localhost:9092 --list"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+  # Zookeeper
+  zookeeper:
+    image: confluentinc/cp-zookeeper:3.5.0
+    container_name: gewu-zookeeper
+    ports:
+      - "2181:2181"
+    environment:
+      - ZOOKEEPER_CLIENT_PORT=2181
+    healthcheck:
+      test: ["CMD", "nc", "-z", "localhost", "2181"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+  # RabbitMQ
+  rabbitmq:
+    image: rabbitmq:3.12.0-management
+    container_name: gewu-rabbitmq
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      - RABBITMQ_DEFAULT_USER=guest
+      - RABBITMQ_DEFAULT_PASS=guest
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+  # ==================== 开发工具服务 ====================
+
+  # Gitea (代码仓库)
+  gitea:
+    image: gitea/gitea:latest
+    container_name: gewu-gitea
+    ports:
+      - "3001:3000"
+      - "2222:22"
+    volumes:
+      - gitea-data:/data
+    environment:
+      - GITEA__database__DB_TYPE=sqlite3
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000/api/v1/version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+  # Drone CI
+  drone:
+    image: drone/drone:2
+    container_name: gewu-drone
+    ports:
+      - "8080:80"
+    environment:
+      - DRONE_GITEA_SERVER=http://gitea:3000
+      - DRONE_GITEA_CLIENT_ID=xxxxx
+      - DRONE_GITEA_CLIENT_SECRET=xxxxx
+      - DRONE_RPC_SECRET=secret
+      - DRONE_SERVER_HOST=localhost:8080
+      - DRONE_SERVER_PROTO=http
+    volumes:
+      - drone-data:/data
+    depends_on:
+      - gitea
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:80"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+  # Drone Runner
+  drone-runner:
+    image: drone/drone-runner-docker:1
+    container_name: gewu-drone-runner
+    ports:
+      - "3000:3000"
+    environment:
+      - DRONE_RPC_PROTO=http
+      - DRONE_RPC_HOST=drone
+      - DRONE_RPC_SECRET=secret
+      - DRONE_RUNNER_CAPACITY=2
+      - DRONE_RUNNER_NAME=runner
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+      - drone-data:/data
+    depends_on:
+      - drone
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:3000"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+  # ==================== API 网关服务 ====================
+
+  # 自研 API 网关
+  gateway:
+    image: gewu/gewu-gateway:v1.0.0
+    container_name: gewu-gateway
+    ports:
+      - "8080:8080"
+      - "8443:8443"
+    environment:
+      - GATEWAY_PORT=8080
+      - GATEWAY_SSL_PORT=8443
+      - GATEWAY_SECRET_KEY=${GATEWAY_SECRET_KEY}
+      - GATEWAY_RATE_LIMIT=1000
+    volumes:
+      - gateway-data:/data
+      - ./deploy/gateway/config:/config
+    depends_on:
+      - mysql
+      - dragonfly
+      - rocketmq-namesrv
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/actuator/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+  # ==================== 沙箱服务 ====================
+
+  # Firecracker
+  firecracker:
+    image: firecracker-microvm/firecracker:latest
+    container_name: gewu-firecracker
+    command: /usr/local/bin/firecracker --api-sock /tmp/firecracker.sock
+    volumes:
+      - firecracker-data:/tmp
+      - firecracker-data:/var/lib/firecracker
+    cap_add:
+      - SYS_ADMIN
+    security_opt:
+      - seccomp:unconfined
+    healthcheck:
+      test: ["CMD", "firecracker", "--version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+  # gVisor
+  gvisor:
+    image: gvisor/runsc:latest
+    container_name: gewu-gvisor
+    command: /runsc --disable-usr-bin-proc --disable-setuid-check --disable-seccomp
+    volumes:
+      - /dev:/dev
+      - /sys:/sys
+      - /var/run/docker.sock:/var/run/docker.sock
+    privileged: true
+    healthcheck:
+      test: ["CMD", "runsc", "--version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+  # ==================== 容器运行时服务 ====================
+
+  # iSulad (信创容器运行时)
+  isulad:
+    image: isulad/isulad:1.0.0
+    container_name: gewu-isulad
+    ports:
+      - "2375:2375"
+      - "2376:2376"
+    volumes:
+      - isulad-data:/var/lib/isulad
+      - /var/run/docker.sock:/var/run/docker.sock
+    privileged: true
+    healthcheck:
+      test: ["CMD", "isulad", "--version"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    networks:
+      - gewu-network
+
+volumes:
+  # 数据库数据卷
+  ob-data:
+    driver: local
+  mysql-data:
+    driver: local
+  dameng-data:
+    driver: local
+  kingbase-data:
+    driver: local
+
+  # 缓存数据卷
+  dragonfly-data:
+    driver: local
+  redis-data:
+    driver: local
+
+  # 监控数据卷
+  vm-data:
+    driver: local
+  grafana-data:
+    driver: local
+
+  # 消息队列数据卷
+  rocketmq-data:
+    driver: local
+  kafka-data:
+    driver: local
+  rabbitmq-data:
+    driver: local
+
+  # 开发工具数据卷
+  gitea-data:
+    driver: local
+  drone-data:
+    driver: local
+
+  # API 网关数据卷
+  gateway-data:
+    driver: local
+
+  # 沙箱数据卷
+  firecracker-data:
+    driver: local
+
+  # 容器运行时数据卷
+  isulad-data:
+    driver: local
+
+networks:
+  gewu-network:
+    driver: bridge

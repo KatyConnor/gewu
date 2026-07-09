@@ -1,0 +1,42 @@
+spring:
+  main:
+    allow-bean-definition-overriding: true
+  sql:
+    init:
+      mode: always
+      schema-locations: classpath:schema.sql
+      data-locations: classpath:data.sql
+  datasource:
+    url: jdbc:h2:mem:gewu_test;MODE=MySQL;DB_CLOSE_DELAY=-1;DATABASE_TO_UPPER=false
+    hikari:
+      maximum-pool-size: 1
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  flyway:
+    enabled: false
+  data:
+    redis:
+      host: localhost
+      port: 6379
+  rocketmq:
+    name-server: localhost:9876
+
+mybatis-plus:
+  configuration:
+    map-underscore-to-camel-case: true
+  global-config:
+    db-config:
+      id-type: INPUT
+      logic-delete-field: deleted
+      logic-delete-value: 1
+      logic-not-delete-value: 0
+
+gewu:
+  security:
+    xss:
+      enabled: false
+    jwt:
+      secret: test-jwt-secret-key-at-least-32-characters-long
+      access-expiration: 1800000
+      refresh-expiration: 604800000

@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: gewu-platform-config
+  namespace: gewu
+data:
+  DB_HOST: mysql.gewu.svc.cluster.local
+  DB_PORT: "3306"
+  DB_NAME: gewu_dev
+  REDIS_HOST: dragonfly.gewu.svc.cluster.local
+  REDIS_PORT: "6379"
+  ROCKETMQ_NAMESERVER: rocketmq-nameserver.gewu.svc.cluster.local:9876
+  AI_GATEWAY_URL: http://ai-gateway.gewu.svc.cluster.local:8081
+  SPRING_PROFILES_ACTIVE: prod

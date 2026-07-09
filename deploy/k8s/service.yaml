@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: gewu-platform
+  namespace: gewu
+  labels:
+    app: gewu-platform
+spec:
+  type: ClusterIP
+  selector:
+    app: gewu-platform
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+      protocol: TCP
