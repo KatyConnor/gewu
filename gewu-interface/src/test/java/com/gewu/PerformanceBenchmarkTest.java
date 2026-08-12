@@ -2,6 +2,10 @@ package com.gewu;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gewu.common.jwt.JwtUtil;
+import com.gewu.infrastructure.cache.CacheService;
+import com.gewu.interfaceconfig.security.JwtAuthenticationFilter;
+import com.gewu.interfaceconfig.security.SecurityHeadersFilter;
 import com.gewu.interfaceconfig.security.XssFilter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -15,7 +19,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -49,6 +53,7 @@ class PerformanceBenchmarkTest {
     @TestConfiguration
     static class NoEscapeXssConfig {
         @Bean
+        @Primary
         XssFilter xssFilter() {
             return new XssFilter() {
                 @Override
@@ -57,6 +62,18 @@ class PerformanceBenchmarkTest {
                     filterChain.doFilter(request, response);
                 }
             };
+        }
+
+        @Bean
+        @Primary
+        JwtAuthenticationFilter jwtAuthenticationFilter(JwtUtil jwtUtil, ObjectMapper objectMapper, CacheService cacheService, com.gewu.application.auth.AuthService authService) {
+            return new JwtAuthenticationFilter(jwtUtil, objectMapper, cacheService, authService);
+        }
+
+        @Bean
+        @Primary
+        SecurityHeadersFilter securityHeadersFilter() {
+            return new SecurityHeadersFilter();
         }
     }
 
@@ -112,7 +129,7 @@ class PerformanceBenchmarkTest {
         Map<String, Object> register = new HashMap<>();
         register.put("username", "bench_" + suffix);
         register.put("email", "bench_" + suffix + "@gewu.com");
-        register.put("password", "passw0rd");
+        register.put("password", "Passw0rd!");
         register.put("displayName", "BenchUser");
         return register;
     }
@@ -120,7 +137,7 @@ class PerformanceBenchmarkTest {
     private Map<String, Object> loginBody(String suffix) {
         Map<String, Object> login = new HashMap<>();
         login.put("username", "bench_" + suffix);
-        login.put("password", "passw0rd");
+        login.put("password", "Passw0rd!");
         return login;
     }
 

@@ -43,4 +43,12 @@ public class CacheKeys {
     public static String onlineUsers() {
         return "gewu:online:users";
     }
+
+    public static String tokenBlacklist(String jti) {
+        return "gewu:token:blacklist:" + jti;
+    }
+
+    public static String refreshTokenFamily(String familyId) {
+        return "gewu:token:family:" + familyId;
+    }
 }

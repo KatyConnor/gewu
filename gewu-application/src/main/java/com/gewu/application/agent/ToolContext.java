@@ -16,4 +16,6 @@ public class ToolContext {
     private String agentId;
     private int timeout;
     private boolean sandboxEnabled;
+    private String sandboxImage;
+    private String projectId;
 }

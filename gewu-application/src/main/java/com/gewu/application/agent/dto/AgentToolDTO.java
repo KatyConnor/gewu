@@ -17,6 +17,7 @@ public class AgentToolDTO {
     private String description;
     private String toolType;
     private String endpoint;
+    private String mcpServerId;
     private Integer timeoutMs;
     private Integer status;
     private Integer sortOrder;

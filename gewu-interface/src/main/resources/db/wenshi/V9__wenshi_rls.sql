@@ -1,0 +1,32 @@
+-- ============================================================================
+-- Wenshi 多租户行级安全 (RLS) V9
+-- 目标数据库: PostgreSQL 15+ + pgvector（仅 PostgreSQL 执行）
+-- 创建日期: 2026-07-17
+-- ============================================================================
+-- 依赖: V6__wenshi_knowledge_layer.sql
+-- 说明: MySQL 环境跳过此脚本（多租户隔离由应用层 tenant_id 过滤实现）
+--       PostgreSQL 环境请在 pgvector 数据库中手动执行以下语句：
+--
+--       ALTER TABLE wenshi_semantic_fragment ENABLE ROW LEVEL SECURITY;
+--       ALTER TABLE wenshi_episodic_event ENABLE ROW LEVEL SECURITY;
+--       ALTER TABLE wenshi_procedural_memory ENABLE ROW LEVEL SECURITY;
+--       ALTER TABLE wenshi_experience ENABLE ROW LEVEL SECURITY;
+--       ALTER TABLE wenshi_user_profile ENABLE ROW LEVEL SECURITY;
+--       ALTER TABLE wenshi_reasoning_trace ENABLE ROW LEVEL SECURITY;
+--
+--       CREATE POLICY tenant_isolation_wsf ON wenshi_semantic_fragment
+--           USING (tenant_id = current_setting('app.current_tenant', true)::varchar);
+--       CREATE POLICY tenant_isolation_wee ON wenshi_episodic_event
+--           USING (tenant_id = current_setting('app.current_tenant', true)::varchar);
+--       CREATE POLICY tenant_isolation_wpm ON wenshi_procedural_memory
+--           USING (tenant_id = current_setting('app.current_tenant', true)::varchar);
+--       CREATE POLICY tenant_isolation_we ON wenshi_experience
+--           USING (tenant_id = current_setting('app.current_tenant', true)::varchar);
+--       CREATE POLICY tenant_isolation_wup ON wenshi_user_profile
+--           USING (tenant_id = current_setting('app.current_tenant', true)::varchar);
+--       CREATE POLICY tenant_isolation_wrt ON wenshi_reasoning_trace
+--           USING (tenant_id = current_setting('app.current_tenant', true)::varchar);
+-- ============================================================================
+
+-- MySQL 环境：此脚本为空操作，多租户隔离由应用层实现
+SELECT 1;

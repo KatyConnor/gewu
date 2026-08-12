@@ -6,7 +6,8 @@ public enum SandboxStatus {
     RUNNING("running", "运行中"),
     STOPPED("stopped", "已停止"),
     DESTROYED("destroyed", "已销毁"),
-    ERROR("error", "异常");
+    ERROR("error", "异常"),
+    EXPIRED("expired", "已过期");
 
     private final String code;
     private final String description;

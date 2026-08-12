@@ -3,16 +3,21 @@ package com.gewu.application.session;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.gewu.application.session.dto.MessageDTO;
+import com.gewu.domain.session.Session;
 import com.gewu.domain.session.SessionMessage;
 import com.gewu.infrastructure.cache.CacheKeys;
 import com.gewu.infrastructure.cache.CacheService;
+import com.gewu.infrastructure.mapper.SessionMapper;
 import com.gewu.infrastructure.mapper.SessionMessageMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import com.gewu.infrastructure.llm.Message;
+
 import java.time.Duration;
+import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
@@ -22,9 +27,11 @@ public class SessionContextService {
 
     private static final int DEFAULT_MAX_MESSAGES = 50;
     private static final int TOKEN_THRESHOLD = 4000;
+    private static final int COMPRESSED_KEEP_RECENT = 6;
     private static final Duration CACHE_TTL = Duration.ofHours(2);
 
     private final SessionMessageMapper sessionMessageMapper;
+    private final SessionMapper sessionMapper;
     private final CacheService cacheService;
     private final ContextCompressor contextCompressor;
 
@@ -38,6 +45,93 @@ public class SessionContextService {
         return messages.reversed().stream()
                 .map(this::toMessageDTO)
                 .toList();
+    }
+
+    public List<Message> buildContextMessages(String sessionId, int maxMessages) {
+        int limit = maxMessages > 0 ? maxMessages : DEFAULT_MAX_MESSAGES;
+        List<SessionMessage> messages = sessionMessageMapper.selectList(
+                new LambdaQueryWrapper<SessionMessage>()
+                        .eq(SessionMessage::getSessionId, sessionId)
+                        .orderByDesc(SessionMessage::getSeq)
+                        .last("LIMIT " + limit));
+        messages = messages.reversed();
+
+        if (messages.isEmpty()) {
+            return new ArrayList<>();
+        }
+
+        int estimatedTokens = messages.stream()
+                .mapToInt(m -> estimateTokens(m.getContent()))
+                .sum();
+
+        if (estimatedTokens <= TOKEN_THRESHOLD) {
+            return messages.stream()
+                    .map(this::toLlmMessage)
+                    .toList();
+        }
+
+        log.info("会话上下文超过 token 阈值，触发压缩: sessionId={}, estimatedTokens={}", sessionId, estimatedTokens);
+        
+        // CR-013: 改进的压缩策略 - 保留 system 消息和最近消息
+        List<SessionMessage> systemMessages = new ArrayList<>();
+        List<SessionMessage> regularMessages = new ArrayList<>();
+        
+        // 分离 system 消息和普通消息
+        for (SessionMessage msg : messages) {
+            if ("system".equals(msg.getMessageType())) {
+                systemMessages.add(msg);
+            } else {
+                regularMessages.add(msg);
+            }
+        }
+        
+        // 保留最近的普通消息
+        int splitIdx = Math.max(0, regularMessages.size() - COMPRESSED_KEEP_RECENT);
+        List<SessionMessage> oldMessages = regularMessages.subList(0, splitIdx);
+        List<SessionMessage> recentMessages = regularMessages.subList(splitIdx, regularMessages.size());
+        
+        // 压缩旧消息
+        String compressed = "";
+        if (!oldMessages.isEmpty()) {
+            List<ContextCompressor.MessageView> views = oldMessages.stream()
+                    .map(m -> new ContextCompressor.MessageView(
+                            resolveRole(m.getSenderId()),
+                            m.getContent()))
+                    .toList();
+            compressed = contextCompressor.compress(views);
+        }
+
+        // 构建结果：system 消息 + 压缩摘要 + 最近消息
+        List<Message> result = new ArrayList<>();
+        
+        // 1. 保留所有 system 消息
+        for (SessionMessage sm : systemMessages) {
+            result.add(Message.builder()
+                    .role("system")
+                    .content(sm.getContent())
+                    .build());
+        }
+        
+        // 2. 添加压缩摘要（如果有）
+        if (!compressed.isEmpty()) {
+            result.add(Message.builder()
+                    .role("system")
+                    .content("[对话历史摘要]\n" + compressed)
+                    .build());
+        }
+        
+        // 3. 添加最近的普通消息
+        for (SessionMessage sm : recentMessages) {
+            result.add(toLlmMessage(sm));
+        }
+
+        // 缓存压缩结果
+        if (!compressed.isEmpty()) {
+            String cacheKey = CacheKeys.messages(sessionId) + ":compressed";
+            cacheService.set(cacheKey, compressed, CACHE_TTL);
+        }
+
+        return result;
     }
 
     @Transactional
@@ -81,6 +175,51 @@ public class SessionContextService {
         cacheService.delete(cacheKey);
     }
 
+    @Transactional
+    public void appendChatInteraction(String sessionId, String userId, String userContent, String assistantContent) {
+        Session session = sessionMapper.selectById(sessionId);
+        if (session == null) {
+            log.warn("会话不存在，跳过持久化: sessionId={}", sessionId);
+            return;
+        }
+        // 使用 MAX(seq) + 1 计算下一个序列号，避免基于 session.messageCount 的非原子计数器
+        // 在前端已预先保存消息或并发调用时产生 (session_id, seq) 唯一键冲突
+        Integer maxSeq = sessionMessageMapper.selectMaxSeq(sessionId);
+        int nextSeq = (maxSeq != null ? maxSeq : 0) + 1;
+        long now = System.currentTimeMillis();
+
+        if (userContent != null && !userContent.isBlank()) {
+            SessionMessage userMsg = new SessionMessage();
+            userMsg.setSessionId(sessionId);
+            userMsg.setSenderId(userId);
+            userMsg.setMessageType("user");
+            userMsg.setContent(userContent);
+            userMsg.setSeq(nextSeq);
+            userMsg.setEdited(0);
+            sessionMessageMapper.insert(userMsg);
+            nextSeq++;
+        }
+
+        if (assistantContent != null && !assistantContent.isBlank()) {
+            SessionMessage aiMsg = new SessionMessage();
+            aiMsg.setSessionId(sessionId);
+            aiMsg.setSenderId("agent");
+            aiMsg.setMessageType("assistant");
+            aiMsg.setContent(assistantContent);
+            aiMsg.setSeq(nextSeq);
+            aiMsg.setEdited(0);
+            sessionMessageMapper.insert(aiMsg);
+            nextSeq++;
+        }
+
+        session.setMessageCount(nextSeq - 1);
+        session.setLastMessageAt(now);
+        sessionMapper.updateById(session);
+
+        String cacheKey = CacheKeys.messages(sessionId);
+        cacheService.delete(cacheKey);
+    }
+
     private int estimateTokens(String content) {
         if (content == null || content.isEmpty()) return 0;
         return content.length() / 4;
@@ -101,6 +240,14 @@ public class SessionContextService {
                 .seq(message.getSeq())
                 .edited(message.getEdited())
                 .createdAt(message.getCreatedAt())
+                .build();
+    }
+
+    private Message toLlmMessage(SessionMessage message) {
+        String role = "user".equals(message.getMessageType()) ? "user" : "assistant";
+        return Message.builder()
+                .role(role)
+                .content(message.getContent())
                 .build();
     }
 }

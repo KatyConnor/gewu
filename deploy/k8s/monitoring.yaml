@@ -1,0 +1,89 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: gewu-platform
+  namespace: gewu
+  labels:
+    app: gewu-platform
+    release: prometheus
+spec:
+  selector:
+    matchLabels:
+      app: gewu-platform
+  endpoints:
+    - port: http
+      path: /actuator/prometheus
+      interval: 30s
+      scrapeTimeout: 10s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PrometheusRule
+metadata:
+  name: gewu-platform-alerts
+  namespace: gewu
+  labels:
+    app: gewu-platform
+    release: prometheus
+spec:
+  groups:
+    - name: gewu-platform.rules
+      rules:
+        # Pod 重启告警
+        - alert: PodFrequentlyRestarting
+          expr: increase(kube_pod_container_status_restarts_total{namespace="gewu"}[5m]) > 3
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "Pod {{ $labels.pod }} 频繁重启"
+            description: "Pod 在过去 5 分钟内重启了 {{ $value }} 次"
+
+        # P95 延迟告警
+        - alert: HighP95Latency
+          expr: histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{namespace="gewu"}[5m])) by (le)) > 0.5
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "API P95 延迟过高"
+            description: "P95 延迟为 {{ $value }}s，超过 500ms 阈值"
+
+        # 限流拒绝率告警
+        - alert: HighRateLimitRejection
+          expr: sum(rate(api_rate_limit_exceeded_total{namespace="gewu"}[10m])) / sum(rate(http_server_requests_seconds_count{namespace="gewu"}[10m])) > 0.1
+          for: 10m
+          labels:
+            severity: warning
+          annotations:
+            summary: "限流拒绝率过高"
+            description: "限流拒绝率为 {{ $value | humanizePercentage }}"
+
+        # 数据库健康检查失败
+        - alert: DatabaseHealthCheckFailed
+          expr: db_health_check_failed_total{namespace="gewu"} > 0
+          for: 1m
+          labels:
+            severity: critical
+          annotations:
+            summary: "数据库健康检查失败"
+            description: "数据库连接池异常，请检查数据库状态"
+
+        # JVM 内存使用率告警
+        - alert: HighMemoryUsage
+          expr: jvm_memory_used_bytes{namespace="gewu", area="heap"} / jvm_memory_max_bytes{namespace="gewu", area="heap"} > 0.85
+          for: 5m
+          labels:
+            severity: warning
+          annotations:
+            summary: "JVM 堆内存使用率过高"
+            description: "堆内存使用率为 {{ $value | humanizePercentage }}"
+
+        # 磁盘空间告警
+        - alert: LowDiskSpace
+          expr: (node_filesystem_avail_bytes{mountpoint="/"} / node_filesystem_size_bytes{mountpoint="/"}) < 0.1
+          for: 5m
+          labels:
+            severity: critical
+          annotations:
+            summary: "磁盘空间不足"
+            description: "磁盘可用空间低于 10%"

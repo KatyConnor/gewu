@@ -32,6 +32,7 @@ public class AgentToolService {
         tool.setRequestSchema(command.getRequestSchema());
         tool.setResponseSchema(command.getResponseSchema());
         tool.setAuthConfig(command.getAuthConfig());
+        tool.setMcpServerId(command.getMcpServerId());
         tool.setTimeoutMs(command.getTimeoutMs() != null ? command.getTimeoutMs() : 30000);
         tool.setSortOrder(command.getSortOrder() != null ? command.getSortOrder() : 0);
         tool.setStatus(1);
@@ -70,6 +71,7 @@ public class AgentToolService {
         if (command.getRequestSchema() != null) tool.setRequestSchema(command.getRequestSchema());
         if (command.getResponseSchema() != null) tool.setResponseSchema(command.getResponseSchema());
         if (command.getAuthConfig() != null) tool.setAuthConfig(command.getAuthConfig());
+        if (command.getMcpServerId() != null) tool.setMcpServerId(command.getMcpServerId());
         if (command.getTimeoutMs() != null) tool.setTimeoutMs(command.getTimeoutMs());
         if (command.getSortOrder() != null) tool.setSortOrder(command.getSortOrder());
         agentToolMapper.updateById(tool);
@@ -85,6 +87,7 @@ public class AgentToolService {
                 .description(tool.getDescription())
                 .toolType(tool.getToolType())
                 .endpoint(tool.getEndpoint())
+                .mcpServerId(tool.getMcpServerId())
                 .timeoutMs(tool.getTimeoutMs())
                 .status(tool.getStatus())
                 .sortOrder(tool.getSortOrder())

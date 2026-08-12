@@ -1,0 +1,25 @@
+# Trivy 安全扫描配置
+
+severity:
+  - HIGH
+  - CRITICAL
+
+ignore-unfixed: true
+
+scanners:
+  - vuln
+  - misconfig
+  - secret
+
+format: table
+
+exit-code: 1
+
+skip-dirs:
+  - node_modules
+  - target
+  - .git
+
+skip-files:
+  - "**/*_test.go"
+  - "**/*.test.js"

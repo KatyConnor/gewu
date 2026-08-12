@@ -1,6 +1,10 @@
-# 格物平台 - 开发环境配置（精简版）
-# Sprint 1 基础设施服务
-# 版本：V1.0（精简版）
+# 格物平台 - 开发环境配置
+# 版本：V1.1（公共配置模式）
+#
+# 使用方法：
+#   docker-compose up -d          # 启动所有服务
+#   docker-compose down           # 停止所有服务
+#   docker-compose down -v        # 停止并删除数据卷
 
 services:
   # ==================== 数据库服务 ====================
@@ -10,22 +14,71 @@ services:
   mysql:
     image: mysql:8.0
     container_name: gewu-mysql
+    restart: unless-stopped
     ports:
       - "3306:3306"
     environment:
-      - MYSQL_ROOT_PASSWORD=root123456
+      - MYSQL_ROOT_PASSWORD=${MYSQL_ROOT_PASSWORD:-root123456}
       - MYSQL_DATABASE=gewu_dev
       - MYSQL_USER=gewu
-      - MYSQL_PASSWORD=gewu123456
+      - MYSQL_PASSWORD=${MYSQL_PASSWORD:-gewu123456}
     volumes:
-      - mysql-data:/var/lib/mysql
+      - gewu-mysql-data:/var/lib/mysql
     command: --default-authentication-plugin=mysql_native_password --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
     healthcheck:
-      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-proot123456"]
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "root", "-p${MYSQL_ROOT_PASSWORD:-root123456}"]
       interval: 10s
       timeout: 5s
       retries: 10
       start_period: 30s
+    networks:
+      - gewu-network
+
+  # ==================== pgvector (Wenshi 知识层向量库) ====================
+  pgvector:
+    image: pgvector/pgvector:pg16
+    container_name: gewu-pgvector
+    restart: unless-stopped
+    ports:
+      - "5432:5432"
+    environment:
+      - POSTGRES_DB=wenshi
+      - POSTGRES_USER=wenshi
+      - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-wenshi123456}
+    volumes:
+      - gewu-pgvector-data:/var/lib/postgresql/data
+      - ./docker/pgvector/init.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wenshi -d wenshi"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - gewu-network
+
+  # ==================== 对象存储 ====================
+
+  # MinIO (文档/文件存储)
+  minio:
+    image: minio/minio:latest
+    container_name: gewu-minio
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin123}
+    volumes:
+      - gewu-minio-data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
     networks:
       - gewu-network
 
@@ -35,6 +88,7 @@ services:
   dragonfly:
     image: docker.dragonflydb.io/dragonflydb/dragonfly:v1.27.1
     container_name: gewu-dragonfly
+    restart: unless-stopped
     ports:
       - "6379:6379"
     ulimits:
@@ -42,7 +96,7 @@ services:
         soft: -1
         hard: -1
     volumes:
-      - dragonfly-data:/data
+      - gewu-dragonfly-data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 10s
@@ -57,11 +111,12 @@ services:
   rocketmq-namesrv:
     image: apache/rocketmq:5.1.4
     container_name: gewu-rocketmq-namesrv
+    restart: unless-stopped
     ports:
       - "9876:9876"
     command: sh mqnamesrv
     environment:
-      - JAVA_OPT_EXT=-server -Xms256m -Xmx256m
+      - "JAVA_OPT_EXT=-server -Xms256m -Xmx256m"
     healthcheck:
       test: ["CMD", "sh", "-c", "echo 'test' | nc localhost 9876"]
       interval: 30s
@@ -74,13 +129,15 @@ services:
   rocketmq-broker:
     image: apache/rocketmq:5.1.4
     container_name: gewu-rocketmq-broker
+    restart: unless-stopped
     ports:
       - "10911:10911"
     command: sh mqbroker -n gewu-rocketmq-namesrv:9876
     environment:
-      - JAVA_OPT_EXT=-server -Xms256m -Xmx256m
+      - "JAVA_OPT_EXT=-server -Xms256m -Xmx256m"
     depends_on:
-      - rocketmq-namesrv
+      rocketmq-namesrv:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "sh", "-c", "echo 'test' | nc localhost 10911"]
       interval: 30s
@@ -93,12 +150,14 @@ services:
   rocketmq-console:
     image: apacherocketmq/rocketmq-dashboard:latest
     container_name: gewu-rocketmq-console
+    restart: unless-stopped
     ports:
       - "9877:8080"
     environment:
-      - JAVA_OPT_EXT=-Drocketmq.namesrv.addr=gewu-rocketmq-namesrv:9876
+      - "JAVA_OPT_EXT=-Drocketmq.namesrv.addr=gewu-rocketmq-namesrv:9876"
     depends_on:
-      - rocketmq-namesrv
+      rocketmq-namesrv:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080"]
       interval: 30s
@@ -107,13 +166,41 @@ services:
     networks:
       - gewu-network
 
+  # ==================== 网络搜索服务 ====================
+
+  # SearXNG (隐私搜索引擎聚合器，供 Wenshi 推理引擎做网络资料查询)
+  # 文档：https://docs.searxng.org
+  # JSON API：GET /search?format=json&q={query}
+  searxng:
+    image: searxng/searxng:latest
+    container_name: gewu-searxng
+    restart: unless-stopped
+    ports:
+      - "8888:8080"
+    volumes:
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      - SEARXNG_BASE_URL=http://searxng:8080/
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - gewu-network
+
 volumes:
-  # 数据库数据卷
-  mysql-data:
+  gewu-mysql-data:
     driver: local
 
-  # 缓存数据卷
-  dragonfly-data:
+  gewu-pgvector-data:
+    driver: local
+
+  gewu-dragonfly-data:
+    driver: local
+
+  gewu-minio-data:
     driver: local
 
 networks:

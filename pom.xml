@@ -53,6 +53,13 @@
         <!-- 代码质量 -->
         <lombok.version>1.18.30</lombok.version>
         <spotbugs.version>4.8.3</spotbugs.version>
+
+        <!-- Wenshi AI -->
+        <onnxruntime.version>1.17.3</onnxruntime.version>
+        <pgvector.version>0.1.6</pgvector.version>
+
+        <!-- 文档生成 -->
+        <poi.version>5.2.5</poi.version>
     </properties>
 
     <dependencyManagement>
@@ -125,6 +132,27 @@
                 <artifactId>lombok</artifactId>
                 <version>${lombok.version}</version>
                 <scope>provided</scope>
+            </dependency>
+
+            <!-- ONNX Runtime (BGE-small 推理) -->
+            <dependency>
+                <groupId>com.microsoft.onnxruntime</groupId>
+                <artifactId>onnxruntime</artifactId>
+                <version>${onnxruntime.version}</version>
+            </dependency>
+
+            <!-- pgvector Java 客户端 -->
+            <dependency>
+                <groupId>com.pgvector</groupId>
+                <artifactId>pgvector</artifactId>
+                <version>${pgvector.version}</version>
+            </dependency>
+
+            <!-- Apache POI（Word 文档生成） -->
+            <dependency>
+                <groupId>org.apache.poi</groupId>
+                <artifactId>poi-ooxml</artifactId>
+                <version>${poi.version}</version>
             </dependency>
 
             <!-- 内部模块 -->

@@ -6,7 +6,7 @@ package com.gewu.common.enums;
 public enum AgentStatus {
 
     ENABLED(1, "启用"),
-    DISABLED(2, "禁用");
+    DISABLED(0, "禁用");
 
     private final int code;
     private final String description;

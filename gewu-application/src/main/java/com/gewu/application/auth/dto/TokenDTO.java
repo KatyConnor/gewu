@@ -17,4 +17,5 @@ public class TokenDTO {
     private String username;
     private String displayName;
     private List<String> roles;
+    private List<String> permissions;
 }

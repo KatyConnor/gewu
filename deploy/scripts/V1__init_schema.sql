@@ -110,7 +110,7 @@ CREATE TABLE IF NOT EXISTS project (
     visibility TINYINT DEFAULT 0 COMMENT '0=私有 1=公开',
     status TINYINT DEFAULT 1 COMMENT '1=活跃 2=归档 3=关闭',
     owner_id VARCHAR(26) NOT NULL COMMENT '项目所有者',
-    tech_stack JSON DEFAULT NULL COMMENT '技术栈配置',
+    tech_stack VARCHAR(512) DEFAULT NULL COMMENT '技术栈配置',
     worktree VARCHAR(1024) DEFAULT NULL COMMENT '工作树路径 (代码项目定位)',
     vcs VARCHAR(32) DEFAULT NULL COMMENT '版本控制系统类型 (git/svn)',
     icon_url VARCHAR(512) DEFAULT NULL COMMENT '项目图标 URL',

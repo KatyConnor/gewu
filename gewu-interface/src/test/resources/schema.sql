@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS user_account (
     last_login_ip VARCHAR(45) DEFAULT NULL,
     login_fail_count INT DEFAULT 0,
     locked_until BIGINT DEFAULT NULL,
+    org_id VARCHAR(26) DEFAULT NULL,
     deleted TINYINT DEFAULT 0,
     version INT DEFAULT 0,
     created_at BIGINT NOT NULL,
@@ -30,6 +31,7 @@ CREATE TABLE IF NOT EXISTS role (
     description VARCHAR(512) DEFAULT NULL,
     is_system TINYINT DEFAULT 0,
     sort_order INT DEFAULT 0,
+    data_scope TINYINT DEFAULT 4,
     deleted TINYINT DEFAULT 0,
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL,
@@ -78,11 +80,12 @@ CREATE TABLE IF NOT EXISTS role_permission (
 CREATE TABLE IF NOT EXISTS project (
     id VARCHAR(26) NOT NULL,
     project_name VARCHAR(128) NOT NULL,
+    project_code VARCHAR(64) DEFAULT NULL,
     description CLOB DEFAULT NULL,
     visibility TINYINT DEFAULT 0,
     status TINYINT DEFAULT 1,
     owner_id VARCHAR(26) NOT NULL,
-    tech_stack CLOB DEFAULT NULL,
+    tech_stack VARCHAR(512) DEFAULT NULL,
     worktree VARCHAR(1024) DEFAULT NULL,
     vcs VARCHAR(32) DEFAULT NULL,
     icon_url VARCHAR(512) DEFAULT NULL,
@@ -90,6 +93,14 @@ CREATE TABLE IF NOT EXISTS project (
     time_initialized BIGINT DEFAULT NULL,
     sandboxes CLOB DEFAULT NULL,
     commands CLOB DEFAULT NULL,
+    current_phase VARCHAR(32) DEFAULT 'RESEARCH',
+    initiated_at BIGINT DEFAULT NULL,
+    closed_at BIGINT DEFAULT NULL,
+    repo_url VARCHAR(512) DEFAULT NULL,
+    repo_branch VARCHAR(128) DEFAULT 'main',
+    clone_status VARCHAR(32) DEFAULT NULL,
+    repo_local_path VARCHAR(256) DEFAULT NULL,
+    head_commit VARCHAR(64) DEFAULT NULL,
     deleted TINYINT DEFAULT 0,
     version INT DEFAULT 0,
     created_at BIGINT NOT NULL,
@@ -244,8 +255,11 @@ CREATE TABLE IF NOT EXISTS agent_execution (
     started_at BIGINT DEFAULT NULL,
     completed_at BIGINT DEFAULT NULL,
     duration_ms INT DEFAULT NULL,
+    deleted INT DEFAULT 0,
     created_at BIGINT NOT NULL,
     updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    updated_by VARCHAR(26) DEFAULT NULL,
     PRIMARY KEY (id)
 );
 
@@ -280,5 +294,321 @@ CREATE TABLE IF NOT EXISTS workflow_node (
     updated_at BIGINT NOT NULL,
     created_by VARCHAR(26) DEFAULT NULL,
     updated_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS project_phase (
+    id VARCHAR(26) NOT NULL,
+    project_id VARCHAR(26) NOT NULL,
+    phase_code VARCHAR(32) NOT NULL,
+    phase_order INT NOT NULL,
+    status TINYINT DEFAULT 0,
+    started_at BIGINT DEFAULT NULL,
+    completed_at BIGINT DEFAULT NULL,
+    agent_id VARCHAR(26) DEFAULT NULL,
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    updated_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS phase_document (
+    id VARCHAR(26) NOT NULL,
+    project_id VARCHAR(26) NOT NULL,
+    phase_code VARCHAR(32) NOT NULL,
+    doc_name VARCHAR(256) NOT NULL,
+    doc_type VARCHAR(32) DEFAULT NULL,
+    current_version INT DEFAULT 1,
+    total_versions INT DEFAULT 1,
+    review_status VARCHAR(32) DEFAULT 'draft',
+    reviewed_by VARCHAR(26) DEFAULT NULL,
+    reviewed_at BIGINT DEFAULT NULL,
+    review_comment CLOB DEFAULT NULL,
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    updated_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS phase_document_version (
+    id VARCHAR(26) NOT NULL,
+    document_id VARCHAR(26) NOT NULL,
+    version_no INT NOT NULL,
+    file_url VARCHAR(1024) DEFAULT NULL,
+    content_md5 VARCHAR(64) DEFAULT NULL,
+    change_summary VARCHAR(512) DEFAULT NULL,
+    change_source VARCHAR(32) NOT NULL,
+    agent_id VARCHAR(26) DEFAULT NULL,
+    agent_prompt CLOB DEFAULT NULL,
+    file_size BIGINT DEFAULT NULL,
+    uploaded_by VARCHAR(26) DEFAULT NULL,
+    uploaded_at BIGINT DEFAULT NULL,
+    deleted INT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    updated_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS requirement (
+    id VARCHAR(26) NOT NULL,
+    requirement_code VARCHAR(64) DEFAULT NULL,
+    title VARCHAR(256) NOT NULL,
+    description CLOB DEFAULT NULL,
+    type VARCHAR(32) NOT NULL,
+    priority TINYINT DEFAULT 2,
+    status VARCHAR(32) DEFAULT 'DRAFT',
+    assignee_id VARCHAR(26) DEFAULT NULL,
+    reporter_id VARCHAR(26) DEFAULT NULL,
+    designer_id VARCHAR(26) DEFAULT NULL,
+    developer_id VARCHAR(26) DEFAULT NULL,
+    tester_id VARCHAR(26) DEFAULT NULL,
+    parent_id VARCHAR(26) DEFAULT NULL,
+    project_id VARCHAR(26) DEFAULT NULL,
+    session_ids VARCHAR(512) DEFAULT NULL,
+    document_ids VARCHAR(512) DEFAULT NULL,
+    design_doc VARCHAR(1024) DEFAULT NULL,
+    plan_doc VARCHAR(1024) DEFAULT NULL,
+    test_doc VARCHAR(1024) DEFAULT NULL,
+    story_point INT DEFAULT NULL,
+    estimated_hours INT DEFAULT NULL,
+    actual_hours INT DEFAULT NULL,
+    due_date BIGINT DEFAULT NULL,
+    started_at BIGINT DEFAULT NULL,
+    completed_at BIGINT DEFAULT NULL,
+    released_at BIGINT DEFAULT NULL,
+    cancelled_at BIGINT DEFAULT NULL,
+    cancel_reason CLOB DEFAULT NULL,
+    git_branch VARCHAR(128) DEFAULT NULL,
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    updated_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS requirement_review (
+    id VARCHAR(26) NOT NULL,
+    requirement_id VARCHAR(26) NOT NULL,
+    review_type VARCHAR(32) NOT NULL,
+    reviewer_id VARCHAR(26) NOT NULL,
+    review_result VARCHAR(32) DEFAULT NULL,
+    review_comment CLOB DEFAULT NULL,
+    review_attachments VARCHAR(1024) DEFAULT NULL,
+    review_order INT DEFAULT 0,
+    completed_at BIGINT DEFAULT NULL,
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    updated_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+
+-- 以下为 V21 迁移新增表（H2 测试环境补齐）
+CREATE TABLE IF NOT EXISTS requirement_file (
+    id VARCHAR(26) NOT NULL,
+    requirement_id VARCHAR(26) NOT NULL,
+    category VARCHAR(32) NOT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    object_key VARCHAR(512) NOT NULL,
+    mime_type VARCHAR(128) DEFAULT NULL,
+    file_size BIGINT DEFAULT 0,
+    version INT NOT NULL DEFAULT 1,
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    updated_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS requirement_task (
+    id VARCHAR(26) NOT NULL,
+    requirement_id VARCHAR(26) NOT NULL,
+    task_code VARCHAR(64) DEFAULT NULL,
+    title VARCHAR(256) NOT NULL,
+    description CLOB DEFAULT NULL,
+    assignee_id VARCHAR(26) DEFAULT NULL,
+    status VARCHAR(32) DEFAULT 'PENDING',
+    estimated_hours INT DEFAULT NULL,
+    actual_hours INT DEFAULT NULL,
+    started_at BIGINT DEFAULT NULL,
+    completed_at BIGINT DEFAULT NULL,
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    updated_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS requirement_comment (
+    id VARCHAR(26) NOT NULL,
+    requirement_id VARCHAR(26) NOT NULL,
+    content CLOB NOT NULL,
+    parent_id VARCHAR(26) DEFAULT NULL,
+    attachments VARCHAR(1024) DEFAULT NULL,
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    updated_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+-- 以下为 V9/V10/V11 迁移新增表（H2 测试环境补齐）
+CREATE TABLE IF NOT EXISTS agent_market (
+    id VARCHAR(26) NOT NULL, agent_id VARCHAR(26) NOT NULL,
+    agent_name VARCHAR(128) NOT NULL, description VARCHAR(1024),
+    model_provider VARCHAR(64) NOT NULL, model_name VARCHAR(128) NOT NULL,
+    model_config CLOB, system_prompt CLOB,
+    emoji VARCHAR(16) DEFAULT '🤖', category VARCHAR(64), tags CLOB,
+    stars INT DEFAULT 0, install_count INT DEFAULT 0, author VARCHAR(128),
+    status TINYINT DEFAULT 1, version INT DEFAULT 0,
+    deleted TINYINT DEFAULT 0, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) NOT NULL, updated_by VARCHAR(26),
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS skill (
+    id VARCHAR(26) NOT NULL, skill_name VARCHAR(128) NOT NULL,
+    description VARCHAR(1024), category VARCHAR(64), content CLOB,
+    emoji VARCHAR(16) DEFAULT '⚡', tags CLOB, install_count INT DEFAULT 0,
+    status TINYINT DEFAULT 1, version INT DEFAULT 0, publish_status TINYINT DEFAULT 0,
+    deleted TINYINT DEFAULT 0, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26), updated_by VARCHAR(26),
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS agent_skill (
+    id VARCHAR(26) NOT NULL, agent_id VARCHAR(26) NOT NULL, skill_id VARCHAR(26) NOT NULL,
+    sort_order INT DEFAULT 0,
+    deleted TINYINT DEFAULT 0, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26), updated_by VARCHAR(26),
+    PRIMARY KEY (id)
+);
+
+-- 以下为 V15 迁移新增表（H2 测试环境补齐）
+CREATE TABLE IF NOT EXISTS menu (
+    id VARCHAR(26) NOT NULL,
+    parent_id VARCHAR(26) DEFAULT NULL,
+    menu_name VARCHAR(64) NOT NULL,
+    menu_type TINYINT DEFAULT 2,
+    path VARCHAR(128) DEFAULT NULL,
+    icon VARCHAR(32) DEFAULT NULL,
+    sort_order INT DEFAULT 0,
+    permission_code VARCHAR(128) DEFAULT NULL,
+    visible TINYINT DEFAULT 1,
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    updated_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS role_menu (
+    id VARCHAR(26) NOT NULL,
+    role_id VARCHAR(26) NOT NULL,
+    menu_id VARCHAR(26) NOT NULL,
+    created_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+
+-- 以下为 V16 迁移新增表（H2 测试环境补齐）
+CREATE TABLE IF NOT EXISTS organization (
+    id VARCHAR(26) NOT NULL,
+    parent_id VARCHAR(26) DEFAULT NULL,
+    org_name VARCHAR(128) NOT NULL,
+    org_code VARCHAR(64) NOT NULL,
+    sort_order INT DEFAULT 0,
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    updated_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+
+-- 以下为 V19 迁移新增表（H2 测试环境补齐）
+CREATE TABLE IF NOT EXISTS workspace (
+    id VARCHAR(26) NOT NULL,
+    user_id VARCHAR(26) NOT NULL,
+    workspace_name VARCHAR(128) NOT NULL DEFAULT '我的工作空间',
+    storage_path VARCHAR(256) NOT NULL,
+    quota_bytes BIGINT NOT NULL DEFAULT 1073741824,
+    used_bytes BIGINT NOT NULL DEFAULT 0,
+    file_count INT NOT NULL DEFAULT 0,
+    status TINYINT NOT NULL DEFAULT 1,
+    mode VARCHAR(16) NOT NULL DEFAULT 'storage',
+    dev_sandbox_id VARCHAR(26) DEFAULT NULL,
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    updated_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id),
+    CONSTRAINT uk_workspace_user UNIQUE (user_id)
+);
+
+CREATE TABLE IF NOT EXISTS workspace_file (
+    id VARCHAR(26) NOT NULL,
+    workspace_id VARCHAR(26) NOT NULL,
+    parent_id VARCHAR(26) DEFAULT NULL,
+    file_name VARCHAR(255) NOT NULL,
+    file_type TINYINT NOT NULL,
+    file_path VARCHAR(1024) NOT NULL,
+    object_key VARCHAR(512) DEFAULT NULL,
+    mime_type VARCHAR(128) DEFAULT NULL,
+    file_size BIGINT DEFAULT 0,
+    checksum VARCHAR(64) DEFAULT NULL,
+    version INT NOT NULL DEFAULT 1,
+    status TINYINT NOT NULL DEFAULT 1,
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    updated_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+
+-- 以下为 V20 迁移新增表（H2 测试环境补齐）
+CREATE TABLE IF NOT EXISTS workspace_project (
+    id VARCHAR(26) NOT NULL,
+    workspace_id VARCHAR(26) NOT NULL,
+    project_name VARCHAR(128) NOT NULL,
+    repo_url VARCHAR(512) NOT NULL,
+    repo_branch VARCHAR(128) DEFAULT 'main',
+    local_path VARCHAR(256) NOT NULL,
+    clone_status VARCHAR(32) DEFAULT 'pending',
+    last_sync_at BIGINT DEFAULT NULL,
+    head_commit VARCHAR(64) DEFAULT NULL,
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    updated_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+
+CREATE TABLE IF NOT EXISTS git_credential (
+    id VARCHAR(26) NOT NULL,
+    user_id VARCHAR(26) NOT NULL,
+    cred_name VARCHAR(64) NOT NULL,
+    cred_type VARCHAR(16) NOT NULL,
+    cred_value TEXT NOT NULL,
+    ssh_public_key TEXT DEFAULT NULL,
+    git_host VARCHAR(256) DEFAULT NULL,
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
     PRIMARY KEY (id)
 );

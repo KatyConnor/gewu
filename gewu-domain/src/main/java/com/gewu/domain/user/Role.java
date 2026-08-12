@@ -15,4 +15,6 @@ public class Role extends BaseEntity {
     private String description;
     private Integer isSystem;
     private Integer sortOrder;
+    /** 数据范围: 1全部 2本部门 3本部门及以下 4本人 */
+    private Integer dataScope;
 }

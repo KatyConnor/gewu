@@ -1,3 +1,12 @@
+# 格物平台 - 生产环境配置
+# 版本：V1.1（公共配置模式）
+#
+# 使用方法：
+#   docker-compose -f docker-compose.prod.yml up -d
+#   docker-compose -f docker-compose.prod.yml down
+#
+# 注意：生产环境需要确保 .env 文件已正确配置
+
 services:
   mysql:
     image: mysql:8.0
@@ -18,7 +27,7 @@ services:
     ports:
       - "3306:3306"
     volumes:
-      - mysql-data:/var/lib/mysql
+      - gewu-mysql-data:/var/lib/mysql
     deploy:
       resources:
         limits:
@@ -34,17 +43,45 @@ services:
       retries: 10
       start_period: 40s
     networks:
-      - gewu-net
+      - gewu-network
+
+  pgvector:
+    image: pgvector/pgvector:pg16
+    container_name: gewu-pgvector-prod
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: wenshi
+      POSTGRES_USER: wenshi
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-wenshi123456}
+    volumes:
+      - gewu-pgvector-data:/var/lib/postgresql/data
+      - ./docker/pgvector/init.sql:/docker-entrypoint-initdb.d/init.sql
+    deploy:
+      resources:
+        limits:
+          cpus: '1.0'
+          memory: 1G
+        reservations:
+          cpus: '0.25'
+          memory: 256M
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U wenshi -d wenshi"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    networks:
+      - gewu-network
 
   dragonfly:
     image: docker.dragonflydb.io/dragonflydb/dragonfly:latest
     container_name: gewu-dragonfly-prod
     restart: unless-stopped
-    command: ["dragonfly", "--logtostderr", "-- maxmemory=1G"]
+    command: ["dragonfly", "--logtostderr", "--maxmemory=1G"]
     ports:
       - "6379:6379"
     volumes:
-      - dragonfly-data:/data
+      - gewu-dragonfly-data:/data
     deploy:
       resources:
         limits:
@@ -59,7 +96,7 @@ services:
       timeout: 5s
       retries: 5
     networks:
-      - gewu-net
+      - gewu-network
 
   rocketmq-nameserver:
     image: apache/rocketmq:5.3.1
@@ -85,7 +122,7 @@ services:
       retries: 6
       start_period: 30s
     networks:
-      - gewu-net
+      - gewu-network
 
   rocketmq-broker:
     image: apache/rocketmq:5.3.1
@@ -109,7 +146,7 @@ services:
       rocketmq-nameserver:
         condition: service_healthy
     networks:
-      - gewu-net
+      - gewu-network
 
   gewu-platform:
     build:
@@ -127,6 +164,11 @@ services:
       SPRING_DATA_REDIS_HOST: dragonfly
       SPRING_DATA_REDIS_PORT: "6379"
       ROCKETMQ_NAME_SERVER: rocketmq-nameserver:9876
+      # Wenshi 知识增强数据库配置
+      WENSHI_DB_URL: jdbc:postgresql://pgvector:5432/wenshi
+      WENSHI_DB_USERNAME: wenshi
+      WENSHI_DB_PASSWORD: ${POSTGRES_PASSWORD:-wenshi123456}
+       GEWU_CRYPTO_API_KEY_SECRET: ${GEWU_CRYPTO_API_KEY_SECRET:13b4a0eab2f1f1093f87d0552fddca1f}
     deploy:
       resources:
         limits:
@@ -138,17 +180,20 @@ services:
     depends_on:
       mysql:
         condition: service_healthy
+      pgvector:
+        condition: service_healthy
       dragonfly:
         condition: service_healthy
       rocketmq-broker:
         condition: service_started
     networks:
-      - gewu-net
+      - gewu-network
 
 volumes:
-  mysql-data:
-  dragonfly-data:
+  gewu-mysql-data:
+  gewu-pgvector-data:
+  gewu-dragonfly-data:
 
 networks:
-  gewu-net:
+  gewu-network:
     driver: bridge

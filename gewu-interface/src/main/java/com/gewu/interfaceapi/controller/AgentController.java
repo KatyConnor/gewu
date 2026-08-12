@@ -5,6 +5,7 @@ import com.gewu.application.agent.dto.AgentDTO;
 import com.gewu.application.agent.dto.AgentToolDTO;
 import com.gewu.application.agent.dto.CreateAgentCommand;
 import com.gewu.application.agent.dto.UpdateAgentCommand;
+import com.gewu.application.skill.dto.SkillDTO;
 import com.gewu.common.dto.PageQuery;
 import com.gewu.common.result.PageResult;
 import com.gewu.common.result.Result;
@@ -68,5 +69,27 @@ public class AgentController {
     @Operation(summary = "获取 Agent 工具列表", description = "获取指定 Agent 绑定的工具列表")
     public Result<List<AgentToolDTO>> getAgentTools(@PathVariable String agentId) {
         return Result.success(agentService.getAgentTools(agentId));
+    }
+
+    @GetMapping("/{agentId}/skills")
+    @Operation(summary = "获取 Agent 技能列表", description = "获取指定 Agent 已挂载的技能")
+    public Result<List<SkillDTO>> listAgentSkills(@PathVariable String agentId) {
+        return Result.success(agentService.listAgentSkills(agentId));
+    }
+
+    @PostMapping("/{agentId}/skills/{skillId}")
+    @Operation(summary = "挂载技能", description = "将技能挂载到指定 Agent")
+    public Result<Void> mountSkill(@PathVariable String agentId, @PathVariable String skillId) {
+        log.info("挂载技能: agentId={}, skillId={}", agentId, skillId);
+        agentService.mountSkill(agentId, skillId);
+        return Result.success();
+    }
+
+    @DeleteMapping("/{agentId}/skills/{skillId}")
+    @Operation(summary = "卸载技能", description = "从 Agent 卸载指定技能")
+    public Result<Void> unmountSkill(@PathVariable String agentId, @PathVariable String skillId) {
+        log.info("卸载技能: agentId={}, skillId={}", agentId, skillId);
+        agentService.unmountSkill(agentId, skillId);
+        return Result.success();
     }
 }

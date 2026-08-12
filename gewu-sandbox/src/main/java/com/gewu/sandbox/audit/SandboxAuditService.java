@@ -4,7 +4,7 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.gewu.common.ulid.Ulid;
 import com.gewu.domain.sandbox.SandboxAuditLog;
 import com.gewu.infrastructure.mapper.SandboxAuditLogMapper;
-import com.gewu.sandbox.dto.SandboxAuditDTO;
+import com.gewu.common.dto.sandbox.SandboxAuditDTO;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.scheduling.annotation.Async;
@@ -88,12 +88,13 @@ public class SandboxAuditService {
 
     private SandboxAuditDTO toDTO(SandboxAuditLog entity) {
         return SandboxAuditDTO.builder()
-            .id(entity.getId())
+            .logId(entity.getId())
             .sandboxId(entity.getSandboxId())
             .action(entity.getAction())
-            .userId(entity.getUserId())
-            .timestamp(entity.getTimestamp())
-            .details(entity.getDetails())
+            .status("success")
+            .detail(entity.getDetails())
+            .operatorId(entity.getUserId())
+            .createdAt(entity.getTimestamp())
             .build();
     }
 }

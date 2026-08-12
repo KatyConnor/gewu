@@ -30,10 +30,6 @@
             <groupId>com.gewu</groupId>
             <artifactId>gewu-infrastructure</artifactId>
         </dependency>
-        <dependency>
-            <groupId>com.gewu</groupId>
-            <artifactId>gewu-sandbox</artifactId>
-        </dependency>
 
         <!-- Spring Boot -->
         <dependency>
@@ -57,6 +53,24 @@
         <dependency>
             <groupId>org.mapstruct</groupId>
             <artifactId>mapstruct</artifactId>
+        </dependency>
+
+        <!-- Flyway (Wenshi pgvector 迁移) -->
+        <dependency>
+            <groupId>org.flywaydb</groupId>
+            <artifactId>flyway-core</artifactId>
+        </dependency>
+
+        <!-- 测试依赖 -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-junit-jupiter</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 

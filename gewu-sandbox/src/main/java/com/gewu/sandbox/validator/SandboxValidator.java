@@ -5,14 +5,16 @@ import com.gewu.sandbox.constant.SandboxConstants;
 import com.gewu.sandbox.exception.SandboxResourceLimitExceededException;
 import org.springframework.stereotype.Component;
 
-/**
- * 沙箱验证器.
- */
 @Component
 public class SandboxValidator {
 
     public void validateImage(String image) {
-        if (!SandboxConstants.ALLOWED_IMAGES.contains(image)) {
+        if (image == null || image.isBlank()) {
+            throw new SandboxResourceLimitExceededException("镜像地址不能为空");
+        }
+        boolean allowed = SandboxConstants.ALLOWED_IMAGE_PREFIXES.stream()
+                .anyMatch(image::startsWith);
+        if (!allowed) {
             throw new SandboxResourceLimitExceededException("不允许的镜像: " + image);
         }
     }

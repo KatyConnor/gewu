@@ -5,6 +5,13 @@ metadata:
   namespace: gewu
   labels:
     app: gewu-platform
+  annotations:
+    # SSE 流式对话：禁用 nginx 代理缓冲，确保 AI 推理/回复实时推送
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    # 推理模型流式响应可能持续数分钟，需延长超时
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"
 spec:
   rules:
     - host: gewu.local

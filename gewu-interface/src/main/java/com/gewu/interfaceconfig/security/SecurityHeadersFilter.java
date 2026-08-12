@@ -29,6 +29,8 @@ public class SecurityHeadersFilter extends OncePerRequestFilter {
         response.setHeader("Strict-Transport-Security", "max-age=31536000; includeSubDomains");
         response.setHeader("Cache-Control", "no-store, no-cache, must-revalidate");
         response.setHeader("Content-Security-Policy", "default-src 'self'");
+        // 禁止 nginx/反向代理缓冲 SSE 流式响应，确保 AI 对话过程实时推送到前端
+        response.setHeader("X-Accel-Buffering", "no");
         filterChain.doFilter(request, response);
     }
 }

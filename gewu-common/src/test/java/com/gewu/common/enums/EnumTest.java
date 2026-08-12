@@ -139,7 +139,7 @@ class EnumTest {
     @DisplayName("AgentStatus.fromCode 正确映射所有值")
     void agentStatusFromCodeMapsAllValues() {
         assertThat(AgentStatus.fromCode(1)).isEqualTo(AgentStatus.ENABLED);
-        assertThat(AgentStatus.fromCode(2)).isEqualTo(AgentStatus.DISABLED);
+        assertThat(AgentStatus.fromCode(0)).isEqualTo(AgentStatus.DISABLED);
     }
 
     @Test

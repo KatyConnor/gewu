@@ -2,7 +2,7 @@ package com.gewu.sandbox.controller;
 
 import com.gewu.common.result.Result;
 import com.gewu.sandbox.audit.SandboxAuditService;
-import com.gewu.sandbox.dto.SandboxAuditDTO;
+import com.gewu.common.dto.sandbox.SandboxAuditDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import lombok.RequiredArgsConstructor;
@@ -19,7 +19,7 @@ import java.util.List;
  */
 @Slf4j
 @RestController
-@RequestMapping("/api/v1/sandboxes")
+@RequestMapping("/api/v1/sandbox-audits")
 @RequiredArgsConstructor
 @Tag(name = "沙箱审计", description = "沙箱审计日志查询")
 public class SandboxAuditController {

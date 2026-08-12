@@ -23,4 +23,5 @@ public class UserAccount extends BaseEntity {
     private String lastLoginIp;
     private Integer loginFailCount;
     private Long lockedUntil;
+    private String orgId;
 }

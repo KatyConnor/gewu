@@ -2,9 +2,6 @@ package com.gewu.sandbox.constant;
 
 import java.util.List;
 
-/**
- * 沙箱常量定义.
- */
 public final class SandboxConstants {
 
     private SandboxConstants() {}
@@ -19,11 +16,14 @@ public final class SandboxConstants {
     public static final int MAX_DISK_LIMIT_MB = 51200;
     public static final int MAX_TIMEOUT_SECONDS = 86400;
 
-    public static final List<String> ALLOWED_IMAGES = List.of(
-        "gewu/sandbox-base:latest",
-        "gewu/sandbox-java:latest",
-        "gewu/sandbox-python:latest",
-        "gewu/sandbox-node:latest"
+    public static final List<String> ALLOWED_IMAGE_PREFIXES = List.of(
+        "harbor.internal:5000/gewu/sandbox/",
+        "gewu/sandbox-",
+        "python:",
+        "node:",
+        "openjdk:",
+        "alpine:",
+        "ubuntu:"
     );
 
     public static final List<String> BLOCKED_COMMANDS = List.of(

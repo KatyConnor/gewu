@@ -17,5 +17,8 @@ public class UserDTO {
     private String avatarUrl;
     private Integer status;
     private Long lastLoginAt;
+    private String orgId;
+    private String orgName;
     private List<String> roleCodes;
+    private List<String> permissions;
 }

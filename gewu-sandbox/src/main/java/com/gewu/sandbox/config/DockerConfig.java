@@ -18,11 +18,30 @@ public class DockerConfig {
     @Value("${gewu.sandbox.docker.host:unix:///var/run/docker.sock}")
     private String dockerHost;
 
+    @Value("${gewu.sandbox.registry.url:}")
+    private String registryUrl;
+
+    @Value("${gewu.sandbox.registry.username:}")
+    private String registryUsername;
+
+    @Value("${gewu.sandbox.registry.password:}")
+    private String registryPassword;
+
     @Bean
     public DockerClient dockerClient() {
-        DockerClientConfig config = DefaultDockerClientConfig.createDefaultConfigBuilder()
-                .withDockerHost(dockerHost)
-                .build();
+        DefaultDockerClientConfig.Builder builder =
+                DefaultDockerClientConfig.createDefaultConfigBuilder()
+                        .withDockerHost(dockerHost);
+
+        if (registryUrl != null && !registryUrl.isBlank()) {
+            builder.withRegistryUrl(registryUrl);
+            if (registryUsername != null && !registryUsername.isBlank()) {
+                builder.withRegistryUsername(registryUsername);
+                builder.withRegistryPassword(registryPassword);
+            }
+        }
+
+        DockerClientConfig config = builder.build();
 
         DockerHttpClient httpClient = new ApacheDockerHttpClient.Builder()
                 .dockerHost(config.getDockerHost())

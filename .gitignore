@@ -7,6 +7,15 @@
 *.ear
 *.nar
 
+# AI 模型文件（大文件，不入库）
+models/*.onnx
+models/*.onnx_data
+models/*.safetensors
+models/*.bin
+models/tokenizer.json
+models/config.json
+models/*.gguf
+
 # Maven
 target/
 pom.xml.tag

@@ -57,18 +57,68 @@ public class SessionService {
         return toDTO(session);
     }
 
+    @Transactional
+    public SessionDTO createChatSession(CreateChatSessionCommand command) {
+        String userId = UserContext.currentUserId();
+        if (userId == null) {
+            throw BusinessException.of(ResultCode.UNAUTHORIZED);
+        }
+        Session session = new Session();
+        session.setTitle(command.getTitle() != null ? command.getTitle() : "新对话");
+        session.setType(1);
+        session.setAgent(command.getAgentId());
+        session.setStatus(0);
+        session.setMessageCount(0);
+        sessionMapper.insert(session);
+
+        SessionMember member = new SessionMember();
+        member.setSessionId(session.getId());
+        member.setUserId(userId);
+        member.setRole(1);
+        member.setJoinedAt(System.currentTimeMillis());
+        sessionMemberMapper.insert(member);
+
+        return toDTO(session);
+    }
+
     public SessionDTO getSession(String sessionId) {
+        String userId = UserContext.currentUserId();
+        if (userId == null) {
+            throw BusinessException.of(ResultCode.UNAUTHORIZED);
+        }
         Session session = sessionMapper.selectById(sessionId);
         if (session == null) {
             throw BusinessException.of(ResultCode.SESSION_NOT_FOUND);
         }
+        // 权限校验：会话成员或公开会话可访问
+        if (session.getIsPublic() != null && session.getIsPublic() == 1) {
+            return toDTO(session);
+        }
+        checkMembership(sessionId, userId);
         return toDTO(session);
     }
 
     public PageResult<SessionDTO> listSessions(PageQuery query) {
+        String userId = UserContext.currentUserId();
+        if (userId == null) {
+            throw BusinessException.of(ResultCode.UNAUTHORIZED);
+        }
+        // 获取用户参与的会话 ID
+        List<SessionMember> members = sessionMemberMapper.selectList(
+                new LambdaQueryWrapper<SessionMember>().eq(SessionMember::getUserId, userId));
+        List<String> memberSessionIds = members.stream().map(SessionMember::getSessionId).toList();
+        
+        // 查询用户的会话 + 公开会话
+        LambdaQueryWrapper<Session> wrapper = new LambdaQueryWrapper<Session>()
+                .and(w -> {
+                    w.in(Session::getId, memberSessionIds)
+                     .or()
+                     .eq(Session::getIsPublic, 1);
+                })
+                .orderByDesc(Session::getCreatedAt);
+        
         Page<Session> page = new Page<>(query.getPage(), query.getSize());
-        Page<Session> result = sessionMapper.selectPage(page,
-                new LambdaQueryWrapper<Session>().orderByDesc(Session::getCreatedAt));
+        Page<Session> result = sessionMapper.selectPage(page, wrapper);
         List<SessionDTO> dtos = result.getRecords().stream().map(this::toDTO).toList();
         return PageResult.of(dtos, result.getTotal(), query.getPage(), query.getSize());
     }
@@ -130,6 +180,19 @@ public class SessionService {
     }
 
     public List<SessionMemberDTO> getSessionMembers(String sessionId) {
+        String userId = UserContext.currentUserId();
+        if (userId == null) {
+            throw BusinessException.of(ResultCode.UNAUTHORIZED);
+        }
+        // 权限校验：会话成员或公开会话可访问
+        Session session = sessionMapper.selectById(sessionId);
+        if (session == null) {
+            throw BusinessException.of(ResultCode.SESSION_NOT_FOUND);
+        }
+        if (session.getIsPublic() == null || session.getIsPublic() != 1) {
+            checkMembership(sessionId, userId);
+        }
+        
         List<SessionMember> members = sessionMemberMapper.selectList(
                 new LambdaQueryWrapper<SessionMember>().eq(SessionMember::getSessionId, sessionId));
         return members.stream()

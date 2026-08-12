@@ -1,0 +1,39 @@
+# 格物平台开发沙箱基础镜像
+# 预装: git, openssh, jdk-21, maven, node-20, python-3
+FROM eclipse-temurin:21-jdk-jammy
+
+# 安装开发工具链
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    openssh-client \
+    vim \
+    curl \
+    wget \
+    unzip \
+    tar \
+    maven \
+    gradle \
+    python3 \
+    python3-pip \
+    nodejs \
+    npm \
+    && rm -rf /var/lib/apt/lists/*
+
+# 时区
+ENV TZ=Asia/Shanghai
+RUN ln -snf /usr/share/zoneinfo/$TZ /etc/localtime && echo $TZ > /etc/timezone
+
+# 工作目录
+WORKDIR /workspace
+
+# SSH 配置目录（运行时由 Volume 挂载或 Docker cp 写入）
+RUN mkdir -p /root/.ssh && chmod 700 /root/.ssh
+
+# Git 全局配置
+RUN git config --global user.email "dev@gewu.local" \
+    && git config --global user.name "Gewu Dev" \
+    && git config --global init.defaultBranch main \
+    && git config --global safe.directory '*'
+
+# 保持容器运行
+CMD ["sleep", "infinity"]

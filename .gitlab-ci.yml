@@ -1,0 +1,90 @@
+stages:
+  - build
+  - test
+  - security
+  - build-image
+  - deploy-staging
+  - deploy-production
+
+variables:
+  MAVEN_OPTS: "-Dmaven.repo.local=.m2/repository"
+  DOCKER_REGISTRY: "registry.cn-hangzhou.aliyuncs.com"
+  DOCKER_NAMESPACE: "gewu-platform"
+  IMAGE_NAME: "${DOCKER_REGISTRY}/${DOCKER_NAMESPACE}/gewu-platform"
+
+cache:
+  key: "${CI_COMMIT_REF_SLUG}"
+  paths:
+    - .m2/repository
+
+build:
+  stage: build
+  image: maven:3.9-eclipse-temurin-21
+  script:
+    - mvn clean compile -T 4 -B
+  artifacts:
+    paths:
+      - "**/target/"
+    expire_in: 1 hour
+
+test:
+  stage: test
+  image: maven:3.9-eclipse-temurin-21
+  script:
+    - mvn test
+  artifacts:
+    reports:
+      junit:
+        - "**/surefire-reports/TEST-*.xml"
+    expire_in: 7 days
+  coverage: '/Code coverage: (\d+\.\d+)%/'
+  allow_failure: false
+
+security-scan:
+  stage: security
+  image: aquasec/trivy:latest
+  script:
+    - trivy fs --severity CRITICAL,HIGH --exit-code 1 .
+  allow_failure: true
+
+build-image:
+  stage: build-image
+  image: docker:latest
+  services:
+    - docker:dind
+  before_script:
+    - docker login -u ${DOCKER_USERNAME} -p ${DOCKER_PASSWORD} ${DOCKER_REGISTRY}
+  script:
+    - docker build -t ${IMAGE_NAME}:${CI_COMMIT_SHORT_SHA} .
+    - docker push ${IMAGE_NAME}:${CI_COMMIT_SHORT_SHA}
+    - docker tag ${IMAGE_NAME}:${CI_COMMIT_SHORT_SHA} ${IMAGE_NAME}:latest
+    - docker push ${IMAGE_NAME}:latest
+  only:
+    - main
+
+deploy-staging:
+  stage: deploy-staging
+  image: bitnami/kubectl:latest
+  script:
+    - kubectl config use-context staging
+    - kubectl set image deployment/gewu-platform gewu-platform=${IMAGE_NAME}:${CI_COMMIT_SHORT_SHA} -n gewu-staging
+    - kubectl rollout status deployment/gewu-platform -n gewu-staging --timeout=300s
+  environment:
+    name: staging
+    url: https://staging.gewu.com
+  only:
+    - main
+
+deploy-production:
+  stage: deploy-production
+  image: bitnami/kubectl:latest
+  script:
+    - kubectl config use-context production
+    - kubectl set image deployment/gewu-platform gewu-platform=${IMAGE_NAME}:${CI_COMMIT_SHORT_SHA} -n gewu
+    - kubectl rollout status deployment/gewu-platform -n gewu --timeout=300s
+  environment:
+    name: production
+    url: https://gewu.com
+  when: manual
+  only:
+    - main

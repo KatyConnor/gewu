@@ -1,23 +1,32 @@
 package com.gewu.infrastructure.event;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.rocketmq.spring.core.RocketMQTemplate;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.messaging.Message;
 import org.springframework.messaging.support.MessageBuilder;
 import org.springframework.stereotype.Component;
 
 /**
  * 领域事件发布器 — 基于 RocketMQ 的异步事件发布.
+ * RocketMQ 未配置时自动降级为日志输出，不影响服务启动.
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class DomainEventPublisher {
 
     private final RocketMQTemplate rocketMQTemplate;
 
+    public DomainEventPublisher(@Autowired(required = false) RocketMQTemplate rocketMQTemplate) {
+        this.rocketMQTemplate = rocketMQTemplate;
+    }
+
     public void publish(String topic, Object payload) {
+        if (rocketMQTemplate == null) {
+            log.debug("RocketMQ 未配置，跳过领域事件发布: topic={}", topic);
+            return;
+        }
+
         Message<String> message = MessageBuilder
                 .withPayload(toJson(payload))
                 .build();
@@ -26,6 +35,11 @@ public class DomainEventPublisher {
     }
 
     public void publishAsync(String topic, Object payload) {
+        if (rocketMQTemplate == null) {
+            log.debug("RocketMQ 未配置，跳过异步领域事件发布: topic={}", topic);
+            return;
+        }
+
         Message<String> message = MessageBuilder
                 .withPayload(toJson(payload))
                 .build();

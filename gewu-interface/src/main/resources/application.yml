@@ -1,11 +1,18 @@
 # 格物平台 - 开发环境配置
 
 server:
-  port: 8080
+  port: 8081
 
 spring:
   profiles:
     active: dev
+
+  # 异步请求超时配置 - SSE 流式对话需要足够长的超时
+  # 推理模型（LongCat-2.0、DeepSeek-R1）的推理过程可能持续数分钟
+  # 默认 Tomcat 30s 超时会导致流式响应被截断后一次性 flush
+  mvc:
+    async:
+      request-timeout: 600000  # 10 分钟（原 5 分钟，放宽以适配长推理+多轮工具调用）
 
   # 数据库配置
   datasource:
@@ -26,6 +33,8 @@ spring:
     locations: classpath:db/migration
     baseline-on-migrate: true
     baseline-version: 0
+
+
 
   # Redis/DragonflyDB 配置
   data:
@@ -70,11 +79,48 @@ gewu:
     name: 格物平台
     version: 1.0.0-SNAPSHOT
 
+  # 机器编号（-1 表示自动通过 hostname 计算，容器部署时通过环境变量 MACHINE_ID 注入）
+  machine-id: ${MACHINE_ID:-1}
+
+  # Wenshi 知识增强配置
+  wenshi:
+    enabled: true
+    embedding:
+      adapter: bge-small
+      model-path: models/bge-small-zh-v1.5.onnx
+      dimension: 384
+      tokenizer-path: models/tokenizer.json
+    vectorstore:
+      adapter: pgvector
+    datasource:
+      url: jdbc:postgresql://localhost:5432/wenshi
+      username: wenshi
+      password: ${WENSHI_DB_PASSWORD:wenshi123456}
+      driver-class-name: org.postgresql.Driver
+    # 网络搜索推理增强配置
+    routing:
+      stream: wenshi
+    web-search:
+      base-url: ${SEARXNG_BASE_URL:http://searxng:8080}
+      max-results: 5
+      timeout-ms: 8000
+      min-confidence: 0.6
+      llm-arbitrate-threshold: 0.4
+      llm-arbitrate-provider: ${LLM_ARBITRATE_PROVIDER:deepseek}
+      llm-arbitrate-model: ${LLM_ARBITRATE_MODEL:deepseek-chat}
+      auto-enhance: true
+      auto-enhance-min-kb: 3
+      snippet-max-length: 200
+
+  # 敏感数据加密（32 位十六进制 SM4 密钥，生产环境必须替换）
+  crypto:
+    api-key-secret: ${GEWU_CRYPTO_API_KEY_SECRET:0123456789abcdef0123456789abcdef}
+
   # 安全配置
   security:
     jwt:
-      secret: gewu-jwt-secret-key-2026-needs-at-least-32-characters
-      access-expiration: 1800000  # 30分钟
+      secret: ${JWT_SECRET:gewu-platform-jwt-secret-key-must-be-at-least-256-bits-long-for-hs256}
+      access-expiration: 72000000  # 30分钟
       refresh-expiration: 604800000  # 7天
     password:
       min-length: 8
@@ -89,6 +135,8 @@ gewu:
       enabled: true
     headers:
       enabled: true
+    cors:
+      allowed-origins: ${CORS_ALLOWED_ORIGINS:}
 
   database:
     type: oceanbase
@@ -115,6 +163,8 @@ gewu:
     type: docker
     runtime: runc
     image: gewu/sandbox:latest
+    api:
+      url: http://localhost:8082/api/v1/sandboxes
 
   ai:
     gateway:
@@ -129,6 +179,8 @@ gewu:
 
 # Actuator + Prometheus
 management:
+  server:
+    port: 9081
   endpoints:
     web:
       exposure:
@@ -156,6 +208,13 @@ springdoc:
     doc-expansion: none
     display-request-duration: true
     groups-order: desc
+
+# MinIO 对象存储
+minio:
+  endpoint: http://localhost:9000
+  access-key: minioadmin
+  secret-key: minioadmin
+  bucket: gewu-documents
 
 # 日志配置
 logging:

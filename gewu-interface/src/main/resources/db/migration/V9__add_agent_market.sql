@@ -1,0 +1,27 @@
+-- 智能体广场(agent_market)表 - 上架快照，与自建 agent 解耦
+CREATE TABLE IF NOT EXISTS agent_market (
+    id VARCHAR(26) NOT NULL COMMENT 'ULID 主键',
+    agent_id VARCHAR(26) NOT NULL COMMENT '源 Agent ID',
+    agent_name VARCHAR(128) NOT NULL COMMENT '智能体名称',
+    description VARCHAR(1024) DEFAULT NULL COMMENT '描述',
+    model_provider VARCHAR(64) NOT NULL COMMENT '模型提供商',
+    model_name VARCHAR(128) NOT NULL COMMENT '模型名称',
+    model_config JSON DEFAULT NULL COMMENT '模型参数',
+    system_prompt TEXT DEFAULT NULL COMMENT '系统提示词',
+    emoji VARCHAR(16) DEFAULT '🤖' COMMENT '图标',
+    category VARCHAR(64) DEFAULT NULL COMMENT '分类',
+    tags JSON DEFAULT NULL COMMENT '标签数组',
+    stars INT DEFAULT 0 COMMENT '评分',
+    install_count INT DEFAULT 0 COMMENT '安装次数',
+    author VARCHAR(128) DEFAULT NULL COMMENT '上架者展示名',
+    status TINYINT DEFAULT 1 COMMENT '1=上架 0=下架',
+    version INT DEFAULT 0 COMMENT '版本号',
+    deleted TINYINT DEFAULT 0 COMMENT '逻辑删除',
+    created_at BIGINT NOT NULL COMMENT '创建时间',
+    updated_at BIGINT NOT NULL COMMENT '更新时间',
+    created_by VARCHAR(26) NOT NULL COMMENT '创建人',
+    updated_by VARCHAR(26) DEFAULT NULL COMMENT '更新人',
+    PRIMARY KEY (id),
+    KEY idx_market_category (category),
+    KEY idx_market_agent (agent_id)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='智能体广场上架快照表';

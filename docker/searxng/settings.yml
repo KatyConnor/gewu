@@ -1,0 +1,46 @@
+# SearXNG 配置 — 仅供 GewuPlatform 内部网络搜索使用
+# 启用 JSON 输出格式（默认关闭），设置中文默认语言
+
+use_default_settings: true
+
+general:
+  instance_name: "GewuPlatform SearXNG"
+  debug: false
+
+search:
+  safe_search: 1
+  autocomplete: ""
+  default_lang: "zh-CN"
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "gewu-platform-searxng-secret-2026"
+  bind_address: "0.0.0.0"
+  port: 8080
+  limiter: false
+  image_proxy: false
+
+engines:
+  - name: google
+    engine: google
+    shortcut: g
+    disabled: false
+  - name: bing
+    engine: bing
+    shortcut: b
+    disabled: false
+  - name: duckduckgo
+    engine: duckduckgo
+    shortcut: ddg
+    disabled: false
+  - name: wikipedia
+    engine: wikipedia
+    shortcut: wp
+    disabled: false
+
+outgoing:
+  request_timeout: 8.0
+  max_request_timeout: 10.0
+  useragent_suffix: "GewuPlatform/1.0"

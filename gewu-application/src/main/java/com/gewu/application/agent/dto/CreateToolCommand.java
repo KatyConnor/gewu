@@ -29,6 +29,8 @@ public class CreateToolCommand {
 
     private String authConfig;
 
+    private String mcpServerId;
+
     private Integer timeoutMs = 30000;
 
     private Integer sortOrder = 0;

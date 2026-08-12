@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: security-scanner
+  namespace: gewu
+  labels:
+    app: security-scanner
+spec:
+  containers:
+    - name: trivy
+      image: aquasec/trivy:latest
+      command: ['trivy']
+      args: ['fs', '--severity', 'HIGH,CRITICAL', '--exit-code', '1', '/workspace']
+      volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+      resources:
+        limits:
+          memory: "512Mi"
+          cpu: "500m"
+    - name: grype
+      image: anchore/grype:latest
+      command: ['grype']
+      args: ['dir:/workspace', '--fail-on', 'high']
+      volumeMounts:
+        - name: workspace
+          mountPath: /workspace
+      resources:
+        limits:
+          memory: "256Mi"
+          cpu: "250m"
+  volumes:
+    - name: workspace
+      emptyDir: {}
+  restartPolicy: Never

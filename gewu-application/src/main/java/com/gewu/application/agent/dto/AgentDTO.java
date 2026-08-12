@@ -23,4 +23,6 @@ public class AgentDTO {
     private Integer version;
     private Long createdAt;
     private String createdBy;
+    /** 对话次数（由 agent_execution 统计） */
+    private Integer conversations;
 }

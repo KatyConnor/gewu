@@ -9,6 +9,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.Date;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 
 /**
  * JWT 工具类 — Access Token 30 分钟 + Refresh Token 7 天.
@@ -39,7 +40,10 @@ public class JwtUtil {
     private String buildToken(String userId, String username, List<String> roleCodes, long expiration, String tokenType) {
         Date now = new Date();
         Date expiry = new Date(now.getTime() + expiration);
+        String jti = UUID.randomUUID().toString();
+        String family = "access".equals(tokenType) ? null : UUID.randomUUID().toString();
         JwtBuilder builder = Jwts.builder()
+                .id(jti)
                 .subject(userId)
                 .claim("username", username)
                 .claim("type", tokenType)
@@ -48,6 +52,9 @@ public class JwtUtil {
                 .signWith(key);
         if (roleCodes != null) {
             builder.claim("roles", roleCodes);
+        }
+        if (family != null) {
+            builder.claim("family", family);
         }
         return builder.compact();
     }
@@ -74,6 +81,14 @@ public class JwtUtil {
 
     public String getUserIdFromToken(String token) {
         return parseToken(token).getSubject();
+    }
+
+    public String getJtiFromToken(String token) {
+        return parseToken(token).getId();
+    }
+
+    public String getFamilyFromToken(String token) {
+        return parseToken(token).get("family", String.class);
     }
 
     public String getUsernameFromToken(String token) {

@@ -33,6 +33,11 @@ mybatis-plus:
       logic-not-delete-value: 0
 
 gewu:
+  # 禁用 Wenshi，避免测试时连接 PostgreSQL
+  wenshi:
+    enabled: false
+  crypto:
+    api-key-secret: 0123456789abcdef0123456789abcdef
   security:
     xss:
       enabled: false

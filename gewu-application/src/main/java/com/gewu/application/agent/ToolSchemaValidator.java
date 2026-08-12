@@ -36,46 +36,53 @@ public class ToolSchemaValidator {
 
     private void validateNode(JsonNode schemaNode, JsonNode argsNode, String path, List<String> errors) {
         String type = schemaNode.has("type") ? schemaNode.get("type").asText() : null;
+        if (type == null) return;
 
-        if ("object".equals(type) && schemaNode.has("properties")) {
-            if (!argsNode.isObject()) {
-                errors.add(path.isEmpty() ? "期望对象类型" : path + ": 期望对象类型");
-                return;
+        switch (type) {
+            case "object" -> validateObject(schemaNode, argsNode, path, errors);
+            case "array" -> validateTypeMatch(argsNode.isArray(), "数组", path, errors);
+            case "string" -> validateTypeMatch(argsNode.isTextual(), "字符串", path, errors);
+            case "number", "integer" -> validateTypeMatch(argsNode.isNumber(), "数字", path, errors);
+            case "boolean" -> validateTypeMatch(argsNode.isBoolean(), "布尔", path, errors);
+        }
+    }
+
+    private void validateObject(JsonNode schemaNode, JsonNode argsNode, String path, List<String> errors) {
+        if (!argsNode.isObject()) {
+            errors.add(path.isEmpty() ? "期望对象类型" : path + ": 期望对象类型");
+            return;
+        }
+        validateRequiredFields(schemaNode, argsNode, path, errors);
+        validateProperties(schemaNode, argsNode, path, errors);
+    }
+
+    private void validateRequiredFields(JsonNode schemaNode, JsonNode argsNode, String path, List<String> errors) {
+        JsonNode required = schemaNode.get("required");
+        if (required == null || !required.isArray()) return;
+        for (JsonNode req : required) {
+            String fieldName = req.asText();
+            if (!argsNode.has(fieldName)) {
+                errors.add((path.isEmpty() ? "" : path + ".") + fieldName + ": 必填字段缺失");
             }
-            JsonNode required = schemaNode.get("required");
-            if (required != null && required.isArray()) {
-                for (JsonNode req : required) {
-                    String fieldName = req.asText();
-                    if (!argsNode.has(fieldName)) {
-                        errors.add((path.isEmpty() ? "" : path + ".") + fieldName + ": 必填字段缺失");
-                    }
-                }
+        }
+    }
+
+    private void validateProperties(JsonNode schemaNode, JsonNode argsNode, String path, List<String> errors) {
+        JsonNode properties = schemaNode.get("properties");
+        if (properties == null) return;
+        Iterator<Map.Entry<String, JsonNode>> fields = argsNode.fields();
+        while (fields.hasNext()) {
+            Map.Entry<String, JsonNode> field = fields.next();
+            if (properties.has(field.getKey())) {
+                String childPath = (path.isEmpty() ? "" : path + ".") + field.getKey();
+                validateNode(properties.get(field.getKey()), field.getValue(), childPath, errors);
             }
-            JsonNode properties = schemaNode.get("properties");
-            Iterator<Map.Entry<String, JsonNode>> fields = argsNode.fields();
-            while (fields.hasNext()) {
-                Map.Entry<String, JsonNode> field = fields.next();
-                if (properties.has(field.getKey())) {
-                    validateNode(properties.get(field.getKey()), field.getValue(),
-                            (path.isEmpty() ? "" : path + ".") + field.getKey(), errors);
-                }
-            }
-        } else if ("array".equals(type)) {
-            if (!argsNode.isArray()) {
-                errors.add(path.isEmpty() ? "期望数组类型" : path + ": 期望数组类型");
-            }
-        } else if ("string".equals(type)) {
-            if (!argsNode.isTextual()) {
-                errors.add(path.isEmpty() ? "期望字符串类型" : path + ": 期望字符串类型");
-            }
-        } else if ("number".equals(type) || "integer".equals(type)) {
-            if (!argsNode.isNumber()) {
-                errors.add(path.isEmpty() ? "期望数字类型" : path + ": 期望数字类型");
-            }
-        } else if ("boolean".equals(type)) {
-            if (!argsNode.isBoolean()) {
-                errors.add(path.isEmpty() ? "期望布尔类型" : path + ": 期望布尔类型");
-            }
+        }
+    }
+
+    private void validateTypeMatch(boolean matches, String typeName, String path, List<String> errors) {
+        if (!matches) {
+            errors.add(path.isEmpty() ? "期望" + typeName + "类型" : path + ": 期望" + typeName + "类型");
         }
     }
 

@@ -14,6 +14,8 @@ public class UpdateProjectCommand {
 
     private Integer visibility;
 
+    private Integer status;
+
     private String techStack;
 
     private String worktree;

@@ -1,0 +1,210 @@
+{
+  "annotations": {
+    "list": []
+  },
+  "editable": true,
+  "fiscalYearStartMonth": 0,
+  "graphTooltip": 1,
+  "id": null,
+  "links": [],
+  "panels": [
+    {
+      "title": "请求速率",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{app=\"gewu-platform\"}[5m])) by (method, uri_template)",
+          "legendFormat": "{{method}} {{uri_template}}"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "reqps",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20
+          }
+        }
+      }
+    },
+    {
+      "title": "延迟分布",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "targets": [
+        {
+          "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{app=\"gewu-platform\"}[5m])) by (le))",
+          "legendFormat": "P50"
+        },
+        {
+          "expr": "histogram_quantile(0.95, sum(rate(http_server_requests_seconds_bucket{app=\"gewu-platform\"}[5m])) by (le))",
+          "legendFormat": "P95"
+        },
+        {
+          "expr": "histogram_quantile(0.99, sum(rate(http_server_requests_seconds_bucket{app=\"gewu-platform\"}[5m])) by (le))",
+          "legendFormat": "P99"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 10
+          }
+        }
+      }
+    },
+    {
+      "title": "JVM 堆内存",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "targets": [
+        {
+          "expr": "jvm_memory_used_bytes{app=\"gewu-platform\", area=\"heap\"}",
+          "legendFormat": "已用"
+        },
+        {
+          "expr": "jvm_memory_max_bytes{app=\"gewu-platform\", area=\"heap\"}",
+          "legendFormat": "最大"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "bytes",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20
+          }
+        }
+      }
+    },
+    {
+      "title": "GC 暂停时间",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "targets": [
+        {
+          "expr": "rate(jvm_gc_pause_seconds_sum{app=\"gewu-platform\"}[5m])",
+          "legendFormat": "暂停时间"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "s",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20
+          }
+        }
+      }
+    },
+    {
+      "title": "数据库连接池",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "targets": [
+        {
+          "expr": "hikaricp_connections_active{app=\"gewu-platform\"}",
+          "legendFormat": "活跃连接"
+        },
+        {
+          "expr": "hikaricp_connections_idle{app=\"gewu-platform\"}",
+          "legendFormat": "空闲连接"
+        },
+        {
+          "expr": "hikaricp_connections_pending{app=\"gewu-platform\"}",
+          "legendFormat": "等待连接"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20
+          }
+        }
+      }
+    },
+    {
+      "title": "Redis 缓存",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "targets": [
+        {
+          "expr": "redis_memory_used_bytes{app=\"redis\"}",
+          "legendFormat": "内存使用"
+        },
+        {
+          "expr": "redis_connected_clients{app=\"redis\"}",
+          "legendFormat": "连接数"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20
+          }
+        }
+      }
+    },
+    {
+      "title": "错误率",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "targets": [
+        {
+          "expr": "sum(rate(http_server_requests_seconds_count{app=\"gewu-platform\", status=~\"5..\"}[5m])) / sum(rate(http_server_requests_seconds_count{app=\"gewu-platform\"}[5m]))",
+          "legendFormat": "5xx 错误率"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "unit": "percentunit",
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20
+          }
+        }
+      }
+    },
+    {
+      "title": "线程数",
+      "type": "timeseries",
+      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "targets": [
+        {
+          "expr": "jvm_threads_live_threads{app=\"gewu-platform\"}",
+          "legendFormat": "活跃线程"
+        },
+        {
+          "expr": "jvm_threads_daemon_threads{app=\"gewu-platform\"}",
+          "legendFormat": "守护线程"
+        }
+      ],
+      "fieldConfig": {
+        "defaults": {
+          "custom": {
+            "lineWidth": 2,
+            "fillOpacity": 20
+          }
+        }
+      }
+    }
+  ],
+  "schemaVersion": 38,
+  "style": "dark",
+  "tags": ["gewu", "production"],
+  "templating": {
+    "list": []
+  },
+  "time": {
+    "from": "now-1h",
+    "to": "now"
+  },
+  "title": "格物平台 - 生产监控",
+  "uid": "gewu-production",
+  "version": 1
+}

@@ -13,6 +13,8 @@ public class ModelInfo {
 
     private String provider;
     private String name;
+    private String modelName;
     private String displayName;
     private String description;
+    private boolean supported;
 }

@@ -13,6 +13,8 @@ public class AgentChunk {
 
     private String type;
     private String content;
+    /** 推理/思考内容（thinking 事件） */
+    private String reasoning;
     private ToolCallInfo toolCall;
     private ToolResultInfo toolResult;
     private String errorMessage;

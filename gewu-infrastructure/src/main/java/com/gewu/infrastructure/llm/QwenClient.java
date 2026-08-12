@@ -3,11 +3,10 @@ package com.gewu.infrastructure.llm;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
+import reactor.core.scheduler.Schedulers;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -18,13 +17,22 @@ import java.util.ArrayList;
 import java.util.List;
 
 @Slf4j
-@RequiredArgsConstructor
 public class QwenClient implements LlmClient {
 
     private final String apiKey;
     private final String baseUrl;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
+    private final LlmRequestBodyBuilder bodyBuilder;
+
+    public QwenClient(String apiKey, String baseUrl, ObjectMapper objectMapper,
+                      HttpClient httpClient, LlmRequestBodyBuilder bodyBuilder) {
+        this.apiKey = apiKey;
+        this.baseUrl = baseUrl;
+        this.objectMapper = objectMapper;
+        this.httpClient = httpClient;
+        this.bodyBuilder = bodyBuilder;
+    }
 
     @Override
     public String getProvider() {
@@ -61,10 +69,13 @@ public class QwenClient implements LlmClient {
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body))
-                .timeout(Duration.ofSeconds(120))
+                // 流式请求不设 per-request timeout：推理模型的推理+生成过程常超 120s，
+                // 固定 timeout 会截断流式传输导致回复不完整。
+                // 连接建立由 HttpClient.connectTimeout(30s) 兜底，
+                // 整体时长由 Spring MVC async request-timeout 兜底。
                 .build();
 
-        return Flux.create(sink -> {
+        return Flux.<LlmChunk>create(sink -> {
             try {
                 HttpResponse<java.io.InputStream> response = httpClient.send(httpRequest,
                         HttpResponse.BodyHandlers.ofInputStream());
@@ -90,35 +101,20 @@ public class QwenClient implements LlmClient {
             } catch (Exception e) {
                 sink.error(e);
             }
-        });
+        }).subscribeOn(Schedulers.boundedElastic());  // 阻塞 I/O 必须调度到 boundedElastic，避免阻塞容器线程
     }
 
     private String buildRequestBody(LlmRequest request, boolean stream) {
         ObjectNode root = objectMapper.createObjectNode();
         ObjectNode input = objectMapper.createObjectNode();
-
-        ArrayNode messages = objectMapper.createArrayNode();
-        for (Message msg : request.getMessages()) {
-            ObjectNode msgNode = objectMapper.createObjectNode();
-            msgNode.put("role", msg.getRole());
-            if (msg.getContent() != null) {
-                msgNode.put("content", msg.getContent());
-            }
-            if (msg.getToolCallId() != null) {
-                msgNode.put("tool_call_id", msg.getToolCallId());
-            }
-            if (msg.getName() != null) {
-                msgNode.put("name", msg.getName());
-            }
-            messages.add(msgNode);
-        }
-        input.set("messages", messages);
+        input.set("messages", bodyBuilder.buildMessagesArray(request.getMessages()));
         root.set("input", input);
 
-        ObjectNode parameters = objectMapper.createObjectNode();
         if (request.getModel() != null) {
             root.put("model", request.getModel());
         }
+
+        ObjectNode parameters = objectMapper.createObjectNode();
         if (request.getTemperature() != null) {
             parameters.put("temperature", request.getTemperature());
         }
@@ -132,33 +128,10 @@ public class QwenClient implements LlmClient {
         root.set("parameters", parameters);
 
         if (request.getTools() != null && !request.getTools().isEmpty()) {
-            ArrayNode tools = objectMapper.createArrayNode();
-            for (ToolDefinition tool : request.getTools()) {
-                ObjectNode toolNode = objectMapper.createObjectNode();
-                toolNode.put("type", "function");
-                ObjectNode function = objectMapper.createObjectNode();
-                function.put("name", tool.getName());
-                if (tool.getDescription() != null) {
-                    function.put("description", tool.getDescription());
-                }
-                if (tool.getParameters() != null) {
-                    try {
-                        function.set("parameters", objectMapper.readTree(tool.getParameters()));
-                    } catch (JsonProcessingException e) {
-                        log.warn("解析工具参数 JSON Schema 失败: {}", tool.getName(), e);
-                    }
-                }
-                toolNode.set("function", function);
-                tools.add(toolNode);
-            }
-            root.set("tools", tools);
+            root.set("tools", bodyBuilder.buildToolsArray(request.getTools()));
         }
 
-        try {
-            return objectMapper.writeValueAsString(root);
-        } catch (JsonProcessingException e) {
-            throw new RuntimeException("构建 Qwen 请求体失败", e);
-        }
+        return bodyBuilder.serializeObject(root);
     }
 
     private LlmResponse parseResponse(String responseBody) {

@@ -3,14 +3,19 @@ package com.gewu.sandbox.provider;
 import com.github.dockerjava.api.DockerClient;
 import com.github.dockerjava.api.command.CreateContainerResponse;
 import com.github.dockerjava.api.command.ExecCreateCmdResponse;
+import com.github.dockerjava.api.command.PullImageResultCallback;
+import com.github.dockerjava.api.exception.NotFoundException;
 import com.github.dockerjava.api.model.Frame;
 import com.github.dockerjava.core.command.ExecStartResultCallback;
 import com.gewu.common.enums.SandboxStatus;
+import com.gewu.common.result.BusinessException;
+import com.gewu.common.result.ResultCode;
 import com.gewu.common.ulid.Ulid;
 import com.gewu.domain.sandbox.Sandbox;
 import com.gewu.sandbox.constant.SandboxConstants;
-import com.gewu.sandbox.dto.CreateSandboxCommand;
-import com.gewu.sandbox.dto.ExecCommandResponse;
+import com.gewu.common.dto.sandbox.CreateSandboxCommand;
+import com.gewu.common.dto.sandbox.ExecCommandResponse;
+import com.gewu.sandbox.security.CommandValidator;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -27,6 +32,8 @@ import java.util.concurrent.TimeUnit;
 public class DockerSandboxProvider implements SandboxProvider {
 
     private final DockerClient dockerClient;
+    private final CommandValidator commandValidator;
+    private final com.gewu.sandbox.security.DevCommandValidator devCommandValidator;
 
     @Value("${gewu.sandbox.defaults.image:gewu/sandbox-base:latest}")
     private String defaultImage;
@@ -49,11 +56,13 @@ public class DockerSandboxProvider implements SandboxProvider {
     @Override
     public Sandbox create(CreateSandboxCommand command) {
         String image = command.getImage() != null ? command.getImage() : defaultImage;
-        int cpu = command.getCpuLimit() != null ? command.getCpuLimit() : defaultCpu;
-        int memoryMb = command.getMemoryLimit() != null ? command.getMemoryLimit() : defaultMemoryMb;
-        int diskMb = command.getDiskLimit() != null ? command.getDiskLimit() : defaultDiskMb;
+        int cpu = command.getCpuCores() != null ? command.getCpuCores() : defaultCpu;
+        int memoryMb = command.getMemoryMb() != null ? command.getMemoryMb() : defaultMemoryMb;
+        int diskMb = command.getDiskMb() != null ? command.getDiskMb() : defaultDiskMb;
         boolean networkEnabled = command.getNetworkEnabled() != null ? command.getNetworkEnabled() : defaultNetworkEnabled;
         int timeout = command.getTimeout() != null ? command.getTimeout() : defaultTimeoutSeconds;
+
+        ensureImageExists(image);
 
         long memoryBytes = (long) memoryMb * 1024 * 1024;
         long nanoCpus = (long) cpu * 1_000_000_000L;
@@ -61,17 +70,32 @@ public class DockerSandboxProvider implements SandboxProvider {
         List<String> env = new ArrayList<>();
         env.add("SANDBOX_TIMEOUT=" + timeout);
 
+        var hostConfigBuilder = com.github.dockerjava.api.model.HostConfig.newHostConfig()
+                .withNanoCPUs(nanoCpus)
+                .withMemory(memoryBytes)
+                .withNetworkMode(networkEnabled ? "bridge" : "none")
+                .withSecurityOpts(List.of("no-new-privileges:true"))
+                .withCapDrop(com.github.dockerjava.api.model.Capability.ALL)
+                .withReadonlyRootfs(true)
+                .withTmpFs(java.util.Map.of("/tmp", "rw,noexec,nosuid,size=64m"));
+
+        // 工作空间卷挂载: 将用户持久化目录挂载到 /workspace
+        if (command.getWorkspaceId() != null && !command.getWorkspaceId().isBlank()) {
+            String volumeName = "gewu-ws-" + command.getWorkspaceId().substring(0, 12).toLowerCase();
+            ensureVolumeExists(volumeName);
+            hostConfigBuilder.withBinds(new com.github.dockerjava.api.model.Bind(
+                    volumeName,
+                    new com.github.dockerjava.api.model.Volume("/workspace"),
+                    com.github.dockerjava.api.model.AccessMode.rw));
+            // /workspace 需可写，关闭只读根文件系统
+            hostConfigBuilder.withReadonlyRootfs(false);
+            log.info("工作空间卷挂载: volume={}, workspaceId={}", volumeName, command.getWorkspaceId());
+        }
+
         CreateContainerResponse container = dockerClient.createContainerCmd(image)
                 .withName("gewu-sandbox-" + Ulid.next().substring(0, 8).toLowerCase())
                 .withEnv(env)
-                .withHostConfig(com.github.dockerjava.api.model.HostConfig.newHostConfig()
-                        .withNanoCPUs(nanoCpus)
-                        .withMemory(memoryBytes)
-                        .withNetworkMode(networkEnabled ? "bridge" : "none")
-                        .withSecurityOpts(List.of("no-new-privileges:true"))
-                        .withCapDrop(com.github.dockerjava.api.model.Capability.ALL)
-                        .withReadonlyRootfs(true)
-                        .withTmpFs(java.util.Map.of("/tmp", "rw,noexec,nosuid,size=64m")))
+                .withHostConfig(hostConfigBuilder)
                 .exec();
 
         String sandboxId = Ulid.next();
@@ -79,6 +103,7 @@ public class DockerSandboxProvider implements SandboxProvider {
         Sandbox sandbox = new Sandbox();
         sandbox.setId(sandboxId);
         sandbox.setContainerId(container.getId());
+        sandbox.setSandboxName(command.getSandboxName());
         sandbox.setStatus(SandboxStatus.CREATING.getCode());
         sandbox.setImage(image);
         sandbox.setCpuLimit(cpu);
@@ -119,6 +144,13 @@ public class DockerSandboxProvider implements SandboxProvider {
 
     @Override
     public ExecCommandResponse exec(Sandbox sandbox, String command, Integer timeoutSeconds) {
+        // 命令安全校验 - 按 source 路由: dev 沙箱宽松，其他严格
+        if ("dev".equals(sandbox.getSource())) {
+            devCommandValidator.validate(command);
+        } else {
+            commandValidator.validate(command);
+        }
+
         int timeout = timeoutSeconds != null ? timeoutSeconds : 30;
 
         ExecCreateCmdResponse execCreate = dockerClient.execCreateCmd(sandbox.getContainerId())
@@ -143,8 +175,20 @@ public class DockerSandboxProvider implements SandboxProvider {
 
         long duration = System.currentTimeMillis() - startTime;
 
+        // 获取真实退出码
+        int exitCode = 0;
+        try {
+            com.github.dockerjava.api.command.InspectExecResponse execInspect =
+                    dockerClient.inspectExecCmd(execCreate.getId()).exec();
+            if (execInspect.getExitCodeLong() != null) {
+                exitCode = execInspect.getExitCodeLong().intValue();
+            }
+        } catch (Exception e) {
+            log.debug("获取退出码失败，默认 0: {}", e.getMessage());
+        }
+
         return ExecCommandResponse.builder()
-                .exitCode(0)
+                .exitCode(exitCode)
                 .stdout(stdoutStream.toString())
                 .stderr(stderrStream.toString())
                 .duration(duration)
@@ -154,5 +198,33 @@ public class DockerSandboxProvider implements SandboxProvider {
     @Override
     public String getType() {
         return "docker";
+    }
+
+    private void ensureImageExists(String image) {
+        try {
+            dockerClient.inspectImageCmd(image).exec();
+        } catch (NotFoundException e) {
+            log.info("镜像 {} 不存在，开始拉取...", image);
+            try {
+                dockerClient.pullImageCmd(image)
+                        .exec(new PullImageResultCallback())
+                        .awaitCompletion(120, TimeUnit.SECONDS);
+                log.info("镜像 {} 拉取完成", image);
+            } catch (Exception pullException) {
+                throw BusinessException.of(ResultCode.SANDBOX_IMAGE_PULL_FAILED,
+                        "镜像拉取失败: " + image + " - " + pullException.getMessage());
+            }
+        }
+    }
+
+    /** 确保用户工作空间 Docker Volume 存在（幂等） */
+    private void ensureVolumeExists(String volumeName) {
+        try {
+            dockerClient.createVolumeCmd().withName(volumeName).exec();
+            log.debug("Docker volume 创建/已存在: {}", volumeName);
+        } catch (Exception e) {
+            // Volume 已存在时 Docker 会抛异常，忽略即可
+            log.debug("Volume 已存在或创建失败: {} - {}", volumeName, e.getMessage());
+        }
     }
 }

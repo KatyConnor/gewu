@@ -18,6 +18,7 @@ public class AgentTool extends BaseEntity {
     private String requestSchema;
     private String responseSchema;
     private String authConfig;
+    private String mcpServerId;
     private Integer timeoutMs;
     private Integer status;
     private Integer sortOrder;

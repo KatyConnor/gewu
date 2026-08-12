@@ -16,5 +16,5 @@ FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 COPY --from=builder /build/gewu-interface/target/gewu-interface-1.0.0-SNAPSHOT.jar app.jar
 EXPOSE 8080
-ENV JAVA_OPTS="-Xms512m -Xmx1024m -XX:+UseG1GC -XX:MaxGCPauseMillis=200"
+ENV JAVA_OPTS="-Xms2g -Xmx2g -Xmn1g -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:ParallelRefProcEnabled -XX:+ExplicitGCInvokesConcurrent -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/tmp/heapdump.hprof -Djava.security.egd=file:/dev/./urandom"
 ENTRYPOINT ["sh", "-c", "java $JAVA_OPTS -jar app.jar"]

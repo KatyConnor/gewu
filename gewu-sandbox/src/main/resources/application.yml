@@ -54,6 +54,27 @@ gewu:
       timeout-seconds: 300
       image: gewu/sandbox-base:latest
       network-enabled: false
+    registry:
+      url: ${REGISTRY_URL:}
+      username: ${REGISTRY_USERNAME:}
+      password: ${REGISTRY_PASSWORD:}
+      repository: gewu/sandbox
+    lifecycle:
+      idle-timeout-minutes: 30
+      auto-stop-enabled: true
+      manual-ttl-days: 7
+      project-ttl-days: 0
+      agent-max-lifetime-seconds: 300
+    dev:
+      image: ${GEWU_DEV_IMAGE:gewu/dev-base:latest}
+      cpu: 2
+      memory-mb: 4096
+      disk-mb: 20480
+      network-enabled: true
+      idle-timeout-minutes: 120
+      manual-ttl-days: 30
+  crypto:
+    api-key-secret: ${GEWU_CRYPTO_API_KEY_SECRET:13b4a0eab2f1f1093f87d0552fddca1f}
 
 logging:
   level:

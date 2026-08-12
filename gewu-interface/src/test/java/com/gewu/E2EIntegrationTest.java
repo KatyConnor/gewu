@@ -2,6 +2,10 @@ package com.gewu;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gewu.common.jwt.JwtUtil;
+import com.gewu.infrastructure.cache.CacheService;
+import com.gewu.interfaceconfig.security.JwtAuthenticationFilter;
+import com.gewu.interfaceconfig.security.SecurityHeadersFilter;
 import com.gewu.interfaceconfig.security.XssFilter;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -15,7 +19,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.test.context.TestConfiguration;
 import org.springframework.test.annotation.DirtiesContext;
 import org.springframework.context.annotation.Bean;
-import org.springframework.context.annotation.Import;
+import org.springframework.context.annotation.Primary;
 import org.springframework.http.MediaType;
 import org.springframework.test.context.ActiveProfiles;
 import org.springframework.test.web.servlet.MockMvc;
@@ -43,6 +47,7 @@ class E2EIntegrationTest {
     @TestConfiguration
     static class NoEscapeXssConfig {
         @Bean
+        @Primary
         XssFilter xssFilter() {
             return new XssFilter() {
                 @Override
@@ -51,6 +56,18 @@ class E2EIntegrationTest {
                     filterChain.doFilter(request, response);
                 }
             };
+        }
+
+        @Bean
+        @Primary
+        JwtAuthenticationFilter jwtAuthenticationFilter(JwtUtil jwtUtil, ObjectMapper objectMapper, CacheService cacheService, com.gewu.application.auth.AuthService authService) {
+            return new JwtAuthenticationFilter(jwtUtil, objectMapper, cacheService, authService);
+        }
+
+        @Bean
+        @Primary
+        SecurityHeadersFilter securityHeadersFilter() {
+            return new SecurityHeadersFilter();
         }
     }
 
@@ -112,7 +129,7 @@ class E2EIntegrationTest {
         var register = new java.util.HashMap<String, Object>();
         register.put("username", username);
         register.put("email", email);
-        register.put("password", "passw0rd");
+        register.put("password", "Passw0rd!");
         register.put("displayName", "E2EUser");
 
         MvcResult registerResult = authPost("/api/v1/auth/register", register);
@@ -123,7 +140,7 @@ class E2EIntegrationTest {
 
         var login = new java.util.HashMap<String, Object>();
         login.put("username", username);
-        login.put("password", "passw0rd");
+        login.put("password", "Passw0rd!");
         MvcResult loginResult = authPost("/api/v1/auth/login", login);
         JsonNode loginData = dataNode(loginResult.getResponse().getContentAsString());
         assertThat(loginData.path("accessToken").asText()).isNotBlank();
@@ -183,6 +200,11 @@ class E2EIntegrationTest {
         JsonNode agentsData = dataNode(agentsResult.getResponse().getContentAsString());
         assertThat(agentsData.path("records").isArray()).isTrue();
         assertThat(agentsData.path("records").size()).isGreaterThanOrEqualTo(1);
+        // 验证数据权限: USER (data_scope=4) 只能看到自己创建的 Agent
+        String userId = registerData.path("userId").asText();
+        for (JsonNode record : agentsData.path("records")) {
+            assertThat(record.path("createdBy").asText()).isEqualTo(userId);
+        }
 
         var workflow = new java.util.HashMap<String, Object>();
         workflow.put("workflowName", "E2EWorkflow_" + suffix);
@@ -193,5 +215,28 @@ class E2EIntegrationTest {
         assertThat(workflowData.path("workflowId").asText()).isNotBlank();
         assertThat(workflowData.path("version").asInt()).isEqualTo(1);
         assertThat(workflowData.path("status").asInt()).isEqualTo(0);
+
+        // ==================== 工作空间 ====================
+        // 获取/自动创建工作空间
+        MvcResult wsResult = authedGet(token, "/api/v1/workspaces/me");
+        JsonNode wsData = dataNode(wsResult.getResponse().getContentAsString());
+        assertThat(wsData.path("workspaceId").asText()).isNotBlank();
+        assertThat(wsData.path("quotaBytes").asLong()).isGreaterThan(0);
+        assertThat(wsData.path("usagePercent").asInt()).isGreaterThanOrEqualTo(0);
+
+        // 列出文件树（应有默认目录 src/docs/uploads）
+        MvcResult treeResult = authedGet(token, "/api/v1/workspaces/files");
+        JsonNode treeData = dataNode(treeResult.getResponse().getContentAsString());
+        assertThat(treeData.isArray()).isTrue();
+        assertThat(treeData.size()).isGreaterThanOrEqualTo(3); // src + docs + uploads
+
+        // 创建目录
+        var dir = new java.util.HashMap<String, Object>();
+        dir.put("dirName", "test-dir");
+        MvcResult dirResult = authedPost(token, "/api/v1/workspaces/files/dirs", dir);
+        JsonNode dirData = dataNode(dirResult.getResponse().getContentAsString());
+        assertThat(dirData.path("fileId").asText()).isNotBlank();
+        assertThat(dirData.path("fileType").asInt()).isEqualTo(1); // 目录
+        assertThat(dirData.path("fileName").asText()).isEqualTo("test-dir");
     }
 }

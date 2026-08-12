@@ -1,11 +1,15 @@
 package com.gewu.interfaceapi.controller;
 
 import com.gewu.application.project.ProjectMemberService;
+import com.gewu.application.project.ProjectPhaseService;
+import com.gewu.application.project.ProjectRepoService;
 import com.gewu.application.project.ProjectService;
 import com.gewu.application.project.dto.AddMemberCommand;
 import com.gewu.application.project.dto.CreateProjectCommand;
 import com.gewu.application.project.dto.ProjectDTO;
 import com.gewu.application.project.dto.ProjectMemberDTO;
+import com.gewu.application.project.dto.ProjectPhaseDTO;
+import com.gewu.application.project.dto.ProjectQuery;
 import com.gewu.application.project.dto.UpdateProjectCommand;
 import com.gewu.common.dto.PageQuery;
 import com.gewu.common.result.PageResult;
@@ -14,6 +18,7 @@ import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -29,6 +34,10 @@ public class ProjectController {
 
     private final ProjectService projectService;
     private final ProjectMemberService projectMemberService;
+    private final ProjectPhaseService projectPhaseService;
+    private final ProjectRepoService projectRepoService;
+
+    // ==================== 项目 CRUD ====================
 
     @PostMapping
     @Operation(summary = "创建项目", description = "创建新项目并将当前用户设为项目所有者")
@@ -49,8 +58,8 @@ public class ProjectController {
     }
 
     @GetMapping("/my")
-    @Operation(summary = "我的项目", description = "分页查询当前用户参与的项目")
-    public Result<PageResult<ProjectDTO>> listMyProjects(@Valid PageQuery query) {
+    @Operation(summary = "我的项目", description = "分页查询当前用户参与的项目，支持搜索")
+    public Result<PageResult<ProjectDTO>> listMyProjects(@Valid ProjectQuery query) {
         return Result.success(projectService.listMyProjects(query));
     }
 
@@ -89,11 +98,63 @@ public class ProjectController {
     }
 
     @PutMapping("/{projectId}/members/{userId}")
+    @PreAuthorize("hasAuthority('project:manage')")
     @Operation(summary = "更新成员角色", description = "更新项目成员的角色编码")
     public Result<Void> updateMemberRole(@PathVariable String projectId,
                                           @PathVariable String userId,
                                           @RequestParam String roleCode) {
         projectMemberService.updateMemberRole(projectId, userId, roleCode);
         return Result.success();
+    }
+
+    // ==================== 阶段管理 ====================
+
+    @GetMapping("/{projectId}/phases")
+    @Operation(summary = "项目阶段列表", description = "获取项目的全部 17 个生命周期阶段及状态")
+    public Result<List<ProjectPhaseDTO>> getPhases(@PathVariable String projectId) {
+        return Result.success(projectPhaseService.getPhases(projectId));
+    }
+
+    @PutMapping("/{projectId}/phases/{phaseCode}/start")
+    @Operation(summary = "开始阶段", description = "将指定阶段状态变更为进行中")
+    public Result<Void> startPhase(@PathVariable String projectId, @PathVariable String phaseCode) {
+        projectPhaseService.startPhase(projectId, phaseCode);
+        return Result.success();
+    }
+
+    @PutMapping("/{projectId}/phases/{phaseCode}/complete")
+    @Operation(summary = "完成阶段", description = "将指定阶段状态变更为已完成（需已上传文档）")
+    public Result<Void> completePhase(@PathVariable String projectId, @PathVariable String phaseCode) {
+        projectPhaseService.completePhase(projectId, phaseCode);
+        return Result.success();
+    }
+
+    @PutMapping("/{projectId}/phases/{phaseCode}/revert")
+    @Operation(summary = "回退阶段", description = "回退指定阶段到进行中（仅前 7 个阶段可回退）")
+    public Result<Void> revertPhase(@PathVariable String projectId, @PathVariable String phaseCode) {
+        projectPhaseService.revertPhase(projectId, phaseCode);
+        return Result.success();
+    }
+
+    // ==================== 项目仓库管理 ====================
+
+    @PostMapping("/{projectId}/repo/clone")
+    @Operation(summary = "克隆项目仓库", description = "将 Git 仓库克隆到开发沙箱 /workspace/projects/{projectId}/repo/")
+    public Result<ProjectDTO> cloneRepo(@PathVariable String projectId,
+                                        @RequestParam String repoUrl,
+                                        @RequestParam(required = false) String branch) {
+        return Result.success(projectService.toDTO(projectRepoService.cloneProjectRepo(projectId, repoUrl, branch)));
+    }
+
+    @PostMapping("/{projectId}/repo/pull")
+    @Operation(summary = "Git pull", description = "拉取项目仓库最新代码")
+    public Result<ProjectDTO> pullRepo(@PathVariable String projectId) {
+        return Result.success(projectService.toDTO(projectRepoService.gitPull(projectId)));
+    }
+
+    @GetMapping("/{projectId}/repo/status")
+    @Operation(summary = "仓库状态", description = "获取项目仓库的 clone 状态和 HEAD commit")
+    public Result<ProjectDTO> repoStatus(@PathVariable String projectId) {
+        return Result.success(projectService.getProject(projectId));
     }
 }

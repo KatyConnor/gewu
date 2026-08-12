@@ -11,6 +11,7 @@ import lombok.EqualsAndHashCode;
 public class Project extends BaseEntity {
 
     private String projectName;
+    private String projectCode;
     private String description;
     private Integer visibility;
     private Integer status;
@@ -23,4 +24,17 @@ public class Project extends BaseEntity {
     private Long timeInitialized;
     private String sandboxes;
     private String commands;
+    private String currentPhase;
+    private Long initiatedAt;
+    private Long closedAt;
+    /** Git 仓库地址 */
+    private String repoUrl;
+    /** 默认分支 */
+    private String repoBranch;
+    /** clone 状态: pending/cloning/ready/failed */
+    private String cloneStatus;
+    /** 容器内路径 (如 projects/{projectId}/repo) */
+    private String repoLocalPath;
+    /** 当前 HEAD commit SHA */
+    private String headCommit;
 }

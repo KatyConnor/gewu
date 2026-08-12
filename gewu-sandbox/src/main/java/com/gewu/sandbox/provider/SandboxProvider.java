@@ -1,8 +1,8 @@
 package com.gewu.sandbox.provider;
 
 import com.gewu.domain.sandbox.Sandbox;
-import com.gewu.sandbox.dto.CreateSandboxCommand;
-import com.gewu.sandbox.dto.ExecCommandResponse;
+import com.gewu.common.dto.sandbox.CreateSandboxCommand;
+import com.gewu.common.dto.sandbox.ExecCommandResponse;
 
 public interface SandboxProvider {
 
