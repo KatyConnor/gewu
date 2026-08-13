@@ -5,6 +5,7 @@ import org.mybatis.spring.annotation.MapperScan;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
 import org.springframework.context.annotation.ComponentScan;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * 格物平台启动类.
@@ -15,6 +16,7 @@ import org.springframework.context.annotation.ComponentScan;
  */
 @SpringBootApplication
 @ComponentScan(basePackages = "com.gewu")
+@EnableScheduling
 @MapperScan(basePackages = "com.gewu.infrastructure.mapper", annotationClass = Mapper.class,
         sqlSessionFactoryRef = "sqlSessionFactory")
 public class GewuApplication {

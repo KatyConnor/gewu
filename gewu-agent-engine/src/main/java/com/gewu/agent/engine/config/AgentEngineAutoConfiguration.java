@@ -1,0 +1,435 @@
+package com.gewu.agent.engine.config;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gewu.agent.engine.budget.BudgetController;
+import com.gewu.agent.engine.cognition.ConfidenceGate;
+import com.gewu.agent.engine.cognition.DualSystemRouter;
+import com.gewu.agent.engine.cognition.EvolutionHook;
+import com.gewu.agent.engine.orchestration.AgentLifecycleManager;
+import com.gewu.agent.engine.scenario.ScenarioAdapterRegistry;
+import com.gewu.agent.engine.cognition.NoOpEvolutionHook;
+import com.gewu.agent.engine.cognition.NoOpReasoningKernel;
+import com.gewu.agent.engine.cognition.NoOpReflectionEngine;
+import com.gewu.agent.engine.cognition.ReasoningKernel;
+import com.gewu.agent.engine.cognition.ReflectionEngine;
+import com.gewu.agent.engine.core.AgentEngine;
+import com.gewu.agent.engine.core.AgentEngineConfig;
+import com.gewu.agent.engine.core.AgentExecutor;
+import com.gewu.agent.engine.core.ReactAgentExecutor;
+import com.gewu.agent.engine.hitl.HitlGateway;
+import com.gewu.agent.engine.hitl.NoOpHitlGateway;
+import com.gewu.agent.engine.llm.LlmClient;
+import com.gewu.agent.engine.llm.LlmClientRegistry;
+import com.gewu.agent.engine.llm.LlmProvider;
+import com.gewu.agent.engine.llm.LlmRequestBodyBuilder;
+import com.gewu.agent.engine.message.DefaultMessageBuilder;
+import com.gewu.agent.engine.message.MessageBuilder;
+import com.gewu.agent.engine.message.SystemPromptComposer;
+import com.gewu.agent.engine.mcp.McpServerConfigSource;
+import com.gewu.agent.engine.mcp.McpServerManager;
+import com.gewu.agent.engine.mcp.NoOpMcpServerConfigSource;
+import com.gewu.agent.engine.contract.ArtifactValidator;
+import com.gewu.agent.engine.orchestration.ConflictResolver;
+import com.gewu.agent.engine.verification.DualLoopVerifier;
+import com.gewu.agent.engine.orchestration.AutonomousExecutor;
+import com.gewu.agent.engine.orchestration.DefaultGoalPlanner;
+import com.gewu.agent.engine.orchestration.GoalPlanner;
+import com.gewu.agent.engine.orchestration.OrchestrationEngine;
+import com.gewu.agent.engine.orchestration.Orchestrator;
+import com.gewu.agent.engine.orchestration.role.NoOpRoleConfigSource;
+import com.gewu.agent.engine.orchestration.role.RoleConfigSource;
+import com.gewu.agent.engine.orchestration.role.RoleRegistry;
+import com.gewu.agent.engine.memory.MemoryRouter;
+import com.gewu.agent.engine.memory.MemoryStore;
+import com.gewu.agent.engine.memory.NoOpMemoryRouter;
+import com.gewu.agent.engine.memory.NoOpMemoryStore;
+import com.gewu.agent.engine.spi.ApiKeyDecryptor;
+import com.gewu.agent.engine.spi.AuditService;
+import com.gewu.agent.engine.spi.PermissionService;
+import com.gewu.agent.engine.spi.PersistenceService;
+import com.gewu.agent.engine.spi.SandboxExecutor;
+import com.gewu.agent.engine.spi.SessionContextService;
+import com.gewu.agent.engine.spi.defaults.NoOpApiKeyDecryptor;
+import com.gewu.agent.engine.spi.defaults.NoOpAuditService;
+import com.gewu.agent.engine.spi.defaults.NoOpLlmProvider;
+import com.gewu.agent.engine.spi.defaults.NoOpPermissionService;
+import com.gewu.agent.engine.spi.defaults.NoOpPersistenceService;
+import com.gewu.agent.engine.spi.defaults.NoOpSandboxExecutor;
+import com.gewu.agent.engine.spi.defaults.NoOpSessionContextService;
+import com.gewu.agent.engine.tool.NoOpToolConfigSource;
+import com.gewu.agent.engine.tool.Tool;
+import com.gewu.agent.engine.tool.ToolConfigSource;
+import com.gewu.agent.engine.tool.ToolExecutor;
+import com.gewu.agent.engine.tool.ToolRegistry;
+import com.gewu.agent.engine.tool.security.CodeScanner;
+import com.gewu.agent.engine.tool.security.DefaultCodeScanner;
+import com.gewu.agent.engine.tool.security.SchemaValidator;
+import com.gewu.agent.engine.tool.security.SecurityChain;
+import com.gewu.agent.engine.tool.security.SecurityCheck;
+import com.gewu.agent.engine.tool.security.SsrfValidator;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import java.net.http.HttpClient;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Agent 引擎自动配置。
+ * <p>装配 LLM 客户端注册中心、工具执行器、消息构建器、ReAct 执行器、Agent 引擎门面，
+ * 以及全部 SPI 的 NoOp 默认实现。使用方按需实现 SPI 接口注册为 Spring Bean 即可覆盖默认行为。
+ *
+ * @since 1.0.0
+ */
+@Configuration
+@EnableConfigurationProperties(AgentEngineProperties.class)
+public class AgentEngineAutoConfiguration {
+
+    // ==================== 基础设施 ====================
+
+    @Bean
+    @ConditionalOnMissingBean(name = "llmHttpClient")
+    public HttpClient llmHttpClient(AgentEngineProperties props) {
+        return HttpClient.newBuilder()
+                .connectTimeout(props.getLlm().getConnectTimeout())
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public LlmRequestBodyBuilder llmRequestBodyBuilder(ObjectMapper objectMapper) {
+        return new LlmRequestBodyBuilder(objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public LlmProvider llmProvider() {
+        return new NoOpLlmProvider();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public LlmClientRegistry llmClientRegistry(List<LlmClient> clients, LlmProvider provider,
+                                                ObjectMapper objectMapper, HttpClient llmHttpClient,
+                                                LlmRequestBodyBuilder bodyBuilder) {
+        return new LlmClientRegistry(clients, provider, objectMapper, llmHttpClient, bodyBuilder);
+    }
+
+    // ==================== 工具层 ====================
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SsrfValidator ssrfValidator(AgentEngineProperties props) {
+        return new SsrfValidator(props.getTool().getAllowedHosts());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public CodeScanner codeScanner() {
+        return new DefaultCodeScanner();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SchemaValidator schemaValidator(ObjectMapper objectMapper) {
+        return new SchemaValidator(objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SecurityChain securityChain(List<SecurityCheck> checks, SchemaValidator schemaValidator) {
+        List<SecurityCheck> all = new ArrayList<>(checks);
+        if (!all.contains(schemaValidator)) {
+            all.add(schemaValidator);
+        }
+        return new SecurityChain(all);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ToolRegistry toolRegistry(List<Tool> tools) {
+        return new ToolRegistry(tools);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ToolConfigSource toolConfigSource() {
+        return new NoOpToolConfigSource();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public McpServerConfigSource mcpServerConfigSource() {
+        return new NoOpMcpServerConfigSource();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public McpServerManager mcpServerManager(McpServerConfigSource configSource) {
+        return new McpServerManager(configSource);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ToolExecutor toolExecutor(ToolRegistry registry, SecurityChain securityChain,
+                                     PermissionService permissionService, AuditService auditService,
+                                     SandboxExecutor sandboxExecutor, McpServerManager mcpServerManager,
+                                     SsrfValidator ssrfValidator, CodeScanner codeScanner,
+                                     ObjectMapper objectMapper, AgentEngineProperties props) {
+        return new ToolExecutor(registry, securityChain, permissionService, auditService,
+                sandboxExecutor, mcpServerManager, ssrfValidator, codeScanner, objectMapper,
+                props.getTool().getMaxOutputSize(), props.getTool().getMaxRedirects(),
+                props.getTool().getDefaultTimeoutSeconds());
+    }
+
+    // ==================== SPI 默认实现 ====================
+
+    @Bean
+    @ConditionalOnMissingBean
+    public PersistenceService persistenceService() {
+        return new NoOpPersistenceService();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public PermissionService permissionService() {
+        return new NoOpPermissionService();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AuditService auditService() {
+        return new NoOpAuditService();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SessionContextService sessionContextService() {
+        return new NoOpSessionContextService();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SandboxExecutor sandboxExecutor() {
+        return new NoOpSandboxExecutor();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ApiKeyDecryptor apiKeyDecryptor() {
+        return new NoOpApiKeyDecryptor();
+    }
+
+    // ==================== 消息构建 ====================
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SystemPromptComposer systemPromptComposer() {
+        return new SystemPromptComposer();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public MessageBuilder messageBuilder(SystemPromptComposer composer) {
+        return new DefaultMessageBuilder(composer);
+    }
+
+    // ==================== 核心引擎 ====================
+
+    @Bean(destroyMethod = "shutdown")
+    @ConditionalOnMissingBean(name = "agentToolExecutor")
+    public ExecutorService agentToolExecutor(AgentEngineProperties props) {
+        AgentEngineProperties.Engine e = props.getEngine();
+        return new ThreadPoolExecutor(
+                e.getToolExecutorCorePoolSize(),
+                e.getToolExecutorMaxPoolSize(),
+                60L, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(e.getToolExecutorQueueCapacity()),
+                r -> {
+                    Thread t = new Thread(r, "agent-tool-exec");
+                    t.setDaemon(true);
+                    return t;
+                },
+                new ThreadPoolExecutor.CallerRunsPolicy());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AgentEngineConfig agentEngineConfig(AgentEngineProperties props,
+                                                ExecutorService agentToolExecutor) {
+        AgentEngineProperties.Engine e = props.getEngine();
+        return AgentEngineConfig.builder()
+                .maxToolRounds(e.getMaxToolRounds())
+                .defaultMaxTokens(e.getDefaultMaxTokens())
+                .defaultTemperature(e.getDefaultTemperature())
+                .toolExecutor(agentToolExecutor)
+                .defaultHistoryLimit(50)
+                .build();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AgentExecutor agentExecutor(LlmClientRegistry llmClientRegistry, ToolExecutor toolExecutor,
+                                       MessageBuilder messageBuilder, SessionContextService sessionContextService,
+                                       PersistenceService persistenceService, AgentEngineConfig config,
+                                       ObjectMapper objectMapper, MemoryRouter memoryRouter,
+                                       MemoryStore memoryStore, BudgetController budgetController) {
+        return new ReactAgentExecutor(llmClientRegistry, toolExecutor, messageBuilder,
+                sessionContextService, persistenceService, config, objectMapper, memoryRouter, memoryStore,
+                budgetController);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AgentEngine agentEngine(AgentExecutor executor) {
+        return new AgentEngine(executor);
+    }
+
+    // ==================== 记忆与认知 SPI ====================
+
+    @Bean
+    @ConditionalOnMissingBean
+    public BudgetController budgetController(AgentEngineProperties props) {
+        AgentEngineProperties.Engine e = props.getEngine();
+        return new BudgetController(
+                e.getDefaultMaxTokens() * 10L,
+                300_000L,
+                e.getMaxToolRounds());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ConfidenceGate confidenceGate() {
+        return new ConfidenceGate();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public MemoryStore memoryStore() {
+        return new NoOpMemoryStore();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public MemoryRouter memoryRouter() {
+        return new NoOpMemoryRouter();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ReasoningKernel reasoningKernel() {
+        return new NoOpReasoningKernel();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public EvolutionHook evolutionHook() {
+        return new NoOpEvolutionHook();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ReflectionEngine reflectionEngine() {
+        return new NoOpReflectionEngine();
+    }
+
+    // ==================== 编排引擎 ====================
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RoleConfigSource roleConfigSource() {
+        return new NoOpRoleConfigSource();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RoleRegistry roleRegistry(List<com.gewu.agent.engine.orchestration.role.AgentRoleSpec> specs,
+                                     RoleConfigSource configSource) {
+        var all = new ArrayList<com.gewu.agent.engine.orchestration.role.AgentRoleSpec>();
+        var external = configSource.loadRoles();
+        if (external != null) {
+            all.addAll(external);
+        }
+        if (specs != null) {
+            all.addAll(specs);
+        }
+        return new RoleRegistry(all);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public HitlGateway hitlGateway() {
+        return new NoOpHitlGateway();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public Orchestrator orchestrator(AgentExecutor executor) {
+        return new Orchestrator(executor);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public GoalPlanner goalPlanner() {
+        return new DefaultGoalPlanner();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AutonomousExecutor autonomousExecutor(GoalPlanner goalPlanner, Orchestrator orchestrator,
+                                                  EvolutionHook evolutionHook, ReasoningKernel reasoningKernel,
+                                                  ConfidenceGate confidenceGate) {
+        return new AutonomousExecutor(goalPlanner, orchestrator, evolutionHook, reasoningKernel,
+                confidenceGate, new DualLoopVerifier());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public OrchestrationEngine orchestrationEngine(Orchestrator orchestrator, GoalPlanner goalPlanner,
+                                                    AutonomousExecutor autonomousExecutor) {
+        return new OrchestrationEngine(orchestrator, goalPlanner, autonomousExecutor);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ConflictResolver conflictResolver(ReasoningKernel reasoningKernel, HitlGateway hitlGateway) {
+        return new ConflictResolver(reasoningKernel, hitlGateway);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ArtifactValidator artifactValidator(ObjectMapper objectMapper) {
+        return new ArtifactValidator(objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public DualSystemRouter dualSystemRouter() {
+        return new DualSystemRouter();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AgentLifecycleManager agentLifecycleManager() {
+        return new AgentLifecycleManager();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ScenarioAdapterRegistry scenarioAdapterRegistry() {
+        ScenarioAdapterRegistry registry = new ScenarioAdapterRegistry();
+        registry.register(ScenarioAdapterRegistry.DEFAULT);
+        registry.register(ScenarioAdapterRegistry.CODE_GENERATION);
+        registry.register(ScenarioAdapterRegistry.KNOWLEDGE_QA);
+        registry.register(ScenarioAdapterRegistry.ARCHITECTURE);
+        return registry;
+    }
+}
