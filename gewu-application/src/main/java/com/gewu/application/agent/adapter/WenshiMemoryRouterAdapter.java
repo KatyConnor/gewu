@@ -3,6 +3,7 @@ package com.gewu.application.agent.adapter;
 import com.gewu.agent.engine.llm.model.Message;
 import com.gewu.agent.engine.memory.MemoryRouter;
 import com.gewu.application.wenshi.knowledge.MemoryInjector;
+import com.gewu.application.wenshi.knowledge.WorkingMemoryService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -27,6 +28,7 @@ public class WenshiMemoryRouterAdapter implements MemoryRouter {
 
     private final com.gewu.application.wenshi.knowledge.MemoryRouter wenshiMemoryRouter;
     private final MemoryInjector memoryInjector;
+    private final WorkingMemoryService workingMemoryService;
 
     private static final String DEFAULT_TENANT = "default";
     private static final String SYSTEM_USER = "system";
@@ -46,7 +48,19 @@ public class WenshiMemoryRouterAdapter implements MemoryRouter {
             var routing = wenshiMemoryRouter.route(tenantId, SYSTEM_USER, "DEFAULT", taskInput);
             var plan = memoryInjector.prepareInjection(routing);
 
-            if (plan.getSummary() == null || plan.getSummary().isBlank()) {
+            // 附加工作记忆（会话内中间状态）
+            var workingMemories = workingMemoryService.getAll(tenantId);
+            StringBuilder summary = new StringBuilder();
+            if (plan.getSummary() != null && !plan.getSummary().isBlank()) {
+                summary.append(plan.getSummary());
+            }
+            if (!workingMemories.isEmpty()) {
+                summary.append("\n## 会话工作记忆\n");
+                workingMemories.forEach((k, v) ->
+                        summary.append("- ").append(k).append(": ").append(v).append("\n"));
+            }
+
+            if (summary.length() == 0) {
                 return messages;
             }
 
@@ -57,7 +71,7 @@ public class WenshiMemoryRouterAdapter implements MemoryRouter {
                     Message existing = result.get(i);
                     result.set(i, Message.builder()
                             .role("system")
-                            .content(existing.getContent() + "\n\n## 相关记忆\n" + plan.getSummary())
+                            .content(existing.getContent() + "\n\n## 相关记忆\n" + summary)
                             .build());
                     injected = true;
                     break;
@@ -66,7 +80,7 @@ public class WenshiMemoryRouterAdapter implements MemoryRouter {
             if (!injected) {
                 result.add(0, Message.builder()
                         .role("system")
-                        .content("## 相关记忆\n" + plan.getSummary())
+                        .content("## 相关记忆\n" + summary)
                         .build());
             }
             log.debug("WenshiMemoryRouterAdapter.inject: domain={}, taskInput={}, tokenEstimate={}",

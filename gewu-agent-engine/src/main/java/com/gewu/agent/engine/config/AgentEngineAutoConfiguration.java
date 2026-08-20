@@ -2,11 +2,25 @@ package com.gewu.agent.engine.config;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gewu.agent.engine.budget.BudgetController;
+import com.gewu.agent.engine.cognition.ArbiterEngine;
 import com.gewu.agent.engine.cognition.ConfidenceGate;
+import com.gewu.agent.engine.cognition.ComplexityRouter;
 import com.gewu.agent.engine.cognition.DualSystemRouter;
 import com.gewu.agent.engine.cognition.EvolutionHook;
+import com.gewu.agent.engine.cognition.NoOpArbiterEngine;
+import com.gewu.agent.engine.cognition.NoOpPerceptionEngine;
+import com.gewu.agent.engine.cognition.PerceptionEngine;
 import com.gewu.agent.engine.orchestration.AgentLifecycleManager;
+import com.gewu.agent.engine.orchestration.AntiRunawayGuard;
 import com.gewu.agent.engine.scenario.ScenarioAdapterRegistry;
+import com.gewu.agent.engine.spi.PolicyService;
+import com.gewu.agent.engine.spi.ResponseCache;
+import com.gewu.agent.engine.spi.TraceService;
+import com.gewu.agent.engine.spi.MetricService;
+import com.gewu.agent.engine.spi.ModelSelector;
+import com.gewu.agent.engine.tool.security.PromptInjectionDetector;
+import com.gewu.agent.engine.tool.security.OutputSanitizer;
+import com.gewu.agent.engine.tool.security.SecurityCheck;
 import com.gewu.agent.engine.cognition.NoOpEvolutionHook;
 import com.gewu.agent.engine.cognition.NoOpReasoningKernel;
 import com.gewu.agent.engine.cognition.NoOpReflectionEngine;
@@ -52,6 +66,7 @@ import com.gewu.agent.engine.spi.SessionContextService;
 import com.gewu.agent.engine.spi.defaults.NoOpApiKeyDecryptor;
 import com.gewu.agent.engine.spi.defaults.NoOpAuditService;
 import com.gewu.agent.engine.spi.defaults.NoOpLlmProvider;
+import com.gewu.agent.engine.spi.defaults.NoOpModelSelector;
 import com.gewu.agent.engine.spi.defaults.NoOpPermissionService;
 import com.gewu.agent.engine.spi.defaults.NoOpPersistenceService;
 import com.gewu.agent.engine.spi.defaults.NoOpSandboxExecutor;
@@ -62,11 +77,15 @@ import com.gewu.agent.engine.tool.ToolConfigSource;
 import com.gewu.agent.engine.tool.ToolExecutor;
 import com.gewu.agent.engine.tool.ToolRegistry;
 import com.gewu.agent.engine.tool.security.CodeScanner;
+import com.gewu.agent.engine.tool.security.CodeScannerCheck;
 import com.gewu.agent.engine.tool.security.DefaultCodeScanner;
+import com.gewu.agent.engine.tool.security.OutputSanitizer;
+import com.gewu.agent.engine.tool.security.PromptInjectionDetector;
 import com.gewu.agent.engine.tool.security.SchemaValidator;
 import com.gewu.agent.engine.tool.security.SecurityChain;
 import com.gewu.agent.engine.tool.security.SecurityCheck;
 import com.gewu.agent.engine.tool.security.SsrfValidator;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
@@ -103,9 +122,9 @@ public class AgentEngineAutoConfiguration {
                 .build();
     }
 
-    @Bean
+    @Bean("agentEngineLlmRequestBodyBuilder")
     @ConditionalOnMissingBean
-    public LlmRequestBodyBuilder llmRequestBodyBuilder(ObjectMapper objectMapper) {
+    public LlmRequestBodyBuilder agentEngineLlmRequestBodyBuilder(ObjectMapper objectMapper) {
         return new LlmRequestBodyBuilder(objectMapper);
     }
 
@@ -125,9 +144,9 @@ public class AgentEngineAutoConfiguration {
 
     // ==================== 工具层 ====================
 
-    @Bean
+    @Bean("agentEngineSsrfValidator")
     @ConditionalOnMissingBean
-    public SsrfValidator ssrfValidator(AgentEngineProperties props) {
+    public SsrfValidator agentEngineSsrfValidator(AgentEngineProperties props) {
         return new SsrfValidator(props.getTool().getAllowedHosts());
     }
 
@@ -155,6 +174,12 @@ public class AgentEngineAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
+    public CodeScannerCheck codeScannerCheck(CodeScanner codeScanner) {
+        return new CodeScannerCheck(codeScanner);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
     public ToolRegistry toolRegistry(List<Tool> tools) {
         return new ToolRegistry(tools);
     }
@@ -171,9 +196,9 @@ public class AgentEngineAutoConfiguration {
         return new NoOpMcpServerConfigSource();
     }
 
-    @Bean
+    @Bean("agentEngineMcpServerManager")
     @ConditionalOnMissingBean
-    public McpServerManager mcpServerManager(McpServerConfigSource configSource) {
+    public McpServerManager agentEngineMcpServerManager(McpServerConfigSource configSource) {
         return new McpServerManager(configSource);
     }
 
@@ -182,10 +207,9 @@ public class AgentEngineAutoConfiguration {
     public ToolExecutor toolExecutor(ToolRegistry registry, SecurityChain securityChain,
                                      PermissionService permissionService, AuditService auditService,
                                      SandboxExecutor sandboxExecutor, McpServerManager mcpServerManager,
-                                     SsrfValidator ssrfValidator, CodeScanner codeScanner,
                                      ObjectMapper objectMapper, AgentEngineProperties props) {
         return new ToolExecutor(registry, securityChain, permissionService, auditService,
-                sandboxExecutor, mcpServerManager, ssrfValidator, codeScanner, objectMapper,
+                sandboxExecutor, mcpServerManager, objectMapper,
                 props.getTool().getMaxOutputSize(), props.getTool().getMaxRedirects(),
                 props.getTool().getDefaultTimeoutSeconds());
     }
@@ -198,9 +222,9 @@ public class AgentEngineAutoConfiguration {
         return new NoOpPersistenceService();
     }
 
-    @Bean
+    @Bean("agentEnginePermissionService")
     @ConditionalOnMissingBean
-    public PermissionService permissionService() {
+    public PermissionService agentEnginePermissionService() {
         return new NoOpPermissionService();
     }
 
@@ -210,9 +234,9 @@ public class AgentEngineAutoConfiguration {
         return new NoOpAuditService();
     }
 
-    @Bean
+    @Bean("agentEngineSessionContextService")
     @ConditionalOnMissingBean
-    public SessionContextService sessionContextService() {
+    public SessionContextService agentEngineSessionContextService() {
         return new NoOpSessionContextService();
     }
 
@@ -281,10 +305,17 @@ public class AgentEngineAutoConfiguration {
                                        MessageBuilder messageBuilder, SessionContextService sessionContextService,
                                        PersistenceService persistenceService, AgentEngineConfig config,
                                        ObjectMapper objectMapper, MemoryRouter memoryRouter,
-                                       MemoryStore memoryStore, BudgetController budgetController) {
+                                       MemoryStore memoryStore, BudgetController budgetController,
+                                       PerceptionEngine perceptionEngine, ComplexityRouter complexityRouter,
+                                       TraceService traceService, MetricService metricService,
+                                       ResponseCache responseCache,
+                                       PromptInjectionDetector promptInjectionDetector,
+                                       OutputSanitizer outputSanitizer,
+                                       ModelSelector modelSelector) {
         return new ReactAgentExecutor(llmClientRegistry, toolExecutor, messageBuilder,
                 sessionContextService, persistenceService, config, objectMapper, memoryRouter, memoryStore,
-                budgetController);
+                budgetController, perceptionEngine, complexityRouter, traceService, metricService, responseCache,
+                promptInjectionDetector, outputSanitizer, modelSelector);
     }
 
     @Bean
@@ -317,9 +348,9 @@ public class AgentEngineAutoConfiguration {
         return new NoOpMemoryStore();
     }
 
-    @Bean
+    @Bean("agentEngineMemoryRouter")
     @ConditionalOnMissingBean
-    public MemoryRouter memoryRouter() {
+    public MemoryRouter agentEngineMemoryRouter() {
         return new NoOpMemoryRouter();
     }
 
@@ -372,8 +403,11 @@ public class AgentEngineAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public Orchestrator orchestrator(AgentExecutor executor) {
-        return new Orchestrator(executor);
+    public Orchestrator orchestrator(AgentExecutor executor, HitlGateway hitlGateway,
+                                      ObjectProvider<ConflictResolver> conflictResolverProvider,
+                                      ObjectProvider<ArtifactValidator> artifactValidatorProvider) {
+        return new Orchestrator(executor, hitlGateway,
+                conflictResolverProvider.getIfAvailable(), artifactValidatorProvider.getIfAvailable());
     }
 
     @Bean
@@ -386,9 +420,15 @@ public class AgentEngineAutoConfiguration {
     @ConditionalOnMissingBean
     public AutonomousExecutor autonomousExecutor(GoalPlanner goalPlanner, Orchestrator orchestrator,
                                                   EvolutionHook evolutionHook, ReasoningKernel reasoningKernel,
-                                                  ConfidenceGate confidenceGate) {
+                                                  ConfidenceGate confidenceGate,
+                                                  BudgetController budgetController,
+                                                  AntiRunawayGuard antiRunawayGuard,
+                                                  AgentLifecycleManager agentLifecycleManager,
+                                                  ArbiterEngine arbiterEngine,
+                                                  com.gewu.agent.engine.spi.TraceService traceService) {
         return new AutonomousExecutor(goalPlanner, orchestrator, evolutionHook, reasoningKernel,
-                confidenceGate, new DualLoopVerifier());
+                confidenceGate, new DualLoopVerifier(arbiterEngine), budgetController, antiRunawayGuard,
+                agentLifecycleManager, traceService);
     }
 
     @Bean
@@ -400,8 +440,9 @@ public class AgentEngineAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public ConflictResolver conflictResolver(ReasoningKernel reasoningKernel, HitlGateway hitlGateway) {
-        return new ConflictResolver(reasoningKernel, hitlGateway);
+    public ConflictResolver conflictResolver(ReasoningKernel reasoningKernel, HitlGateway hitlGateway,
+                                              ArbiterEngine arbiterEngine) {
+        return new ConflictResolver(reasoningKernel, hitlGateway, arbiterEngine);
     }
 
     @Bean
@@ -431,5 +472,81 @@ public class AgentEngineAutoConfiguration {
         registry.register(ScenarioAdapterRegistry.KNOWLEDGE_QA);
         registry.register(ScenarioAdapterRegistry.ARCHITECTURE);
         return registry;
+    }
+
+    // ==================== 阶段六：认知/治理/安全 SPI ====================
+
+    @Bean
+    @ConditionalOnMissingBean
+    public PerceptionEngine perceptionEngine() {
+        return new NoOpPerceptionEngine();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ArbiterEngine arbiterEngine() {
+        return new NoOpArbiterEngine();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ComplexityRouter complexityRouter(DualSystemRouter dualSystemRouter) {
+        return new ComplexityRouter(dualSystemRouter);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AntiRunawayGuard antiRunawayGuard(BudgetController budgetController) {
+        return new AntiRunawayGuard(budgetController);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public TraceService traceService() {
+        return new TraceService() {
+            @Override
+            public void recordTrace(String executionId, String nodeId, String phase, String action, String detail) {
+            }
+        };
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ResponseCache responseCache() {
+        return new ResponseCache() {};
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ModelSelector modelSelector() {
+        return new NoOpModelSelector();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public MetricService metricService() {
+        return new MetricService() {
+            @Override
+            public void recordMetric(String name, double value, java.util.Map<String, String> tags) {
+            }
+        };
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public PolicyService policyService() {
+        return new PolicyService() {};
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public PromptInjectionDetector promptInjectionDetector() {
+        return new PromptInjectionDetector();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public OutputSanitizer outputSanitizer() {
+        return new OutputSanitizer();
     }
 }

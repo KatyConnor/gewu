@@ -152,6 +152,13 @@ class PerformanceBenchmarkTest {
     }
 
     private void measure(String name, int iterations, ThrowingRunnable action, double p95LimitMs) throws Exception {
+        // 预热轮次：触发 JIT 编译 / 数据源懒加载 / Spring 代理类生成，
+        // 避免冷启动尖峰污染 P95 统计（基准测试标准做法）
+        int warmup = Math.min(10, iterations / 10);
+        for (int i = 0; i < warmup; i++) {
+            action.run();
+        }
+
         long[] times = new long[iterations];
         for (int i = 0; i < iterations; i++) {
             long start = System.nanoTime();

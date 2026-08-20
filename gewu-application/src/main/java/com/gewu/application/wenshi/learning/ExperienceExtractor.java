@@ -46,7 +46,7 @@ public class ExperienceExtractor {
         experience.setId(com.gewu.common.ulid.Ulid.next());
         experience.setTenantId(trace.getTenantId() != null ? trace.getTenantId() : "default");
         experience.setScenario(extractScenario(trace));
-        experience.setStrategy(trace.getTraceSteps());
+        experience.setStrategy(trace.getTraceSteps() != null ? trace.getTraceSteps() : "unknown");
         experience.setOutcome(determineOutcome(trace));
         experience.setScore(calculateScore(trace));
         experience.setSourceTask(trace.getTaskId());

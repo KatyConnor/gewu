@@ -5,6 +5,7 @@ import com.gewu.agent.engine.memory.MemoryStore;
 import com.gewu.application.wenshi.knowledge.EpisodicMemoryService;
 import com.gewu.application.wenshi.knowledge.ProceduralMemoryService;
 import com.gewu.application.wenshi.knowledge.SemanticMemoryService;
+import com.gewu.application.wenshi.knowledge.WorkingMemoryService;
 import com.gewu.domain.wenshi.knowledge.SemanticFragment;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -36,6 +37,7 @@ public class WenshiMemoryStoreAdapter implements MemoryStore {
     private final SemanticMemoryService semanticMemoryService;
     private final EpisodicMemoryService episodicMemoryService;
     private final ProceduralMemoryService proceduralMemoryService;
+    private final WorkingMemoryService workingMemoryService;
 
     private static final String DEFAULT_TENANT = "default";
     private static final String SYSTEM_USER = "system";
@@ -59,6 +61,10 @@ public class WenshiMemoryStoreAdapter implements MemoryStore {
                 case "procedural" -> proceduralMemoryService.registerSkill(
                         tenantId, "auto-" + (fragment.getId() != null ? fragment.getId() : "skill"),
                         fragment.getContent(), fragment.getContent(), "AGENT_ENGINE");
+                case "working" -> workingMemoryService.put(
+                        fragment.getDomain() != null ? fragment.getDomain() : DEFAULT_TENANT,
+                        fragment.getId() != null ? fragment.getId() : "wm-" + System.currentTimeMillis(),
+                        fragment.getContent());
                 default -> episodicMemoryService.record(
                         tenantId, SYSTEM_USER, null, "MEMORY_STORE", fragment.getContent(), null);
             }

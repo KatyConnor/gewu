@@ -27,6 +27,7 @@
         <module>gewu-application</module>
         <module>gewu-interface</module>
         <module>gewu-sandbox</module>
+        <module>gewu-agent-engine</module>
     </modules>
 
     <properties>
@@ -184,6 +185,11 @@
             <dependency>
                 <groupId>com.gewu</groupId>
                 <artifactId>gewu-sandbox</artifactId>
+                <version>${project.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>com.gewu</groupId>
+                <artifactId>gewu-agent-engine</artifactId>
                 <version>${project.version}</version>
             </dependency>
         </dependencies>

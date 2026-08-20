@@ -45,6 +45,7 @@ mybatis-plus:
 
 gewu:
   sandbox:
+    internal-api-key: ${GEWU_INTERNAL_API_KEY:gewu-dev-internal-key-change-me}
     docker:
       host: unix:///var/run/docker.sock
     defaults:

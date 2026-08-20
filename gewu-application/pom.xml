@@ -30,6 +30,10 @@
             <groupId>com.gewu</groupId>
             <artifactId>gewu-infrastructure</artifactId>
         </dependency>
+        <dependency>
+            <groupId>com.gewu</groupId>
+            <artifactId>gewu-agent-engine</artifactId>
+        </dependency>
 
         <!-- Spring Boot -->
         <dependency>

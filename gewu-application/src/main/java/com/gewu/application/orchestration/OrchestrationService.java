@@ -20,6 +20,7 @@ import com.gewu.infrastructure.mapper.OrchestrationExecutionMapper;
 import com.gewu.infrastructure.mapper.OrchestrationGraphMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
@@ -46,10 +47,15 @@ public class OrchestrationService {
     private final OrchestrationExecutionMapper executionMapper;
     private final ApprovalRequestMapper approvalMapper;
     private final ObjectMapper objectMapper;
+    private final com.gewu.application.governance.FourPhasePipeline fourPhasePipeline;
+    private final com.gewu.infrastructure.trace.OrchestrationTracer orchestrationTracer;
 
-    /** HITL 网关（可选注入，审批提交时恢复阻塞的 Mono） */
+    /** HITL 网关（延迟解析，避免与 DbHitlGatewayAdapter 循环依赖） */
     @Autowired(required = false)
-    private HitlGateway hitlGateway;
+    private ObjectProvider<HitlGateway> hitlGatewayProvider;
+
+    /** 在途执行上下文注册表：取消时提取最终状态快照（版本化变量 + 当前节点） */
+    private final Map<String, OrchestrationContext> liveContexts = new java.util.concurrent.ConcurrentHashMap<>();
 
     // ==================== 编排图 CRUD ====================
 
@@ -140,9 +146,20 @@ public class OrchestrationService {
         execEntity.setStatus("RUNNING");
         execEntity.setStartedAt(Instant.now().toEpochMilli());
         executionMapper.updateById(execEntity);
+        liveContexts.put(executionId, ctx);
 
         try {
-            OrchestrationResult result = orchestrationEngine.execute(graph, ctx);
+            // OTel 追踪：编排执行全生命周期根 Span（其下挂四环/LLM/工具子 Span）
+            io.micrometer.tracing.Span rootSpan = orchestrationTracer.startSpan(executionId, graphId, "orchestration_execute");
+            OrchestrationResult result;
+            try {
+                // 四环协同：运算环同步执行，评估/治理/审计环由管线异步触发
+                result = fourPhasePipeline.executeGraph(graph, ctx);
+                orchestrationTracer.endSpan(rootSpan);
+            } catch (RuntimeException e) {
+                orchestrationTracer.endSpanWithError(rootSpan, e);
+                throw e;
+            }
             updateExecutionResult(execEntity, result);
             executionMapper.updateById(execEntity);
             log.info("编排执行完成: executionId={}, status={}", executionId, result.getStatus());
@@ -153,6 +170,8 @@ public class OrchestrationService {
             executionMapper.updateById(execEntity);
             log.error("编排执行失败: executionId={}", executionId, e);
             throw e;
+        } finally {
+            liveContexts.remove(executionId);
         }
 
         return execEntity;
@@ -181,6 +200,7 @@ public class OrchestrationService {
         execEntity.setStatus("RUNNING");
         execEntity.setStartedAt(Instant.now().toEpochMilli());
         executionMapper.updateById(execEntity);
+        liveContexts.put(executionId, ctx);
 
         return orchestrationEngine.executeStream(graph, ctx)
                 .doOnNext(event -> {
@@ -193,6 +213,12 @@ public class OrchestrationService {
                     execEntity.setStatus("SUCCEEDED");
                     execEntity.setCompletedAt(Instant.now().toEpochMilli());
                     executionMapper.updateById(execEntity);
+                    liveContexts.remove(executionId);
+                    // 四环协同：流式成功完成后触发评估/治理/审计环
+                    fourPhasePipeline.postProcess(
+                            OrchestrationResult.success(executionId,
+                                    execEntity.getFinalOutput() != null ? execEntity.getFinalOutput() : ""),
+                            userId, sessionId, execEntity.getStartedAt() != null ? execEntity.getStartedAt() : 0L);
                     log.info("编排流式执行完成: executionId={}", executionId);
                 })
                 .doOnError(e -> {
@@ -200,12 +226,19 @@ public class OrchestrationService {
                     execEntity.setErrorMessage(e.getMessage());
                     execEntity.setCompletedAt(Instant.now().toEpochMilli());
                     executionMapper.updateById(execEntity);
+                    liveContexts.remove(executionId);
+                    // 四环协同：流式失败后触发评估/治理/审计环（治理环记录违规轨迹）
+                    fourPhasePipeline.postProcess(
+                            OrchestrationResult.failure(executionId, e.getMessage()),
+                            userId, sessionId, execEntity.getStartedAt() != null ? execEntity.getStartedAt() : 0L);
                     log.error("编排流式执行失败: executionId={}", executionId, e);
                 })
                 .doOnCancel(() -> {
+                    execEntity.setVariables(buildCancelSnapshot(ctx, execEntity));
                     execEntity.setStatus("CANCELLED");
                     execEntity.setCompletedAt(Instant.now().toEpochMilli());
                     executionMapper.updateById(execEntity);
+                    liveContexts.remove(executionId);
                     log.info("编排流式执行被取消: executionId={}", executionId);
                 });
     }
@@ -283,15 +316,39 @@ public class OrchestrationService {
     }
 
     /**
-     * 取消执行（标记状态为 CANCELLED，客户端断开连接后流式执行自动终止）。
+     * 取消执行：置 CANCELLED 前从在途上下文提取最终状态快照
+     * （VersionedContext 当前版本变量 + 当前节点），写入执行记录供事后审计与恢复分析。
      */
     public void cancelExecution(String executionId) {
         OrchestrationExecutionEntity entity = executionMapper.selectById(executionId);
         if (entity != null && ("RUNNING".equals(entity.getStatus()) || "PAUSED".equals(entity.getStatus()))) {
+            OrchestrationContext ctx = liveContexts.get(executionId);
+            if (ctx != null) {
+                entity.setVariables(buildCancelSnapshot(ctx, entity));
+            }
             entity.setStatus("CANCELLED");
             entity.setCompletedAt(Instant.now().toEpochMilli());
             executionMapper.updateById(entity);
+            liveContexts.remove(executionId);
             log.info("取消编排执行: executionId={}", executionId);
+        }
+    }
+
+    /**
+     * 构建取消时刻的上下文快照 JSON（版本号 + 变量终态 + 当前节点）。
+     */
+    private String buildCancelSnapshot(OrchestrationContext ctx, OrchestrationExecutionEntity entity) {
+        try {
+            Map<String, Object> snapshot = new HashMap<>();
+            snapshot.put("stateVersion", ctx.getStateVersion());
+            snapshot.put("variables", ctx.snapshotVariables());
+            if (entity.getCurrentNodeId() != null) {
+                snapshot.put("currentNodeId", entity.getCurrentNodeId());
+            }
+            return objectMapper.writeValueAsString(snapshot);
+        } catch (Exception e) {
+            log.warn("取消快照序列化失败: executionId={}", entity.getId(), e);
+            return entity.getVariables();
         }
     }
 
@@ -351,13 +408,16 @@ public class OrchestrationService {
      * 通知 HITL 网关决策已提交，恢复阻塞的 Mono。
      */
     private void notifyHitlGateway(String approvalId, String decision, String operatorId, String value) {
-        if (hitlGateway != null) {
+        if (hitlGatewayProvider != null) {
             try {
-                hitlGateway.submitDecision(approvalId, HumanDecision.builder()
-                        .decision(decision)
-                        .value(value)
-                        .operatorId(operatorId != null ? operatorId : "system")
-                        .build());
+                HitlGateway gateway = hitlGatewayProvider.getIfAvailable();
+                if (gateway != null) {
+                    gateway.submitDecision(approvalId, HumanDecision.builder()
+                            .decision(decision)
+                            .value(value)
+                            .operatorId(operatorId != null ? operatorId : "system")
+                            .build());
+                }
             } catch (Exception e) {
                 log.debug("notifyHitlGateway failed (可能非 HITL 场景): {}", e.getMessage());
             }

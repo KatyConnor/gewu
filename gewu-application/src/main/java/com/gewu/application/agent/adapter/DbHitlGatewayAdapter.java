@@ -6,8 +6,8 @@ import com.gewu.agent.engine.hitl.HumanDecision;
 import com.gewu.application.orchestration.OrchestrationService;
 import com.gewu.application.sse.SseEventManager;
 import com.gewu.common.ulid.Ulid;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Mono;
@@ -21,18 +21,25 @@ import java.util.concurrent.TimeUnit;
  * HitlGateway SPI 适配器 - 桥接审批表 + SSE 通知实现真实人工介入流程。
  * <p>请求审批时创建 DB 审批记录并通过 SSE 推送通知；人工决策通过 {@link OrchestrationService}
  * 的 approve/reject 回调注入，恢复阻塞的 Mono。
+ * <p>注意：{@link OrchestrationService} 通过 {@link ObjectProvider} 延迟解析，
+ * 避免 OrchestrationService -> OrchestrationEngine -> Orchestrator -> HitlGateway -> 本类 -> OrchestrationService 循环依赖。
  * <p>启用条件：{@code agent.engine.adapter.enabled=true}
  *
  * @since 1.0.0
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 @ConditionalOnProperty(name = "agent.engine.adapter.enabled", havingValue = "true")
 public class DbHitlGatewayAdapter implements HitlGateway {
 
-    private final OrchestrationService orchestrationService;
+    private final ObjectProvider<OrchestrationService> orchestrationServiceProvider;
     private final SseEventManager sseEventManager;
+
+    public DbHitlGatewayAdapter(ObjectProvider<OrchestrationService> orchestrationServiceProvider,
+                                 SseEventManager sseEventManager) {
+        this.orchestrationServiceProvider = orchestrationServiceProvider;
+        this.sseEventManager = sseEventManager;
+    }
 
     /** 待审批 Mono Sink 注册表（approvalId -> Sink），用于异步恢复阻塞的 Mono */
     private final Map<String, Sinks.One<HumanDecision>> pendingApprovals = new ConcurrentHashMap<>();
@@ -45,14 +52,17 @@ public class DbHitlGatewayAdapter implements HitlGateway {
         String approvalId = request.getApprovalId() != null ? request.getApprovalId() : Ulid.next();
         request.setApprovalId(approvalId);
 
-        // 创建 DB 审批记录
+        // 创建 DB 审批记录（延迟解析 OrchestrationService，打破循环依赖）
         int timeoutMinutes = request.getTimeoutSeconds() != null ? request.getTimeoutSeconds() / 60 : 30;
-        orchestrationService.createApproval(
-                request.getExecutionId(),
-                request.getNodeId(),
-                mapType(request.getType()),
-                request.getSummary(),
-                timeoutMinutes);
+        OrchestrationService orchestrationService = orchestrationServiceProvider.getIfAvailable();
+        if (orchestrationService != null) {
+            orchestrationService.createApproval(
+                    request.getExecutionId(),
+                    request.getNodeId(),
+                    mapType(request.getType()),
+                    request.getSummary(),
+                    timeoutMinutes);
+        }
 
         // 建立 Mono Sink 等待人工决策
         Sinks.One<HumanDecision> sink = Sinks.one();

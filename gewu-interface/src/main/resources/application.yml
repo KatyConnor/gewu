@@ -172,6 +172,7 @@ gewu:
     image: gewu/sandbox:latest
     api:
       url: http://localhost:8082/api/v1/sandboxes
+      internal-key: ${GEWU_INTERNAL_API_KEY:gewu-dev-internal-key-change-me}
 
   ai:
     gateway:
@@ -203,6 +204,27 @@ management:
       enabled: true
     health:
       show-details: always
+
+  # OpenTelemetry 分布式追踪导出（L2 应用层可观测性）
+  # actuator 使用 OTLP HTTP 协议（okhttp），端口应为 4318（4317 是 gRPC 端口）
+  # 默认关闭导出：本地未启动 Jaeger 时避免持续报 ConnectException
+  # 启用方式：OTEL_TRACING_ENABLED=true + 启动 deploy/monitoring 的 Jaeger（或 K8s 环境自带）
+  tracing:
+    sampling:
+      probability: ${OTEL_TRACING_SAMPLING_PROBABILITY:1.0}
+  otlp:
+    tracing:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}
+      export:
+        enabled: ${OTEL_TRACING_ENABLED:false}
+
+# OpenTelemetry SDK 说明：OTel SDK 自动装配读取 OTEL_* 环境变量/系统属性，不读取此 yaml；
+# 此处仅为环境变量取值参考（默认值已在上方 management.otlp 中生效）
+otel:
+  exporter:
+    otlp:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}
+      protocol: http/protobuf
 
 # SpringDoc 配置
 springdoc:

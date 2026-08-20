@@ -1,7 +1,7 @@
 package com.gewu.agent.engine.orchestration;
 
+import com.gewu.agent.engine.cognition.ArbiterEngine;
 import com.gewu.agent.engine.cognition.ReasoningKernel;
-import com.gewu.agent.engine.cognition.ReasoningResult;
 import com.gewu.agent.engine.hitl.HitlGateway;
 import com.gewu.agent.engine.hitl.HumanDecision;
 import lombok.AllArgsConstructor;
@@ -33,6 +33,7 @@ public class ConflictResolver {
 
     private final ReasoningKernel reasoningKernel;
     private final HitlGateway hitlGateway;
+    private final ArbiterEngine arbiterEngine;
 
     /**
      * 解决冲突。
@@ -69,22 +70,23 @@ public class ConflictResolver {
             }
         }
 
-        // 策略3: LLM 仲裁
+        // 策略3: LLM 仲裁（委托 ArbiterEngine 多采样仲裁，使用真实 winnerIndex）
         if ("semantic".equals(conflict.getType())) {
             try {
                 String proposals = conflict.getParties().stream()
-                        .map(p -> p.getAgentId() + ": " + p.getProposal())
+                        .map(p -> p != null && p.getProposal() != null ? p.getProposal() : "")
                         .reduce((a, b) -> a + "\n" + b)
                         .orElse("");
-                ReasoningResult result = reasoningKernel.critique(
-                        "冲突场景: " + conflict.getDescription() + "\n候选方案:\n" + proposals,
-                        List.of("选择最优方案"));
-                if (result.isAccepted()) {
-                    // 仲裁选定第一个方案作为胜者（简化实现）
-                    ConflictParty winner = conflict.getParties().get(0);
-                    log.debug("ConflictResolver LLM仲裁: winner={}, verdict={}", winner.getAgentId(), result.getVerdict());
+                var arbitration = arbiterEngine.arbitrate(
+                        "冲突场景: " + conflict.getDescription(), List.of(proposals.split("\n")));
+                int winnerIdx = arbitration.getWinnerIndex();
+                if (winnerIdx >= 0 && winnerIdx < conflict.getParties().size()) {
+                    ConflictParty winner = conflict.getParties().get(winnerIdx);
+                    log.debug("ConflictResolver LLM仲裁: winner={}, confidence={}",
+                            winner.getAgentId(), arbitration.getConfidence());
                     return Mono.just(ConflictResolution.builder()
-                            .winner(winner).method("llm_arbitration").verdict(result.getVerdict()).build());
+                            .winner(winner).method("llm_arbitration")
+                            .verdict(arbitration.getDecision()).build());
                 }
             } catch (Exception e) {
                 log.debug("ConflictResolver LLM仲裁失败: {}", e.getMessage());

@@ -3,8 +3,8 @@ package com.gewu.infrastructure.cache;
 import com.gewu.infrastructure.wenshi.adapter.EmbeddingAdapter;
 import com.gewu.infrastructure.wenshi.adapter.VectorStoreAdapter;
 import com.gewu.infrastructure.wenshi.adapter.VectorStoreAdapter.VectorFragment;
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.stereotype.Component;
 
 import java.util.HashMap;
@@ -15,22 +15,28 @@ import java.util.Map;
  * 语义缓存 - 通过向量相似度查找可复用的 LLM 响应。
  * <p>非精确匹配，以 Embedding 相似度 ≥ 阈值判定缓存命中。
  * 按场景决定 TTL：知识问答 24h / 代码生成 1h / 默认 5min。
+ * <p>当向量基础设施（EmbeddingAdapter/VectorStoreAdapter）不可用时优雅降级为直通（不缓存）。
  *
  * @since 1.0.0
  */
 @Slf4j
 @Component
-@RequiredArgsConstructor
 public class SemanticCache {
 
-    private final EmbeddingAdapter embeddingAdapter;
-    private final VectorStoreAdapter vectorStoreAdapter;
+    private final ObjectProvider<EmbeddingAdapter> embeddingAdapterProvider;
+    private final ObjectProvider<VectorStoreAdapter> vectorStoreAdapterProvider;
 
     /** 缓存命中相似度阈值 */
     private static final double SIMILARITY_THRESHOLD = 0.95;
 
     /** 缓存命名空间（在 wenshi_semantic_fragment 中用 source 隔离） */
     private static final String CACHE_SOURCE = "SEMANTIC_CACHE";
+
+    public SemanticCache(ObjectProvider<EmbeddingAdapter> embeddingAdapterProvider,
+                         ObjectProvider<VectorStoreAdapter> vectorStoreAdapterProvider) {
+        this.embeddingAdapterProvider = embeddingAdapterProvider;
+        this.vectorStoreAdapterProvider = vectorStoreAdapterProvider;
+    }
 
     /**
      * 查找语义缓存。
@@ -41,16 +47,18 @@ public class SemanticCache {
      * @return 缓存命中则返回响应内容，未命中返回 null
      */
     public String get(String prompt, Map<String, Object> context, String tenantId) {
-        if (prompt == null || prompt.isBlank()) return null;
+        VectorStoreAdapter store = vectorStoreAdapterProvider.getIfAvailable();
+        EmbeddingAdapter embedder = embeddingAdapterProvider.getIfAvailable();
+        if (store == null || embedder == null || prompt == null || prompt.isBlank()) return null;
         try {
-            float[] queryVector = embeddingAdapter.embed(prompt);
+            float[] queryVector = embedder.embed(prompt);
             Map<String, Object> filters = new HashMap<>();
             filters.put("tenantId", tenantId != null ? tenantId : "default");
             filters.put("source", CACHE_SOURCE);
 
-            List<VectorFragment> candidates = vectorStoreAdapter.search(queryVector, 3, filters);
+            List<VectorFragment> candidates = store.search(queryVector, 3, filters);
             for (VectorFragment candidate : candidates) {
-                double similarity = cosineSimilarity(queryVector, embeddingAdapter.embed(candidate.getContent()));
+                double similarity = cosineSimilarity(queryVector, embedder.embed(candidate.getContent()));
                 if (similarity >= SIMILARITY_THRESHOLD) {
                     // 缓存内容的后半部分是响应（以特殊分隔符存储）
                     String content = candidate.getContent();
@@ -76,16 +84,19 @@ public class SemanticCache {
      * @param tenantId  租户 ID
      */
     public void put(String prompt, String response, String tenantId) {
-        if (prompt == null || prompt.isBlank() || response == null || response.isBlank()) return;
+        VectorStoreAdapter store = vectorStoreAdapterProvider.getIfAvailable();
+        EmbeddingAdapter embedder = embeddingAdapterProvider.getIfAvailable();
+        if (store == null || embedder == null
+                || prompt == null || prompt.isBlank() || response == null || response.isBlank()) return;
         try {
-            float[] vector = embeddingAdapter.embed(prompt);
+            float[] vector = embedder.embed(prompt);
             // 缓存内容格式：prompt\n===CACHE_RESPONSE===\nresponse
             String content = prompt + "\n===CACHE_RESPONSE===\n" + response;
             Map<String, Object> metadata = new HashMap<>();
             metadata.put("tenantId", tenantId != null ? tenantId : "default");
             metadata.put("source", CACHE_SOURCE);
 
-            vectorStoreAdapter.upsert(List.of(VectorFragment.builder()
+            store.upsert(List.of(VectorFragment.builder()
                     .id(java.util.UUID.randomUUID().toString())
                     .content(content)
                     .embedding(vector)

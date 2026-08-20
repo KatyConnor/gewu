@@ -32,6 +32,36 @@ services:
     volumes:
       - grafana-data:/var/lib/grafana
       - ./grafana/dashboards:/var/lib/grafana/dashboards
+      # Provisioning：数据源与看板自动加载（L1 日志层 Loki + L2 指标层 Prometheus）
+      - ./grafana/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana/provisioning:/etc/grafana/provisioning/dashboards
+    networks:
+      - monitoring
+
+  # L1 日志层：Loki 日志聚合（Promtail 采集 Spring Boot 日志推送至此）
+  loki:
+    image: grafana/loki:2.9.0
+    container_name: gewu-loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    volumes:
+      - loki-data:/loki
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - monitoring
+
+  # L1 日志层：Promtail 采集容器/应用日志并推送 Loki
+  promtail:
+    image: grafana/promtail:2.9.0
+    container_name: gewu-promtail
+    restart: unless-stopped
+    volumes:
+      - ./promtail/promtail-config.yml:/etc/promtail/config.yml
+      - /var/log/gewu:/var/log/gewu:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - promtail-positions:/tmp
+    command: -config.file=/etc/promtail/config.yml
     networks:
       - monitoring
 
@@ -87,9 +117,26 @@ services:
     networks:
       - monitoring
 
+  # L2 链路追踪层：Jaeger 接收 OTLP spans（应用侧设置 OTEL_TRACING_ENABLED=true 启用导出）
+  # UI 访问：http://localhost:16686
+  jaeger:
+    image: jaegertracing/all-in-one:latest
+    container_name: gewu-jaeger
+    restart: unless-stopped
+    ports:
+      - "4317:4317"    # OTLP gRPC
+      - "4318:4318"    # OTLP HTTP（Spring Boot actuator 导出使用此端口）
+      - "16686:16686"  # Jaeger UI
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+    networks:
+      - monitoring
+
 volumes:
   prometheus-data:
   grafana-data:
+  loki-data:
+  promtail-positions:
 
 networks:
   monitoring:

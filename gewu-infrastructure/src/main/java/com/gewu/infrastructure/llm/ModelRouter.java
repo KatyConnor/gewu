@@ -99,6 +99,16 @@ public class ModelRouter {
         return ModelChoice.of(cheapestModel, "budget_degrade");
     }
 
+    /**
+     * 查询模型特征（供应商代码 / 等级 / 成本），供桥接层解析 provider。
+     *
+     * @param modelId 模型 ID
+     * @return 模型特征（未注册返回 null）
+     */
+    public ModelFeatures features(String modelId) {
+        return modelRegistry.get(modelId);
+    }
+
     private int complexityToTier(int complexity) {
         if (complexity <= 2) return 1;  // 简单任务 → Tier 1 模型
         if (complexity <= 5) return 2;  // 中等任务 → Tier 2 模型

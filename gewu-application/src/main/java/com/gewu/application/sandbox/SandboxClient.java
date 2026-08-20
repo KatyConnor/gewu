@@ -6,6 +6,7 @@ import com.gewu.common.dto.sandbox.CreateSandboxCommand;
 import com.gewu.common.dto.sandbox.ExecCommandRequest;
 import com.gewu.common.dto.sandbox.ExecCommandResponse;
 import com.gewu.common.dto.sandbox.ExecuteCodeRequest;
+import com.gewu.common.dto.sandbox.RenewExpireRequest;
 import com.gewu.common.dto.sandbox.SandboxDTO;
 import com.gewu.common.result.BusinessException;
 import com.gewu.common.result.ResultCode;
@@ -22,6 +23,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -42,6 +44,12 @@ public class SandboxClient {
 
     @Value("${gewu.sandbox.api.url:http://localhost:8082/api/v1/sandboxes}")
     private String baseUrl;
+
+    /** 与沙箱服务 SandboxSecurityConfig 中的认证头保持一致 */
+    private static final String INTERNAL_API_KEY_HEADER = "X-Internal-Api-Key";
+
+    @Value("${gewu.sandbox.api.internal-key:}")
+    private String internalApiKey;
 
     // ==================== 沙箱生命周期 ====================
 
@@ -65,6 +73,47 @@ public class SandboxClient {
         return postAndParse("/" + sandboxId + "/stop", null, SandboxDTO.class);
     }
 
+    /** 获取所有沙箱列表 */
+    public List<SandboxDTO> listSandboxes() {
+        try {
+            HttpRequest request = authorized(HttpRequest.newBuilder())
+                    .uri(URI.create(baseUrl))
+                    .timeout(Duration.ofSeconds(30))
+                    .GET()
+                    .build();
+            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+            return parseResult(response, new TypeReference<List<SandboxDTO>>() {});
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw BusinessException.of(ResultCode.SYSTEM_ERROR, "沙箱服务调用异常: " + e.getMessage());
+        }
+    }
+
+    /** 销毁指定沙箱 */
+    public void deleteSandbox(String sandboxId) {
+        try {
+            HttpRequest request = authorized(HttpRequest.newBuilder())
+                    .uri(URI.create(baseUrl + "/" + sandboxId))
+                    .timeout(Duration.ofSeconds(30))
+                    .DELETE()
+                    .build();
+            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                throw BusinessException.of(ResultCode.SYSTEM_ERROR, "销毁沙箱失败: " + response.statusCode());
+            }
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw BusinessException.of(ResultCode.SYSTEM_ERROR, "销毁沙箱异常: " + e.getMessage());
+        }
+    }
+
+    /** 沙箱续期（更新过期时间） */
+    public SandboxDTO renewExpire(String sandboxId, RenewExpireRequest expireRequest) {
+        return putAndParse("/" + sandboxId + "/expire", expireRequest, SandboxDTO.class);
+    }
+
     /** 执行命令 */
     public ExecCommandResponse execCommand(String sandboxId, String command, Integer timeout) {
         ExecCommandRequest request = new ExecCommandRequest();
@@ -85,7 +134,7 @@ public class SandboxClient {
     /** 销毁项目关联的沙箱 */
     public void destroyProjectSandboxes(String projectId) {
         try {
-            HttpRequest request = HttpRequest.newBuilder()
+            HttpRequest request = authorized(HttpRequest.newBuilder())
                     .uri(URI.create(baseUrl + "/project/" + projectId))
                     .timeout(Duration.ofSeconds(10))
                     .DELETE()
@@ -107,7 +156,7 @@ public class SandboxClient {
     /** 读取容器内文件内容 */
     public String readFile(String sandboxId, String path) {
         try {
-            HttpRequest request = HttpRequest.newBuilder()
+            HttpRequest request = authorized(HttpRequest.newBuilder())
                     .uri(URI.create(baseUrl + "/" + sandboxId + "/files/read?path=" + encode(path)))
                     .timeout(Duration.ofSeconds(30))
                     .GET()
@@ -150,7 +199,7 @@ public class SandboxClient {
         System.arraycopy(footer, 0, body, header.length + fileBytes.length, footer.length);
 
         try {
-            HttpRequest request = HttpRequest.newBuilder()
+            HttpRequest request = authorized(HttpRequest.newBuilder())
                     .uri(URI.create(baseUrl + "/" + sandboxId + "/files/upload"))
                     .timeout(Duration.ofSeconds(60))
                     .header("Content-Type", "multipart/form-data; boundary=" + boundary)
@@ -171,7 +220,7 @@ public class SandboxClient {
     /** 从容器下载文件 */
     public byte[] downloadFile(String sandboxId, String path) {
         try {
-            HttpRequest request = HttpRequest.newBuilder()
+            HttpRequest request = authorized(HttpRequest.newBuilder())
                     .uri(URI.create(baseUrl + "/" + sandboxId + "/files/download?path=" + encode(path)))
                     .timeout(Duration.ofSeconds(30))
                     .GET()
@@ -191,10 +240,18 @@ public class SandboxClient {
 
     // ==================== 内部辅助 ====================
 
+    /** 为请求构建器附加内部服务认证头，沙箱服务据此做服务间认证 */
+    private HttpRequest.Builder authorized(HttpRequest.Builder builder) {
+        if (internalApiKey != null && !internalApiKey.isEmpty()) {
+            return builder.header(INTERNAL_API_KEY_HEADER, internalApiKey);
+        }
+        return builder;
+    }
+
     private <T> T postAndParse(String path, Object body, Class<T> type) {
         try {
             String json = body != null ? objectMapper.writeValueAsString(body) : "";
-            HttpRequest request = HttpRequest.newBuilder()
+            HttpRequest request = authorized(HttpRequest.newBuilder())
                     .uri(URI.create(baseUrl + path))
                     .timeout(Duration.ofSeconds(120))
                     .header("Content-Type", "application/json")
@@ -211,10 +268,28 @@ public class SandboxClient {
 
     private <T> T getAndParse(String path, Class<T> type) {
         try {
-            HttpRequest request = HttpRequest.newBuilder()
+            HttpRequest request = authorized(HttpRequest.newBuilder())
                     .uri(URI.create(baseUrl + path))
                     .timeout(Duration.ofSeconds(30))
                     .GET()
+                    .build();
+            HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
+            return parseResult(response, type);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw BusinessException.of(ResultCode.SYSTEM_ERROR, "沙箱服务调用异常: " + e.getMessage());
+        }
+    }
+
+    private <T> T putAndParse(String path, Object body, Class<T> type) {
+        try {
+            String json = body != null ? objectMapper.writeValueAsString(body) : "";
+            HttpRequest request = authorized(HttpRequest.newBuilder())
+                    .uri(URI.create(baseUrl + path))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Content-Type", "application/json")
+                    .PUT(HttpRequest.BodyPublishers.ofString(json))
                     .build();
             HttpResponse<String> response = HTTP_CLIENT.send(request, HttpResponse.BodyHandlers.ofString());
             return parseResult(response, type);
@@ -242,6 +317,31 @@ public class SandboxClient {
             }
             Object data = result.get("data");
             if (data == null || type == Void.class) return null;
+            return objectMapper.convertValue(data, type);
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw BusinessException.of(ResultCode.SYSTEM_ERROR, "沙箱响应解析失败: " + e.getMessage());
+        }
+    }
+
+    /** 支持泛型集合（如 List&lt;SandboxDTO&gt;）的响应解析 */
+    private <T> T parseResult(HttpResponse<String> response, TypeReference<T> type) {
+        if (response.statusCode() != 200) {
+            log.error("沙箱服务 HTTP 错误: status={}, body={}", response.statusCode(), response.body());
+            throw BusinessException.of(ResultCode.SYSTEM_ERROR,
+                    "沙箱服务返回 " + response.statusCode());
+        }
+        try {
+            Map<String, Object> result = objectMapper.readValue(response.body(),
+                    new TypeReference<Map<String, Object>>() {});
+            Integer code = (Integer) result.get("code");
+            if (code == null || code != 10000) {
+                String msg = result.getOrDefault("message", "未知错误").toString();
+                throw BusinessException.of(ResultCode.SYSTEM_ERROR, "沙箱服务: " + msg);
+            }
+            Object data = result.get("data");
+            if (data == null) return null;
             return objectMapper.convertValue(data, type);
         } catch (BusinessException e) {
             throw e;

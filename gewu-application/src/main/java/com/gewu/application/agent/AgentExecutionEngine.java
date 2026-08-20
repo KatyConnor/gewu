@@ -1,343 +1,152 @@
 package com.gewu.application.agent;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.gewu.application.agent.dto.AgentChunk;
 import com.gewu.application.agent.dto.AgentExecutionRequest;
-import com.gewu.application.agent.dto.ToolResult;
-import com.gewu.application.ai.ModelConfigService;
-import com.gewu.application.session.SessionContextService;
+import com.gewu.agent.engine.core.AgentExecutor;
+import com.gewu.agent.engine.core.AgentTask;
+import com.gewu.agent.engine.core.event.AgentEvent;
+import com.gewu.common.context.UserContext;
 import com.gewu.common.result.BusinessException;
 import com.gewu.common.result.ResultCode;
 import com.gewu.domain.agent.Agent;
-import com.gewu.domain.agent.AgentTool;
 import com.gewu.domain.session.Session;
-import com.gewu.infrastructure.llm.*;
+import com.gewu.infrastructure.llm.LlmResponse;
+import com.gewu.infrastructure.llm.ToolCall;
 import com.gewu.infrastructure.mapper.AgentMapper;
-import com.gewu.infrastructure.mapper.AgentToolMapper;
 import com.gewu.infrastructure.mapper.SessionMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
-import reactor.core.publisher.Mono;
 
-import java.util.ArrayList;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.concurrent.ArrayBlockingQueue;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.ThreadPoolExecutor;
-import java.util.concurrent.TimeUnit;
-
+/**
+ * Agent 执行引擎 - 双引擎收敛后的统一入口。
+ * <p>原先在此类内维护一套与 agent-engine 重复的 ReAct 循环（无安全/记忆/预算/路由能力），
+ * 现委托给框架 {@link ReactAgentExecutor}（经 {@link AgentExecutor} SPI 注入），
+ * 聊天主链路由此获得安全纵深五层、记忆注入、预算熔断、感知与模型路由、语义缓存与执行统计。
+ * 对外契约（infrastructure LlmResponse / AgentChunk 事件流）保持不变，前端与调用方无感。
+ *
+ * @since 1.0.0
+ */
 @Slf4j
 @Service
 @RequiredArgsConstructor
 public class AgentExecutionEngine {
 
-    private static final int MAX_TOOL_ROUNDS = 10;
-    private static final int DEFAULT_HISTORY_LIMIT = 50;
-    /**
-     * 默认 max_tokens 上限。推理模型（LongCat-2.0、DeepSeek-R1 等）的 reasoning_content
-     * token 计入此上限，因此需要足够额度让模型在推理后仍能输出正式回复。
-     * 可被 model_config.model_params 中的 max_tokens 覆盖。
-     */
-    private static final int DEFAULT_MAX_TOKENS = 8192;
-    
-    // CR-022: 使用有界队列和拒绝策略，避免无界队列导致内存溢出
-    // 核心线程数 8，最大线程数 16，队列容量 100，拒绝策略为 CallerRunsPolicy（降级到调用者线程执行）
-    private static final ExecutorService TOOL_EXECUTOR = new ThreadPoolExecutor(
-            8,                                          // corePoolSize
-            16,                                         // maximumPoolSize
-            60L, TimeUnit.SECONDS,                      // keepAliveTime
-            new ArrayBlockingQueue<>(100),              // workQueue (有界队列)
-            r -> {
-                Thread t = new Thread(r, "tool-exec");
-                t.setDaemon(true);
-                return t;
-            },
-            new ThreadPoolExecutor.CallerRunsPolicy()   // 拒绝策略：队列满时由调用者线程执行
-    );
-
-    private final LlmClientFactory llmClientFactory;
-    private final ToolExecutionService toolExecutionService;
-    private final SessionContextService sessionContextService;
-    private final AgentMapper agentMapper;
-    private final AgentToolMapper agentToolMapper;
-    private final SessionMapper sessionMapper;
-    private final ModelConfigService modelConfigService;
+    private final AgentExecutor agentExecutor;
     private final AgentMessageBuilder messageBuilder;
-    private final AgentContextBuilder contextBuilder;
+    private final AgentMapper agentMapper;
+    private final SessionMapper sessionMapper;
 
     /**
-     * 解析模型的 max_tokens：优先从 model_config.model_params 读取，未配置时使用默认值。
+     * 同步执行：委托 ReactAgentExecutor 全链路（安全/记忆/预算/路由），映射回 legacy 响应结构。
      */
-    private int resolveMaxTokens(String modelId) {
-        Integer configured = modelConfigService.getMaxTokensByModelId(modelId);
-        if (configured != null && configured > 0) {
-            return configured;
-        }
-        return DEFAULT_MAX_TOKENS;
-    }
-
     public LlmResponse executeAgent(AgentExecutionRequest request) {
-        log.info("同步对话请求: agentId={}, model={}, agentMode={}, thinkingStyle={}, messageLen={}",
+        log.info("同步对话请求(收敛引擎): agentId={}, model={}, agentMode={}, messageLen={}",
                 request.getAgentId(), request.getModel(), request.getAgentMode(),
-                request.getThinkingStyle(), request.getMessage() != null ? request.getMessage().length() : 0);
+                request.getMessage() != null ? request.getMessage().length() : 0);
 
-        String agentId = resolveAgentId(request.getAgentId(), request.getSessionId());
-        Agent agent = loadAgent(agentId);
-        String[] pm = messageBuilder.resolveProviderAndModel(agent, request.getModel());
-        log.info("解析供应商: provider={}, model={}", pm[0], pm[1]);
-
-        LlmClient client = llmClientFactory.getClient(pm[0]);
-        List<Message> messages = messageBuilder.buildMessages(agent, request);
-        List<ToolDefinition> tools = buildToolDefinitions(agentId);
-        ToolContext toolContext = contextBuilder.buildToolContext(request, agent);
-        double temperature = messageBuilder.getTemperatureByMode(request.getAgentMode());
-
-        log.info("调用 LLM(同步): provider={}, model={}, messages={}, tools={}, temperature={}",
-                pm[0], pm[1], messages.size(), tools.size(), temperature);
-
-        for (int round = 0; round < MAX_TOOL_ROUNDS; round++) {
-            LlmRequest llmRequest = LlmRequest.builder()
-                    .model(pm[1])
-                    .messages(messages)
-                    .tools(tools.isEmpty() ? null : tools)
-                    .temperature(temperature)
-                    .maxTokens(resolveMaxTokens(pm[1]))
-                    .stream(false)
-                    .build();
-
-            LlmResponse response = client.chat(llmRequest);
-
-            if (response.getToolCalls() == null || response.getToolCalls().isEmpty()) {
-                return response;
-            }
-
-            messages.add(Message.builder()
-                    .role("assistant")
-                    .content(response.getContent())
-                    .build());
-
-            List<CompletableFuture<ToolResult>> futures = response.getToolCalls().stream()
-                    .map(tc -> CompletableFuture.supplyAsync(
-                            () -> toolExecutionService.executeTool(tc.getName(), tc.getArguments(), toolContext),
-                            TOOL_EXECUTOR))
-                    .toList();
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-            for (int i = 0; i < response.getToolCalls().size(); i++) {
-                ToolCall toolCall = response.getToolCalls().get(i);
-                ToolResult result = futures.get(i).join();
-                String output = result.isSuccess() ? result.getOutput() : result.getError();
-                messages.add(Message.builder()
-                        .role("tool")
-                        .content(output)
-                        .toolCallId(toolCall.getId())
-                        .name(toolCall.getName())
-                        .build());
-            }
-        }
-
-        throw BusinessException.of(ResultCode.AGENT_EXECUTION_FAILED, "工具调用轮次超限");
+        AgentTask task = buildTask(request);
+        com.gewu.agent.engine.llm.model.LlmResponse result = agentExecutor.execute(task);
+        return toLegacyResponse(result);
     }
 
+    /**
+     * 流式执行：委托 ReactAgentExecutor，AgentEvent 逐项映射为 legacy AgentChunk 事件。
+     */
     public Flux<AgentChunk> executeAgentStream(AgentExecutionRequest request) {
-        log.info("流式对话请求: agentId={}, model={}, agentMode={}, thinkingStyle={}, messageLen={}",
+        log.info("流式对话请求(收敛引擎): agentId={}, model={}, agentMode={}, messageLen={}",
                 request.getAgentId(), request.getModel(), request.getAgentMode(),
-                request.getThinkingStyle(), request.getMessage() != null ? request.getMessage().length() : 0);
+                request.getMessage() != null ? request.getMessage().length() : 0);
 
+        AgentTask task = buildTask(request);
+        return agentExecutor.executeStream(task)
+                .map(this::toChunk);
+    }
+
+    // ==================== 适配映射 ====================
+
+    /**
+     * 构建引擎任务：会话级 Agent 绑定解析 + provider/model 预解析（引擎要求显式指定）。
+     */
+    private AgentTask buildTask(AgentExecutionRequest request) {
         String agentId = resolveAgentId(request.getAgentId(), request.getSessionId());
         Agent agent = loadAgent(agentId);
         String[] pm = messageBuilder.resolveProviderAndModel(agent, request.getModel());
-        log.info("解析供应商: provider={}, model={}", pm[0], pm[1]);
 
-        LlmClient client = llmClientFactory.getClient(pm[0]);
-        List<Message> messages = messageBuilder.buildMessages(agent, request);
-        List<ToolDefinition> tools = buildToolDefinitions(agentId);
-        ToolContext toolContext = contextBuilder.buildToolContext(request, agent);
-        double temperature = messageBuilder.getTemperatureByMode(request.getAgentMode());
-
-        log.info("调用 LLM(流式): provider={}, model={}, messages={}, tools={}, temperature={}",
-                pm[0], pm[1], messages.size(), tools.size(), temperature);
-
-        return Flux.defer(() -> streamRound(client, pm[1], messages, tools, toolContext, temperature, 0))
-                .onErrorResume(e -> {
-                    log.error("Agent 流式执行异常: agentId={}, model={}", request.getAgentId(), pm[1], e);
-                    return Flux.just(AgentChunk.builder()
-                            .type("error")
-                            .errorMessage(e.getMessage() != null ? e.getMessage() : "AI 处理失败")
-                            .build());
-                });
-    }
-
-    private Flux<AgentChunk> streamRound(LlmClient client, String model, List<Message> messages,
-                                         List<ToolDefinition> tools, ToolContext toolContext,
-                                         double temperature, int round) {
-        if (round >= MAX_TOOL_ROUNDS) {
-            return Flux.just(AgentChunk.builder()
-                    .type("error")
-                    .errorMessage("工具调用轮次超限")
-                    .build());
-        }
-
-        LlmRequest llmRequest = LlmRequest.builder()
-                .model(model)
-                .messages(messages)
-                .tools(tools.isEmpty() ? null : tools)
-                .temperature(temperature)
-                .maxTokens(resolveMaxTokens(model))
-                .stream(true)
+        return AgentTask.builder()
+                .agentId(agentId)
+                .sessionId(request.getSessionId())
+                .userId(UserContext.currentUserId())
+                .message(request.getMessage())
+                .modelProvider(pm[0])
+                .modelName(pm[1])
+                .agentMode(request.getAgentMode())
+                .thinkingStyle(request.getThinkingStyle())
                 .build();
-
-        StringBuilder contentBuilder = new StringBuilder();
-        Map<String, ToolCallAccumulator> toolCallAccumulators = new LinkedHashMap<>();
-        // 追踪 LLM 的 finish_reason，用于检测因 max_tokens 截断导致无内容输出的情况
-        String[] finishReasonHolder = {null};
-
-        return client.chatStream(llmRequest)
-                .map(chunk -> {
-                    // 推理/思考内容：作为 thinking 事件输出，与正式回复分离
-                    if (chunk.getReasoning() != null && !chunk.getReasoning().isEmpty()) {
-                        return AgentChunk.builder()
-                                .type("thinking")
-                                .reasoning(chunk.getReasoning())
-                                .build();
-                    }
-                    if (chunk.getDelta() != null && !chunk.getDelta().isEmpty()) {
-                        contentBuilder.append(chunk.getDelta());
-                        return AgentChunk.builder()
-                                .type("content")
-                                .content(chunk.getDelta())
-                                .build();
-                    }
-                    if (chunk.getToolCallDelta() != null) {
-                        accumulateToolCall(toolCallAccumulators, chunk.getToolCallDelta());
-                    }
-                    // 捕获 finish_reason（通常在最后一个 chunk 中，无 content/reasoning）
-                    if (chunk.getFinishReason() != null) {
-                        finishReasonHolder[0] = chunk.getFinishReason();
-                    }
-                    return AgentChunk.builder().build();
-                })
-                .filter(chunk -> chunk.getType() != null)
-                // 在 LLM 响应前发射 status 事件，让前端立即显示"正在思考"
-                .startWith(AgentChunk.builder()
-                        .type("status")
-                        .content(round == 0 ? "正在思考..." : "正在继续推理...")
-                        .build())
-                .concatWith(Flux.defer(() -> {
-                    String content = contentBuilder.toString();
-                    List<ToolCall> toolCalls = assembleToolCalls(toolCallAccumulators);
-
-                    messages.add(Message.builder()
-                            .role("assistant")
-                            .content(content)
-                            .build());
-
-                    if (toolCalls.isEmpty()) {
-                        // 推理模型可能因 max_tokens 不足导致全部 token 被推理消耗，未生成任何正式回复
-                        if ("length".equals(finishReasonHolder[0]) && content.isBlank()) {
-                            log.warn("LLM 回复被截断: finish_reason=length, model={}, 推理消耗了全部 token 上限", model);
-                            return Flux.just(AgentChunk.builder()
-                                    .type("error")
-                                    .errorMessage("AI 回复被截断：推理过程消耗了全部 token 上限，未生成正式回复。" +
-                                            "请在模型配置中增大 max_tokens 参数或简化问题后重试。")
-                                    .build());
-                        }
-                        return Flux.just(AgentChunk.builder().type("done").build());
-                    }
-
-                    // 发射 tool_call 事件（让前端立即看到工具调用决策）
-                    List<AgentChunk> toolCallChunks = new ArrayList<>();
-                    for (ToolCall tc : toolCalls) {
-                        toolCallChunks.add(AgentChunk.builder()
-                                .type("tool_call")
-                                .toolCall(AgentChunk.ToolCallInfo.builder()
-                                        .id(tc.getId())
-                                        .name(tc.getName())
-                                        .arguments(tc.getArguments())
-                                        .build())
-                                .build());
-                    }
-
-                    // 发射 tool_executing 事件（让前端立即看到执行中状态）
-                    List<AgentChunk> executingChunks = new ArrayList<>();
-                    for (ToolCall tc : toolCalls) {
-                        executingChunks.add(AgentChunk.builder()
-                                .type("tool_executing")
-                                .toolCall(AgentChunk.ToolCallInfo.builder()
-                                        .id(tc.getId())
-                                        .name(tc.getName())
-                                        .arguments(tc.getArguments())
-                                        .build())
-                                .build());
-                    }
-
-                    // 响应式工具执行：每个工具完成后立即推送结果，不阻塞线程
-                    // 使用 Mono.fromFuture 将 CompletableFuture 转为响应式 Mono，
-                    // flatMap 并行执行所有工具，结果按完成顺序逐个推送
-                    return Flux.fromIterable(toolCallChunks)
-                            .concatWith(Flux.fromIterable(executingChunks))
-                            .concatWith(Flux.fromIterable(toolCalls)
-                                    .flatMap(tc -> Mono.fromFuture(CompletableFuture.supplyAsync(
-                                                    () -> toolExecutionService.executeTool(tc.getName(), tc.getArguments(), toolContext),
-                                                    TOOL_EXECUTOR))
-                                            .map(result -> {
-                                                String output = result.isSuccess() ? result.getOutput() : result.getError();
-                                                // 线程安全地添加工具结果到消息列表（flatMap 并行执行，多线程同时写）
-                                                synchronized (messages) {
-                                                    messages.add(Message.builder()
-                                                            .role("tool")
-                                                            .content(output)
-                                                            .toolCallId(tc.getId())
-                                                            .name(tc.getName())
-                                                            .build());
-                                                }
-                                                return AgentChunk.builder()
-                                                        .type("tool_result")
-                                                        .toolResult(AgentChunk.ToolResultInfo.builder()
-                                                                .toolCallId(tc.getId())
-                                                                .name(tc.getName())
-                                                                .result(output)
-                                                                .build())
-                                                        .build();
-                                            }))
-                                    // 所有工具完成后递归下一轮（flatMap 自动等待所有内部 Mono 完成）
-                                    .concatWith(Flux.defer(() ->
-                                            streamRound(client, model, messages, tools, toolContext, temperature, round + 1))));
-                }));
     }
 
-    private void accumulateToolCall(Map<String, ToolCallAccumulator> accumulators,
-                                    LlmChunk.ToolCallDelta delta) {
-        String key = delta.getId() != null ? delta.getId() : "default";
-        ToolCallAccumulator acc = accumulators.computeIfAbsent(key, k -> new ToolCallAccumulator());
-        if (delta.getId() != null) acc.id = delta.getId();
-        if (delta.getName() != null) acc.name = delta.getName();
-        if (delta.getArguments() != null) acc.arguments.append(delta.getArguments());
-    }
-
-    private List<ToolCall> assembleToolCalls(Map<String, ToolCallAccumulator> accumulators) {
-        List<ToolCall> toolCalls = new ArrayList<>();
-        for (ToolCallAccumulator acc : accumulators.values()) {
-            if (acc.name != null) {
-                toolCalls.add(ToolCall.builder()
-                        .id(acc.id)
-                        .name(acc.name)
-                        .arguments(acc.arguments.toString())
-                        .build());
-            }
+    /**
+     * 引擎响应 -> legacy 响应（保持 AiChatController 及既有调用方的结构契约）。
+     */
+    private LlmResponse toLegacyResponse(com.gewu.agent.engine.llm.model.LlmResponse response) {
+        java.util.List<ToolCall> toolCalls = null;
+        if (response.getToolCalls() != null) {
+            toolCalls = response.getToolCalls().stream()
+                    .map(tc -> ToolCall.builder()
+                            .id(tc.getId())
+                            .name(tc.getName())
+                            .arguments(tc.getArguments())
+                            .build())
+                    .toList();
         }
-        return toolCalls;
+        LlmResponse.Usage usage = null;
+        if (response.getUsage() != null) {
+            usage = LlmResponse.Usage.builder()
+                    .promptTokens(response.getUsage().getPromptTokens())
+                    .completionTokens(response.getUsage().getCompletionTokens())
+                    .totalTokens(response.getUsage().getTotalTokens())
+                    .build();
+        }
+        return LlmResponse.builder()
+                .content(response.getContent())
+                .toolCalls(toolCalls)
+                .usage(usage)
+                .finishReason(response.getFinishReason())
+                .build();
     }
 
-    private static class ToolCallAccumulator {
-        String id;
-        String name;
-        final StringBuilder arguments = new StringBuilder();
+    /**
+     * 引擎事件 -> legacy 事件分片（字段一一对应，引擎新增事件类型透传给前端）。
+     */
+    private AgentChunk toChunk(AgentEvent event) {
+        AgentChunk.ToolCallInfo toolCallInfo = null;
+        if (event.getToolCall() != null) {
+            toolCallInfo = AgentChunk.ToolCallInfo.builder()
+                    .id(event.getToolCall().getId())
+                    .name(event.getToolCall().getName())
+                    .arguments(event.getToolCall().getArguments())
+                    .build();
+        }
+        AgentChunk.ToolResultInfo toolResultInfo = null;
+        if (event.getToolResult() != null) {
+            toolResultInfo = AgentChunk.ToolResultInfo.builder()
+                    .toolCallId(event.getToolResult().getToolCallId())
+                    .name(event.getToolResult().getName())
+                    .result(event.getToolResult().getResult())
+                    .build();
+        }
+        return AgentChunk.builder()
+                .type(event.getType())
+                .content(event.getContent())
+                .reasoning(event.getReasoning())
+                .toolCall(toolCallInfo)
+                .toolResult(toolResultInfo)
+                .errorMessage(event.getErrorMessage())
+                .build();
     }
+
+    // ==================== 辅助方法 ====================
 
     /**
      * 解析 agentId：优先用请求传入的 agentId，为空时回退读会话绑定的 agent.
@@ -363,24 +172,5 @@ public class AgentExecutionEngine {
             throw BusinessException.of(ResultCode.AGENT_NOT_FOUND);
         }
         return agent;
-    }
-
-    private List<ToolDefinition> buildToolDefinitions(String agentId) {
-        if (agentId == null || agentId.isBlank()) {
-            return new ArrayList<>();
-        }
-        List<AgentTool> tools = agentToolMapper.selectList(
-                new LambdaQueryWrapper<AgentTool>()
-                        .eq(AgentTool::getAgentId, agentId)
-                        .eq(AgentTool::getStatus, 1)
-                        .orderByAsc(AgentTool::getSortOrder));
-
-        return tools.stream()
-                .map(tool -> ToolDefinition.builder()
-                        .name(tool.getToolName())
-                        .description(tool.getDescription())
-                        .parameters(tool.getRequestSchema())
-                        .build())
-                .toList();
     }
 }

@@ -6,6 +6,8 @@ import com.gewu.agent.engine.AgentEngineException;
 import com.gewu.agent.engine.budget.BudgetContext;
 import com.gewu.agent.engine.budget.BudgetController;
 import com.gewu.agent.engine.budget.BudgetStatus;
+import com.gewu.agent.engine.cognition.ComplexityRouter;
+import com.gewu.agent.engine.cognition.PerceptionEngine;
 import com.gewu.agent.engine.core.event.AgentEvent;
 import com.gewu.agent.engine.llm.LlmClient;
 import com.gewu.agent.engine.llm.LlmClientRegistry;
@@ -21,12 +23,18 @@ import com.gewu.agent.engine.memory.MemoryStore;
 import com.gewu.agent.engine.message.MessageBuilder;
 import com.gewu.agent.engine.message.PromptDirective;
 import com.gewu.agent.engine.spi.AgentSpec;
+import com.gewu.agent.engine.spi.ModelSelector;
 import com.gewu.agent.engine.spi.PersistenceService;
+import com.gewu.agent.engine.spi.ResponseCache;
 import com.gewu.agent.engine.spi.SessionContextService;
 import com.gewu.agent.engine.spi.ToolConfig;
+import com.gewu.agent.engine.spi.TraceService;
+import com.gewu.agent.engine.spi.MetricService;
 import com.gewu.agent.engine.tool.ToolContext;
 import com.gewu.agent.engine.tool.ToolExecutor;
 import com.gewu.agent.engine.tool.ToolResult;
+import com.gewu.agent.engine.tool.security.OutputSanitizer;
+import com.gewu.agent.engine.tool.security.PromptInjectionDetector;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import reactor.core.publisher.Flux;
@@ -59,40 +67,61 @@ public class ReactAgentExecutor implements AgentExecutor {
     private final MemoryRouter memoryRouter;
     private final MemoryStore memoryStore;
     private final BudgetController budgetController;
+    private final PerceptionEngine perceptionEngine;
+    private final ComplexityRouter complexityRouter;
+    private final TraceService traceService;
+    private final MetricService metricService;
+    private final ResponseCache responseCache;
+    private final PromptInjectionDetector promptInjectionDetector;
+    private final OutputSanitizer outputSanitizer;
+    private final ModelSelector modelSelector;
 
     // ==================== 同步执行 ====================
 
     @Override
     public LlmResponse execute(AgentTask task) {
+        // 输入安全层：提示注入检测（高风险拦截，中风险告警）
+        promptInjectionDetector.checkInput(task.getMessage());
         String agentId = task.getAgentId();
         AgentSpec agent = loadAgent(agentId);
         String[] pm = resolveProviderAndModel(agent, task);
-        log.info("同步对话: agentId={}, provider={}, model={}", agentId, pm[0], pm[1]);
 
-        LlmClient client = llmClientRegistry.getClient(pm[0]);
+        // 感知 -> 复杂度路由 -> 按复杂度预算 -> 模型路由（与流式路径共用决策链）
+        ExecutionPlan plan = planExecution(task, pm);
+        log.info("同步对话: agentId={}, provider={}, model={}, intentType={}, complexity={}, system={}",
+                agentId, plan.provider, plan.model, plan.intent.getIntentType(),
+                plan.complexity.getLevel(), plan.complexity.getSystemChoice().getSystem());
+
+        LlmClient client = llmClientRegistry.getClient(plan.provider);
         List<Message> messages = buildMessages(agent, task);
         Map<String, ToolConfig> toolConfigMap = new LinkedHashMap<>();
         List<ToolDefinition> tools = buildToolDefinitions(agentId, toolConfigMap);
         ToolContext toolContext = buildToolContext(task, agent);
         double temperature = resolveTemperature(task);
 
-        log.info("调用 LLM(同步): provider={}, model={}, messages={}, tools={}, temperature={}",
-                pm[0], pm[1], messages.size(), tools.size(), temperature);
+        // 语义缓存命中检查：高相似历史请求直接返回缓存响应（零 LLM 成本）
+        String cacheContext = agentId != null ? agentId : "default";
+        String cached = responseCache.get(task.getMessage(), cacheContext);
+        if (cached != null && !cached.isBlank()) {
+            log.info("语义缓存命中: agentId={}, responseLength={}", agentId, cached.length());
+            return LlmResponse.builder().content(cached).build();
+        }
 
-        BudgetContext budget = budgetController.createBudget("L2");
+        log.info("调用 LLM(同步): provider={}, model={}, messages={}, tools={}, temperature={}",
+                plan.provider, plan.model, messages.size(), tools.size(), temperature);
 
         for (int round = 0; round < config.getMaxToolRounds(); round++) {
             // 预算检查：熔断则终止
-            if (budgetController.shouldStop(budget)) {
+            if (budgetController.shouldStop(plan.budget)) {
                 log.warn("预算熔断: tokenUtil={}, timeUtil={}, round={}",
-                        budget.getTokenUtilization(), budget.getTimeUtilization(), round);
+                        plan.budget.getTokenUtilization(), plan.budget.getTimeUtilization(), round);
                 throw AgentEngineException.of("BUDGET_EXCEEDED",
-                        "预算耗尽: token=" + budget.getTokenConsumed() + "/" + budget.getTokenBudget()
-                                + ", time=" + budget.getElapsedMs() + "ms/" + budget.getTimeBudgetMs() + "ms");
+                        "预算耗尽: token=" + plan.budget.getTokenConsumed() + "/" + plan.budget.getTokenBudget()
+                                + ", time=" + plan.budget.getElapsedMs() + "ms/" + plan.budget.getTimeBudgetMs() + "ms");
             }
 
             LlmRequest llmRequest = LlmRequest.builder()
-                    .model(pm[1])
+                    .model(plan.model)
                     .messages(messages)
                     .tools(tools.isEmpty() ? null : tools)
                     .temperature(temperature)
@@ -100,14 +129,28 @@ public class ReactAgentExecutor implements AgentExecutor {
                     .stream(false)
                     .build();
 
-            LlmResponse response = client.chat(llmRequest);
+            // OTel 追踪：每轮 LLM 调用包装 Span（TraceService SPI 桥接）
+            Object llmSpan = traceService.startSpan(task.getSessionId(), task.getAgentId(), "llm_call");
+            LlmResponse response;
+            try {
+                response = client.chat(llmRequest);
+                traceService.endSpan(llmSpan);
+            } catch (RuntimeException e) {
+                traceService.endSpanWithError(llmSpan, e);
+                throw e;
+            }
 
             // 记录预算消耗
             long tokens = response.getUsage() != null ? response.getUsage().getTotalTokens() : 0;
-            budgetController.consume(budget, tokens, tokens * 0.00001);
+            budgetController.consume(plan.budget, tokens, tokens * 0.00001);
 
             if (response.getToolCalls() == null || response.getToolCalls().isEmpty()) {
+                // 输出安全层：PII 脱敏后再持久化/缓存/返回
+                response.setContent(outputSanitizer.checkOutput(response.getContent()));
                 storeExperience(task, response.getContent());
+                recordSuccess(task, plan.budget);
+                // 写入语义缓存（供后续相似请求命中）
+                responseCache.put(task.getMessage(), response.getContent(), cacheContext);
                 return response;
             }
 
@@ -117,10 +160,19 @@ public class ReactAgentExecutor implements AgentExecutor {
                     .build());
 
             List<CompletableFuture<ToolResult>> futures = response.getToolCalls().stream()
-                    .map(tc -> CompletableFuture.supplyAsync(
-                            () -> toolExecutor.execute(tc.getName(), tc.getArguments(), toolContext,
-                                    toolConfigMap.get(tc.getName())),
-                            config.getToolExecutor()))
+                    .map(tc -> CompletableFuture.supplyAsync(() -> {
+                        // OTel 追踪：每次工具执行包装 Span
+                        Object toolSpan = traceService.startSpan(task.getSessionId(), tc.getName(), "tool_call");
+                        try {
+                            ToolResult r = toolExecutor.execute(tc.getName(), tc.getArguments(), toolContext,
+                                    toolConfigMap.get(tc.getName()));
+                            traceService.endSpan(toolSpan);
+                            return r;
+                        } catch (RuntimeException e) {
+                            traceService.endSpanWithError(toolSpan, e);
+                            throw e;
+                        }
+                    }, config.getToolExecutor()))
                     .toList();
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
 
@@ -144,24 +196,39 @@ public class ReactAgentExecutor implements AgentExecutor {
 
     @Override
     public Flux<AgentEvent> executeStream(AgentTask task) {
+        // 输入安全层：提示注入检测（高风险拦截，中风险告警）
+        promptInjectionDetector.checkInput(task.getMessage());
         String agentId = task.getAgentId();
         AgentSpec agent = loadAgent(agentId);
         String[] pm = resolveProviderAndModel(agent, task);
-        log.info("流式对话: agentId={}, provider={}, model={}", agentId, pm[0], pm[1]);
 
-        LlmClient client = llmClientRegistry.getClient(pm[0]);
+        // 感知 -> 复杂度路由 -> 按复杂度预算 -> 模型路由（与同步路径共用决策链）
+        ExecutionPlan plan = planExecution(task, pm);
+        log.info("流式对话: agentId={}, provider={}, model={}, intentType={}, complexity={}, system={}",
+                agentId, plan.provider, plan.model, plan.intent.getIntentType(),
+                plan.complexity.getLevel(), plan.complexity.getSystemChoice().getSystem());
+
+        LlmClient client = llmClientRegistry.getClient(plan.provider);
         List<Message> messages = buildMessages(agent, task);
         Map<String, ToolConfig> toolConfigMap = new LinkedHashMap<>();
         List<ToolDefinition> tools = buildToolDefinitions(agentId, toolConfigMap);
         ToolContext toolContext = buildToolContext(task, agent);
         double temperature = resolveTemperature(task);
 
-        log.info("调用 LLM(流式): provider={}, model={}, messages={}, tools={}, temperature={}",
-                pm[0], pm[1], messages.size(), tools.size(), temperature);
+        // 语义缓存命中检查：直接以 CONTENT+DONE 事件回放缓存响应（零 LLM 成本）
+        String cacheContext = agentId != null ? agentId : "default";
+        String cached = responseCache.get(task.getMessage(), cacheContext);
+        if (cached != null && !cached.isBlank()) {
+            log.info("语义缓存命中(流式): agentId={}, responseLength={}", agentId, cached.length());
+            return Flux.just(AgentEvent.builder().type(AgentEvent.CONTENT).content(cached).build(),
+                    AgentEvent.builder().type(AgentEvent.DONE).build());
+        }
 
-        BudgetContext budget = budgetController.createBudget("L2");
+        log.info("调用 LLM(流式): provider={}, model={}, messages={}, tools={}, temperature={}",
+                plan.provider, plan.model, messages.size(), tools.size(), temperature);
+
         StringBuilder contentTracker = new StringBuilder();
-        return Flux.defer(() -> streamRound(client, pm[1], messages, tools, toolConfigMap, toolContext, temperature, 0, budget))
+        return Flux.defer(() -> streamRound(client, plan.model, messages, tools, toolConfigMap, toolContext, temperature, 0, plan.budget))
                 .doOnNext(event -> {
                     if (AgentEvent.CONTENT.equals(event.getType()) && event.getContent() != null) {
                         contentTracker.append(event.getContent());
@@ -173,11 +240,14 @@ public class ReactAgentExecutor implements AgentExecutor {
                 })
                 .doFinally(signal -> {
                     if (signal == reactor.core.publisher.SignalType.ON_COMPLETE) {
-                        storeExperience(task, contentTracker.toString());
+                        // 输出安全层：PII 脱敏后再持久化经验
+                        storeExperience(task, outputSanitizer.checkOutput(contentTracker.toString()));
+                        recordSuccess(task, plan.budget);
                     }
                 })
                 .onErrorResume(e -> {
                     log.error("Agent 流式执行异常: agentId={}", task.getAgentId(), e);
+                    recordFailure(task, e.getMessage() != null ? e.getMessage() : "stream_error");
                     return Flux.just(AgentEvent.builder()
                             .type(AgentEvent.ERROR)
                             .errorMessage(e.getMessage() != null ? e.getMessage() : "AI 处理失败")
@@ -228,7 +298,18 @@ public class ReactAgentExecutor implements AgentExecutor {
         Map<String, ToolCallAccumulator> toolCallAccumulators = new LinkedHashMap<>();
         String[] finishReasonHolder = {null};
 
-        return client.chatStream(llmRequest)
+        // OTel 追踪：流式 LLM 调用包装 Span（订阅时开启，流终止时结束）
+        return Flux.defer(() -> {
+                    Object llmSpan = traceService.startSpan(toolContext.getSessionId(), toolContext.getAgentId(), "llm_call_stream");
+                    return client.chatStream(llmRequest)
+                            .doFinally(signal -> {
+                                if (signal == reactor.core.publisher.SignalType.ON_ERROR) {
+                                    traceService.endSpanWithError(llmSpan, null);
+                                } else {
+                                    traceService.endSpan(llmSpan);
+                                }
+                            });
+                })
                 .map(chunk -> {
                     if (chunk.getReasoning() != null && !chunk.getReasoning().isEmpty()) {
                         return AgentEvent.builder()
@@ -346,6 +427,72 @@ public class ReactAgentExecutor implements AgentExecutor {
         }
         throw AgentEngineException.of("MODEL_NOT_RESOLVED",
                 "无法解析 LLM 供应商与模型，请在 AgentTask 或 AgentSpec 中指定 modelProvider 与 modelName");
+    }
+
+    /**
+     * 共用前置决策链：感知 -> 复杂度路由 -> 按复杂度创建预算 -> 模型路由。
+     * 同步与流式两条路径共用，保证两条路径产出一致的 provider/model 决策。
+     */
+    private ExecutionPlan planExecution(AgentTask task, String[] pm) {
+        // 感知引擎：原始输入 -> 结构化意图（结果缓存到 task 供后续环节使用）
+        PerceptionEngine.Intent intent = perceptionEngine.perceive(task.getMessage());
+        task.setIntent(intent);
+        // 复杂度路由：意图 + 描述特征 -> System 1/2 决策
+        ComplexityRouter.ComplexityResult complexity = complexityRouter.route(task.getMessage(), intent);
+        // 按复杂度等级创建预算
+        BudgetContext budget = budgetController.createBudget(complexity.getLevel());
+        // 模型路由：调用方未显式指定模型时按复杂度/预算选择最优模型
+        String[] routed = routeModelIfApplicable(task, pm, complexity, budget);
+        return new ExecutionPlan(intent, complexity, budget, routed[0], routed[1]);
+    }
+
+    /** 一次执行的前置决策结果：意图、复杂度、预算与最终 provider/model。 */
+    private static final class ExecutionPlan {
+        final PerceptionEngine.Intent intent;
+        final ComplexityRouter.ComplexityResult complexity;
+        final BudgetContext budget;
+        final String provider;
+        final String model;
+
+        ExecutionPlan(PerceptionEngine.Intent intent, ComplexityRouter.ComplexityResult complexity,
+                      BudgetContext budget, String provider, String model) {
+            this.intent = intent;
+            this.complexity = complexity;
+            this.budget = budget;
+            this.provider = provider;
+            this.model = model;
+        }
+    }
+
+    /**
+     * 模型路由：调用方显式指定模型时尊重调用方；否则按复杂度评分与剩余预算
+     * 咨询 {@link ModelSelector} 选择最优模型。路由失败静默保持原模型。
+     */
+    private String[] routeModelIfApplicable(AgentTask task, String[] pm,
+                                            ComplexityRouter.ComplexityResult complexity,
+                                            BudgetContext budget) {
+        if (task.getModelProvider() != null && task.getModelName() != null) {
+            return pm;
+        }
+        try {
+            long budgetRemaining = budget != null
+                    ? Math.max(0, budget.getTokenBudget() - budget.getTokenConsumed())
+                    : Long.MAX_VALUE;
+            ModelSelector.ModelSelection selection = modelSelector.select(
+                    task.getMessage(),
+                    complexity != null ? complexity.getScore() : 5,
+                    null, 0, budgetRemaining);
+            if (selection != null && selection.getModelName() != null
+                    && !selection.getModelName().isBlank() && !selection.getModelName().equals(pm[1])) {
+                String provider = selection.getModelProvider() != null ? selection.getModelProvider() : pm[0];
+                log.info("模型路由: {} -> {} (provider={}, reason={})",
+                        pm[1], selection.getModelName(), provider, selection.getReason());
+                return new String[]{provider, selection.getModelName()};
+            }
+        } catch (Exception e) {
+            log.debug("模型路由失败，保持原模型: {}", e.getMessage());
+        }
+        return pm;
     }
 
     private List<Message> buildMessages(AgentSpec agent, AgentTask task) {
@@ -480,5 +627,36 @@ public class ReactAgentExecutor implements AgentExecutor {
     private String truncate(String text, int maxLength) {
         if (text == null) return "";
         return text.length() <= maxLength ? text : text.substring(0, maxLength);
+    }
+
+    /**
+     * 记录执行成功：追踪 + 指标（任务成功 + 预算利用率）。
+     */
+    private void recordSuccess(AgentTask task, BudgetContext budget) {
+        try {
+            String agentId = task.getAgentId() != null ? task.getAgentId() : "unknown";
+            traceService.recordTrace(budget != null ? "budget" : "exec", agentId, "EXECUTE", "llm_complete", "success");
+            metricService.recordMetric("agent.task.success", budget != null ? budget.getElapsedMs() : 0,
+                    Map.of("agentId", agentId));
+            if (budget != null) {
+                metricService.recordMetric("agent.budget.utilization", budget.getTokenConsumed(),
+                        Map.of("agentId", agentId, "budget", String.valueOf(budget.getTokenBudget())));
+            }
+        } catch (Exception e) {
+            log.debug("recordSuccess failed: {}", e.getMessage());
+        }
+    }
+
+    /**
+     * 记录执行失败：追踪 + 指标（任务失败）。
+     */
+    private void recordFailure(AgentTask task, String reason) {
+        try {
+            String agentId = task.getAgentId() != null ? task.getAgentId() : "unknown";
+            traceService.recordTrace(agentId, agentId, "EXECUTE", "error", reason);
+            metricService.recordMetric("agent.task.failure", 1, Map.of("agentId", agentId, "reason", reason));
+        } catch (Exception e) {
+            log.debug("recordFailure failed: {}", e.getMessage());
+        }
     }
 }

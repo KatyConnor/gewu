@@ -13,7 +13,6 @@ import java.sql.SQLException;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
 
 /**
  * 基于 PostgreSQL pgvector 扩展的向量存储适配器。
@@ -32,8 +31,12 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class PgvectorAdapter implements VectorStoreAdapter {
 
-    /** 允许作为查询过滤条件的字段白名单，防止 SQL 注入 */
-    private static final Set<String> ALLOWED_FILTER_KEYS = Set.of("tenantId", "source", "ownerUserId");
+    /** 允许作为查询过滤条件的字段白名单（元数据键 -> 实际列名），防止 SQL 注入并保证列名正确 */
+    private static final Map<String, String> FILTER_COLUMN_MAPPING = Map.of(
+            "tenantId", "tenant_id",
+            "source", "source",
+            "ownerUserId", "owner_user_id"
+    );
 
     private final DataSource wenshiDataSource;
 
@@ -97,11 +100,11 @@ public class PgvectorAdapter implements VectorStoreAdapter {
 
         List<Object> params = new ArrayList<>();
 
-        // 仅允许白名单中的过滤字段，防止 SQL 注入
+        // 仅允许白名单中的过滤字段，防止 SQL 注入；驼峰键须映射为蛇形实际列名
         if (filters != null) {
-            for (String key : ALLOWED_FILTER_KEYS) {
+            for (String key : FILTER_COLUMN_MAPPING.keySet()) {
                 if (filters.containsKey(key)) {
-                    sql.append(" AND ").append(key).append(" = ?");
+                    sql.append(" AND ").append(FILTER_COLUMN_MAPPING.get(key)).append(" = ?");
                     params.add(filters.get(key));
                 }
             }

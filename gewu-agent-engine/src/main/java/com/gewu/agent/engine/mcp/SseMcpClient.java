@@ -1,0 +1,154 @@
+package com.gewu.agent.engine.mcp;
+
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
+import lombok.extern.slf4j.Slf4j;
+
+import java.io.BufferedReader;
+import java.io.IOException;
+import java.io.InputStreamReader;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * SSE / streamable_http 传输的 MCP 客户端 - 通过 HTTP 与远程 MCP 服务器通信。
+ *
+ * @since 1.0.0
+ */
+@Slf4j
+public class SseMcpClient implements McpClient {
+
+    private final ObjectMapper mapper = new ObjectMapper();
+    private final AtomicInteger requestId = new AtomicInteger(0);
+    private final HttpClient httpClient = HttpClient.newBuilder()
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
+
+    private final String serverUrl;
+    private String endpointUrl;
+    private boolean initialized;
+
+    public SseMcpClient(String url) {
+        this.serverUrl = url;
+    }
+
+    @Override
+    public void connect() throws Exception {
+        initialize();
+        initialized = true;
+        log.info("MCP SSE client connected: url={}", serverUrl);
+    }
+
+    private void initialize() throws Exception {
+        ObjectNode params = mapper.createObjectNode();
+        params.put("protocolVersion", "2024-11-05");
+        params.putObject("capabilities");
+        ObjectNode clientInfo = params.putObject("clientInfo");
+        clientInfo.put("name", "agent-engine");
+        clientInfo.put("version", "1.0.0");
+
+        JsonNode response = sendRequest("initialize", params);
+        log.debug("MCP initialize response: {}", response);
+    }
+
+    @Override
+    public List<McpToolDefinition> listTools() {
+        try {
+            JsonNode response = sendRequest("tools/list", mapper.createObjectNode());
+            List<McpToolDefinition> tools = new ArrayList<>();
+            JsonNode toolsNode = response.path("tools");
+            if (toolsNode.isArray()) {
+                for (JsonNode tool : toolsNode) {
+                    tools.add(McpToolDefinition.builder()
+                            .name(tool.path("name").asText())
+                            .description(tool.path("description").asText(""))
+                            .inputSchema(tool.path("inputSchema").toString())
+                            .build());
+                }
+            }
+            return tools;
+        } catch (Exception e) {
+            log.error("MCP listTools failed", e);
+            return new ArrayList<>();
+        }
+    }
+
+    @Override
+    public McpToolResult callTool(String toolName, String arguments) {
+        try {
+            ObjectNode params = mapper.createObjectNode();
+            params.put("name", toolName);
+            JsonNode argsNode = mapper.readTree(arguments != null ? arguments : "{}");
+            params.set("arguments", argsNode);
+
+            JsonNode response = sendRequest("tools/call", params);
+            JsonNode content = response.path("content");
+            boolean isError = response.path("isError").asBoolean(false);
+
+            StringBuilder output = new StringBuilder();
+            if (content.isArray()) {
+                for (JsonNode item : content) {
+                    String type = item.path("type").asText("");
+                    if ("text".equals(type)) {
+                        output.append(item.path("text").asText(""));
+                    }
+                }
+            }
+
+            return McpToolResult.builder()
+                    .success(!isError)
+                    .output(output.toString())
+                    .error(isError ? output.toString() : null)
+                    .build();
+        } catch (Exception e) {
+            log.error("MCP callTool failed: tool={}", toolName, e);
+            return McpToolResult.builder()
+                    .success(false)
+                    .error("MCP 调用失败: " + e.getMessage())
+                    .build();
+        }
+    }
+
+    private JsonNode sendRequest(String method, JsonNode params) throws Exception {
+        ObjectNode request = mapper.createObjectNode();
+        request.put("jsonrpc", "2.0");
+        request.put("id", requestId.incrementAndGet());
+        request.put("method", method);
+        request.set("params", params);
+
+        String url = endpointUrl != null ? endpointUrl : serverUrl;
+        HttpRequest httpRequest = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(Duration.ofSeconds(30))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(mapper.writeValueAsString(request)))
+                .build();
+
+        HttpResponse<String> response = httpClient.send(httpRequest, HttpResponse.BodyHandlers.ofString());
+        JsonNode responseNode = mapper.readTree(response.body());
+
+        if (responseNode.has("error")) {
+            JsonNode error = responseNode.get("error");
+            throw new IOException("MCP error: " + error.path("message").asText("unknown"));
+        }
+        return responseNode.path("result");
+    }
+
+    @Override
+    public void close() {
+        initialized = false;
+        log.info("MCP SSE client closed: url={}", serverUrl);
+    }
+
+    @Override
+    public boolean isConnected() {
+        return initialized;
+    }
+}
