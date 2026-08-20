@@ -1,0 +1,33 @@
+name: AI Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, reopened]
+
+jobs:
+  ai-code-review:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Run AI Code Review
+        uses: anthropic/claude-code-review-action@v1
+        with:
+          rules-file: .cursor/rules/project-review.jsonc
+          fail-on: P0,P1
+          languages: python,typescript,java,go
+          output-format: github-comment
+        env:
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+
+      - name: Upload Review Report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: code-review-report
+          path: review-report.json

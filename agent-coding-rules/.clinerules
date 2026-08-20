@@ -1,0 +1,106 @@
+# Cline 编码约束规则
+
+# 本文件由 Cline 插件自动读取。Cline 在执行编码任务时必须遵守以下规则。
+
+## 规则加载
+
+执行编码任务前，必须先读取项目根目录的 `AGENTS.md` 文件获取完整规则。
+针对特定语言的详细规则，读取 `rules/` 目录下对应文件。
+
+## 行为约束
+
+### 必须遵守
+
+- 修改文件前先完整读取目标文件内容
+- 最小变更原则，只修改必要部分
+- 匹配项目现有代码风格
+- 代码修改后运行 lint / typecheck / test 并报告结果
+- Python 代码必须包含 Type Hint
+- SQL 必须使用参数化查询
+- 公共 API 必须有文档注释
+- 函数不超过 50 行，参数不超过 4 个
+- 提前返回，避免超过 3 层嵌套
+
+### 禁止事项
+
+- 禁止硬编码密钥、密码、Token
+- 禁止 eval/exec/os.system 处理用户输入
+- 禁止 SQL 字符串拼接
+- 禁止空 except/catch 块
+- 禁止 git push --force / git reset --hard 未确认执行
+- 禁止修改 main/master 分支未经确认
+- 禁止提交 print/console.log 调试语句
+- 禁止注释掉的代码残留
+- 禁止 SELECT * 查询
+- 禁止无 LIMIT 的全表扫描
+
+### 命名规范
+
+| 语言 | 变量/函数 | 类 | 常量 | 文件 |
+|------|-----------|-----|------|------|
+| Python | snake_case | PascalCase | UPPER_SNAKE | snake_case.py |
+| Java | camelCase | PascalCase | UPPER_SNAKE | PascalCase.java |
+| JS/TS | camelCase | PascalCase | UPPER_SNAKE | kebab/Pascal |
+| Go | camelCase/PascalCase | PascalCase | PascalCase | snake_case.go |
+| Rust | snake_case | PascalCase | UPPER_SNAKE | snake_case.rs |
+| C/C++ | snake_case | PascalCase | UPPER_SNAKE | snake_case.cpp |
+
+### 错误处理
+
+- 必须显式处理所有错误/异常
+- 错误传播保留原始上下文 (Python: `raise from err`, Go: `fmt.Errorf("%w", err)`)
+- 区分业务错误与系统错误
+- 输入校验在入口完成，快速失败
+
+### 数据库操作
+
+- 参数化查询，禁止拼接
+- 显式指定列名，禁止 SELECT *
+- WHERE/JOIN/ORDER BY 列必须有索引
+- 查询必须带 LIMIT
+- 多行写入必须用事务
+- 连接使用后必须释放
+
+### 测试规范
+
+- 新增功能必须带测试
+- Bug 修复先写复现测试
+- AAA 模式: Arrange → Act → Assert
+- 测试独立，不依赖执行顺序
+- 核心模块覆盖率 ≥ 80%
+
+### Commit 规范
+
+Conventional Commits 格式:
+```
+<type>(<scope>): <subject>
+
+<body>
+
+<footer>
+```
+type: feat / fix / docs / style / refactor / perf / test / chore / ci
+
+## 语言规则文件
+
+- Python: `rules/01-python.md`
+- Java: `rules/02-java.md`
+- JS/TS: `rules/03-javascript.md`
+- Go: `rules/04-go.md`
+- Rust: `rules/05-rust.md`
+- C/C++: `rules/06-cpp.md`
+- SQL: `rules/07-sql.md`
+- 数据库设计: `rules/08-database.md`
+- NoSQL: `rules/09-nosql.md`
+- Code Review: `rules/10-code-review.md`
+
+## 完成检查清单
+
+- [ ] 代码符合命名/格式/结构要求
+- [ ] lint 无 error
+- [ ] 类型检查通过
+- [ ] 测试通过
+- [ ] 无硬编码密钥
+- [ ] 无调试输出残留
+- [ ] 公共 API 有文档注释
+- [ ] 变更说明已写 commit message

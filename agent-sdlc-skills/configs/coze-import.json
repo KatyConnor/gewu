@@ -1,0 +1,96 @@
+{
+  "agent_config": {
+    "name": "软件生命周期角色技能体系",
+    "version": "1.0",
+    "description": "覆盖SDLC全生命周期的11个角色23个技能模块，可直接导入Coze平台",
+    "type": "multi_role"
+  },
+  "roles": [
+    {
+      "id": "role-00",
+      "name": "托管业务调研专家",
+      "description": "聚焦金融托管赛道的专业调研专家",
+      "skills": ["industry-policy-search", "competitor-analysis"]
+    },
+    {
+      "id": "role-01",
+      "name": "业务需求分析师",
+      "description": "产品从0到1前期调研核心支撑",
+      "skills": ["market-feasibility-check", "user-requirement-mining"]
+    },
+    {
+      "id": "role-02",
+      "name": "产品经理/产品专家",
+      "description": "产品全生命周期管理者",
+      "skills": ["prd-generation", "user-journey-mapping"]
+    },
+    {
+      "id": "role-03",
+      "name": "资深技术架构师",
+      "description": "技术前瞻性与落地执行力的架构专家",
+      "skills": ["system-design-doc", "api-contract-definition"]
+    },
+    {
+      "id": "role-04",
+      "name": "全栈高级开发工程师",
+      "description": "全栈交付能力与质量意识的高级开发专家",
+      "skills": ["fullstack-implementation", "unit-test-generator", "refactoring-guide"]
+    },
+    {
+      "id": "role-05",
+      "name": "安全与漏洞防护专家",
+      "description": "系统全生命周期安全防护",
+      "skills": ["vulnerability-scanning", "owasp-top10-audit"]
+    },
+    {
+      "id": "role-06",
+      "name": "高级测试与质量专家",
+      "description": "全生命周期质量管控专家",
+      "skills": ["test-case-generation", "test-report-summary"]
+    },
+    {
+      "id": "role-07",
+      "name": "合规与风控专家",
+      "description": "全生命周期合规与风控闭环专家",
+      "skills": ["regulatory-compliance-check", "data-privacy-audit"]
+    },
+    {
+      "id": "role-08",
+      "name": "数据与算法分析专家",
+      "description": "全周期数据与算法闭环专家",
+      "skills": ["data-metrics-design", "ab-test-analysis"]
+    },
+    {
+      "id": "role-09",
+      "name": "技术运维与SRE专家",
+      "description": "系统稳定性与可靠性保障专家",
+      "skills": ["cicd-pipeline-config", "incident-response-sop"]
+    },
+    {
+      "id": "role-10",
+      "name": "项目管理与敏捷教练",
+      "description": "全周期项目交付与敏捷体系落地专家",
+      "skills": ["epic-task-breakdown", "project-risk-tracker"]
+    }
+  ],
+  "workflow": {
+    "trigger_rules": {
+      "政策研究|行业调研|同业对标|市场调研": ["role-00", "role-01"],
+      "PRD|产品需求|用户画像|功能设计|原型": ["role-02"],
+      "架构设计|技术选型|API定义|系统设计": ["role-03"],
+      "需求拆解|排期|里程碑|敏捷|站会|迭代": ["role-10"],
+      "开发|写代码|实现功能|前后端|全栈": ["role-04"],
+      "漏洞扫描|渗透测试|安全审计|应急响应": ["role-05"],
+      "测试用例|自动化测试|性能测试|质量准出": ["role-06"],
+      "合规审查|隐私保护|等保|数据安全": ["role-07"],
+      "数据埋点|指标体系|A/B测试|算法模型": ["role-08"],
+      "部署|CI/CD|监控|SLO|故障|容灾": ["role-09"]
+    },
+    "collaboration": {
+      "sequential": [
+        "role-00 → role-01 → role-02 → role-03 → role-10 → role-04 → role-06 → role-09"
+      ],
+      "parallel": ["role-05", "role-07", "role-08", "role-10"]
+    }
+  }
+}

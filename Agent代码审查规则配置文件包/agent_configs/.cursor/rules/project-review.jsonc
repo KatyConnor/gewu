@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "meta": {
+    "name": "Project Code Review Rules",
+    "version": "1.0.0",
+    "description": "项目级代码审查规则配置 - 根据项目技术栈自定义",
+    "inherits": "global",
+    "updated_at": "2026-08-20"
+  },
+  "project_info": {
+    "name": "你的项目名称",
+    "tech_stack": ["Python", "TypeScript"],
+    "framework": "FastAPI + React",
+    "database": "PostgreSQL"
+  },
+  "rules": {
+    "universal": { "enabled": true },
+    "security": { "enabled": true },
+    "architecture": { "enabled": true },
+    "performance": { "enabled": true },
+    "observability": { "enabled": true },
+    "documentation": { "enabled": true },
+    "languages": {
+      "python":     { "enabled": true,  "strict": true },
+      "typescript": { "enabled": true,  "strict": true },
+      "javascript": { "enabled": true,  "strict": false },
+      "java":       { "enabled": false, "strict": false },
+      "go":         { "enabled": false, "strict": false },
+      "rust":       { "enabled": false, "strict": false },
+      "cpp":        { "enabled": false, "strict": false },
+      "c":          { "enabled": false, "strict": false },
+      "csharp":     { "enabled": false, "strict": false },
+      "php":        { "enabled": false, "strict": false },
+      "ruby":       { "enabled": false, "strict": false },
+      "swift":      { "enabled": false, "strict": false },
+      "kotlin":     { "enabled": false, "strict": false }
+    }
+  },
+  "overrides": [
+    {
+      "id": "L1-LOGIC-004",
+      "action": "modify",
+      "severity": "P3",
+      "reason": "遗留项目允许较长函数，逐步优化"
+    },
+    {
+      "id": "L1-STYLE-004",
+      "action": "modify",
+      "params": { "max_line_length": 100 },
+      "reason": "项目约定行宽为100字符"
+    }
+  ],
+  "custom_rules": [
+    {
+      "id": "CUSTOM-001",
+      "title": "API响应必须包含requestId",
+      "description": "所有API响应体必须包含requestId字段用于链路追踪",
+      "severity": "P2",
+      "category": "custom",
+      "languages": ["all"],
+      "check_points": [
+        "检查API响应结构是否包含requestId字段",
+        "验证requestId与请求头X-Request-Id一致"
+      ]
+    }
+  ],
+  "loading_strategy": "merge",
+  "ci_integration": {
+    "fail_on": ["P0", "P1"],
+    "warn_on": ["P2", "P3"],
+    "report_format": "json"
+  }
+}

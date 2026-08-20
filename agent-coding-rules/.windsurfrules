@@ -1,0 +1,57 @@
+# Windsurf 编码约束规则
+
+# 本文件供 Windsurf AI IDE 读取。Windsurf 在生成代码时必须遵守以下规则。
+# 完整规则见 AGENTS.md，分语言规则见 rules/ 目录。
+
+## 规则加载
+
+执行编码任务前，先读取项目根目录的 AGENTS.md 文件获取完整规则。
+针对特定语言，读取 rules/ 目录下对应文件。
+
+## 核心约束
+
+### 安全红线
+
+- 禁止硬编码密钥/密码/Token
+- 禁止 eval/exec/os.system 处理用户输入
+- 禁止 SQL 字符串拼接
+- 禁止空 except/catch 块
+- 禁止 print/console.log 残留
+- 禁止注释掉的代码
+
+### 命名规范
+
+- Python: snake_case 函数/变量, PascalCase 类, UPPER_SNAKE 常量
+- Java: camelCase 方法/变量, PascalCase 类, 全小写包名
+- JS/TS: camelCase 函数/变量, PascalCase 类/组件
+- Go: PascalCase 导出, camelCase 未导出
+- Rust: snake_case 函数/变量, PascalCase 类型
+
+### 函数设计
+
+- ≤50行, ≤4参数, 提前返回, ≤3层嵌套, 单一职责
+
+### 错误处理
+
+- 显式处理, 保留上下文, 区分业务/系统错误, 快速失败
+
+### 数据库
+
+- 参数化查询, 禁止 SELECT *, 必须带 LIMIT, 事务, 连接释放
+
+### Commit
+
+Conventional Commits: `<type>(<scope>): <subject>`
+
+## 语言规则索引
+
+- Python: rules/01-python.md
+- Java: rules/02-java.md
+- JS/TS: rules/03-javascript.md
+- Go: rules/04-go.md
+- Rust: rules/05-rust.md
+- C/C++: rules/06-cpp.md
+- SQL: rules/07-sql.md
+- 数据库: rules/08-database.md
+- NoSQL: rules/09-nosql.md
+- Code Review: rules/10-code-review.md

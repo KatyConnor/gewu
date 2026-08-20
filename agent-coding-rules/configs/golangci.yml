@@ -1,0 +1,56 @@
+# golangci-lint — Go lint
+# https://golangci-lint.run
+
+run:
+    timeout: 5m
+    go: "1.22"
+
+linters:
+    enable:
+        - errcheck        # 检查未处理的 error
+        - govet           # go vet
+        - staticcheck     # 静态分析
+        - gocritic        # 代码改进建议
+        - revive          # golint 替代
+        - gofmt           # 格式检查
+        - goimports       # 导入排序
+        - misspell        # 拼写检查
+        - gocyclo         # 圈复杂度
+        - dupl            # 重复代码检测
+        - goconst         # 常量提取建议
+        - unconvert       # 不必要的类型转换
+        - prealloc        # slice 预分配建议
+        - nolintlint      # nolint 注释检查
+        - bodyclose       # HTTP Body close 检查
+        - rowserrcheck    # sql.Rows.Err 检查
+        - sqlclosecheck   # sql.Rows/Stmt close 检查
+        - gosec           # 安全检查
+
+linters-settings:
+    gocyclo:
+        min-complexity: 15
+    gocritic:
+        enabled-tags:
+            - performance
+            - style
+            - experimental
+    revive:
+        severity: warning
+        rules:
+            - name: exported
+              disabled: false
+            - name: var-naming
+              disabled: false
+    gosec:
+        excludes:
+            - G104  # unhandled errors (errcheck covers)
+
+issues:
+    exclude-rules:
+        - path: _test\.go
+          linters:
+              - gosec
+              - gocyclo
+              - errcheck
+    max-issues-per-linter: 0
+    max-same-issues: 0

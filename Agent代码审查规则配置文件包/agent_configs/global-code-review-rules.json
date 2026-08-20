@@ -1,0 +1,265 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "meta": {
+    "name": "Code Review Rules - Global Configuration",
+    "version": "1.0.0",
+    "description": "基于行业权威标准的代码审查规则全局配置，覆盖11种主流编程语言",
+    "updated_at": "2026-08-20",
+    "standards": [
+      "Google Style Guides",
+      "OWASP Top 10 (2021)",
+      "CWE/SANS Top 25",
+      "MISRA C/C++",
+      "CERT Secure Coding",
+      "PEP 8 / PEP 20",
+      "ISO/IEC 25010",
+      "NIST SSDF (SP 800-218)"
+    ]
+  },
+  "rules": {
+    "universal": {
+      "enabled": true,
+      "categories": {
+        "style": {
+          "enabled": true,
+          "rules": [
+            { "id": "L1-STYLE-001", "title": "缩进使用空格而非Tab，统一缩进宽度", "severity": "P2" },
+            { "id": "L1-STYLE-002", "title": "行尾不得有多余空格", "severity": "P3" },
+            { "id": "L1-STYLE-003", "title": "文件末尾必须保留一个空行", "severity": "P3" },
+            { "id": "L1-STYLE-004", "title": "单行长度不超过120字符", "severity": "P2" },
+            { "id": "L1-STYLE-005", "title": "操作符两侧必须有且仅有一个空格", "severity": "P3" },
+            { "id": "L1-STYLE-006", "title": "逗号后必须有一个空格，逗号前不得有空格", "severity": "P3" },
+            { "id": "L1-STYLE-007", "title": "代码块花括号风格在项目内统一", "severity": "P2" },
+            { "id": "L1-STYLE-008", "title": "import语句按标准库→第三方库→本地模块分组排列", "severity": "P2" }
+          ]
+        },
+        "naming": {
+          "enabled": true,
+          "rules": [
+            { "id": "L1-NAME-001", "title": "变量名使用有意义的名词或名词短语", "severity": "P2" },
+            { "id": "L1-NAME-002", "title": "函数名使用动词或动宾短语", "severity": "P2" },
+            { "id": "L1-NAME-003", "title": "布尔变量/函数使用is/has/can/should等前缀", "severity": "P2" },
+            { "id": "L1-NAME-004", "title": "常量使用UPPER_SNAKE_CASE", "severity": "P2" },
+            { "id": "L1-NAME-005", "title": "类名使用PascalCase", "severity": "P2" },
+            { "id": "L1-NAME-006", "title": "接口名不加I前缀（Java除外）", "severity": "P3" },
+            { "id": "L1-NAME-007", "title": "避免使用保留字或内置函数名作为变量名", "severity": "P1" },
+            { "id": "L1-NAME-008", "title": "集合变量名应体现复数语义", "severity": "P3" },
+            { "id": "L1-NAME-009", "title": "名称长度控制在2-30字符", "severity": "P3" },
+            { "id": "L1-NAME-010", "title": "循环变量i/j/k仅限简单计数场景", "severity": "P3" }
+          ]
+        },
+        "logic": {
+          "enabled": true,
+          "rules": [
+            { "id": "L1-LOGIC-001", "title": "避免过深嵌套（建议不超过3层）", "severity": "P2" },
+            { "id": "L1-LOGIC-002", "title": "每个函数只做一件事", "severity": "P2" },
+            { "id": "L1-LOGIC-003", "title": "函数参数不超过5个", "severity": "P2" },
+            { "id": "L1-LOGIC-004", "title": "函数行数建议不超过50行", "severity": "P2" },
+            { "id": "L1-LOGIC-005", "title": "循环体中避免修改循环计数器或集合大小", "severity": "P1" },
+            { "id": "L1-LOGIC-006", "title": "switch/case必须有default分支", "severity": "P2" },
+            { "id": "L1-LOGIC-007", "title": "避免在条件表达式中进行赋值操作", "severity": "P1" },
+            { "id": "L1-LOGIC-008", "title": "浮点数比较使用误差范围", "severity": "P1" },
+            { "id": "L1-LOGIC-009", "title": "避免使用魔法数字", "severity": "P2" },
+            { "id": "L1-LOGIC-010", "title": "条件表达式避免使用双重否定", "severity": "P3" },
+            { "id": "L1-LOGIC-011", "title": "for循环条件中避免调用高开销函数", "severity": "P2" },
+            { "id": "L1-LOGIC-012", "title": "使用卫语句提前返回减少嵌套", "severity": "P3" }
+          ]
+        },
+        "error_handling": {
+          "enabled": true,
+          "rules": [
+            { "id": "L1-ERR-001", "title": "不得捕获异常后不做任何处理", "severity": "P1" },
+            { "id": "L1-ERR-002", "title": "不得捕获过于宽泛的异常类型", "severity": "P1" },
+            { "id": "L1-ERR-003", "title": "异常信息必须包含上下文信息", "severity": "P2" },
+            { "id": "L1-ERR-004", "title": "资源必须在finally块或RAII模式释放", "severity": "P1" },
+            { "id": "L1-ERR-005", "title": "不得忽略函数返回值中的错误码", "severity": "P1" },
+            { "id": "L1-ERR-006", "title": "自定义异常应继承合适的基类", "severity": "P2" },
+            { "id": "L1-ERR-007", "title": "异常处理不得吞没Stack Trace", "severity": "P2" },
+            { "id": "L1-ERR-008", "title": "在适当的层级处理异常", "severity": "P1" },
+            { "id": "L1-ERR-009", "title": "输入验证失败应返回明确错误", "severity": "P1" },
+            { "id": "L1-ERR-010", "title": "异步操作中的异常必须有处理路径", "severity": "P1" }
+          ]
+        },
+        "comment": {
+          "enabled": true,
+          "rules": [
+            { "id": "L1-COMMENT-001", "title": "公共API必须有文档注释", "severity": "P2" },
+            { "id": "L1-COMMENT-002", "title": "注释解释意图而非复述代码", "severity": "P3" },
+            { "id": "L1-COMMENT-003", "title": "TODO注释必须附带负责人和日期", "severity": "P2" },
+            { "id": "L1-COMMENT-004", "title": "废弃代码应删除而非注释", "severity": "P2" },
+            { "id": "L1-COMMENT-005", "title": "复杂算法必须有解释性注释", "severity": "P2" },
+            { "id": "L1-COMMENT-006", "title": "注释内容必须与代码行为一致", "severity": "P2" },
+            { "id": "L1-COMMENT-007", "title": "避免不必要的注释", "severity": "P3" },
+            { "id": "L1-COMMENT-008", "title": "文件头部注释应包含版权和用途", "severity": "P3" }
+          ]
+        },
+        "vcs": {
+          "enabled": true,
+          "rules": [
+            { "id": "L1-VCS-001", "title": "提交信息使用Conventional Commits格式", "severity": "P2" },
+            { "id": "L1-VCS-002", "title": "每次提交只包含一个逻辑变更", "severity": "P2" },
+            { "id": "L1-VCS-003", "title": "提交信息首行不超过72字符", "severity": "P3" },
+            { "id": "L1-VCS-004", "title": "分支命名遵循项目规范", "severity": "P3" },
+            { "id": "L1-VCS-005", "title": "不得将敏感信息提交到代码仓库", "severity": "P0" },
+            { "id": "L1-VCS-006", "title": ".gitignore配置完整", "severity": "P3" }
+          ]
+        }
+      }
+    },
+    "security": {
+      "enabled": true,
+      "categories": {
+        "injection": {
+          "rules": [
+            { "id": "L3-SEC-001", "title": "SQL查询必须使用参数化查询", "severity": "P0" },
+            { "id": "L3-SEC-002", "title": "命令执行必须使用参数数组形式", "severity": "P0" },
+            { "id": "L3-SEC-003", "title": "用户输入必须经过验证和白名单过滤", "severity": "P0" },
+            { "id": "L3-SEC-004", "title": "动态查询必须使用白名单校验表名/列名", "severity": "P0" },
+            { "id": "L3-SEC-005", "title": "ORM的raw查询必须使用参数化方式", "severity": "P0" },
+            { "id": "L3-SEC-006", "title": "文件路径必须验证不含目录穿越字符", "severity": "P0" }
+          ]
+        },
+        "authentication": {
+          "rules": [
+            { "id": "L3-SEC-007", "title": "密码存储必须使用bcrypt/scrypt/argon2", "severity": "P0" },
+            { "id": "L3-SEC-008", "title": "密码不得在日志中明文出现", "severity": "P0" },
+            { "id": "L3-SEC-009", "title": "Session ID必须由安全随机数生成", "severity": "P0" },
+            { "id": "L3-SEC-010", "title": "登录失败信息不得区分用户不存在和密码错误", "severity": "P1" },
+            { "id": "L3-SEC-011", "title": "敏感操作必须进行二次认证", "severity": "P1" },
+            { "id": "L3-SEC-012", "title": "JWT签名必须使用强算法", "severity": "P0" },
+            { "id": "L3-SEC-013", "title": "密码重置令牌必须有时效限制", "severity": "P1" },
+            { "id": "L3-SEC-014", "title": "Session Cookie必须设置HttpOnly和Secure", "severity": "P0" }
+          ]
+        },
+        "data_protection": {
+          "rules": [
+            { "id": "L3-SEC-015", "title": "禁止硬编码密钥/密码/Token", "severity": "P0" },
+            { "id": "L3-SEC-016", "title": "传输层必须使用TLS 1.2+", "severity": "P0" },
+            { "id": "L3-SEC-017", "title": "敏感数据日志输出必须脱敏", "severity": "P1" },
+            { "id": "L3-SEC-018", "title": "数据库敏感字段必须加密存储", "severity": "P0" },
+            { "id": "L3-SEC-019", "title": "API响应不得返回超出必要的信息", "severity": "P1" },
+            { "id": "L3-SEC-020", "title": "错误信息不得包含系统内部信息", "severity": "P1" },
+            { "id": "L3-SEC-021", "title": "临时文件中的敏感数据必须安全删除", "severity": "P1" },
+            { "id": "L3-SEC-022", "title": "环境变量密钥不得在客户端引用", "severity": "P0" }
+          ]
+        },
+        "xss": {
+          "rules": [
+            { "id": "L3-SEC-023", "title": "用户输入输出到HTML前必须编码", "severity": "P0" },
+            { "id": "L3-SEC-024", "title": "禁止innerHTML/document.write渲染用户输入", "severity": "P0" },
+            { "id": "L3-SEC-025", "title": "dangerouslySetInnerHTML/v-html必须审查", "severity": "P0" },
+            { "id": "L3-SEC-026", "title": "CSP头部必须配置", "severity": "P1" },
+            { "id": "L3-SEC-027", "title": "URL参数验证协议（禁止javascript:）", "severity": "P0" }
+          ]
+        },
+        "csrf": {
+          "rules": [
+            { "id": "L3-SEC-028", "title": "状态变更操作不得用GET", "severity": "P0" },
+            { "id": "L3-SEC-029", "title": "必须实现CSRF Token或SameSite Cookie", "severity": "P0" },
+            { "id": "L3-SEC-030", "title": "API请求必须验证Origin/Referer", "severity": "P1" }
+          ]
+        },
+        "deserialization": {
+          "rules": [
+            { "id": "L3-SEC-031", "title": "禁止反序列化不受信任的数据", "severity": "P0" },
+            { "id": "L3-SEC-032", "title": "反序列化必须使用类型白名单", "severity": "P0" },
+            { "id": "L3-SEC-033", "title": "JSON反序列化优先使用安全解析器", "severity": "P1" }
+          ]
+        },
+        "access_control": {
+          "rules": [
+            { "id": "L3-SEC-034", "title": "每个API端点必须有权限验证", "severity": "P0" },
+            { "id": "L3-SEC-035", "title": "服务端必须验证用户对资源的所有权", "severity": "P0" },
+            { "id": "L3-SEC-036", "title": "实现最小权限原则，默认拒绝", "severity": "P1" },
+            { "id": "L3-SEC-037", "title": "管理接口必须额外认证", "severity": "P0" },
+            { "id": "L3-SEC-038", "title": "JWT payload不得含敏感信息", "severity": "P1" }
+          ]
+        },
+        "dependency": {
+          "rules": [
+            { "id": "L3-SEC-039", "title": "依赖版本必须固定", "severity": "P1" },
+            { "id": "L3-SEC-040", "title": "必须配置依赖漏洞扫描", "severity": "P1" },
+            { "id": "L3-SEC-041", "title": "禁止使用已知有漏洞的依赖", "severity": "P0" },
+            { "id": "L3-SEC-042", "title": "新增依赖必须经过安全审查", "severity": "P2" }
+          ]
+        },
+        "logging": {
+          "rules": [
+            { "id": "L3-SEC-043", "title": "认证事件必须记录日志", "severity": "P1" },
+            { "id": "L3-SEC-044", "title": "权限变更操作必须记录审计日志", "severity": "P1" },
+            { "id": "L3-SEC-045", "title": "日志中不得包含完整敏感信息", "severity": "P0" },
+            { "id": "L3-SEC-046", "title": "安全日志必须防篡改", "severity": "P1" }
+          ]
+        }
+      }
+    },
+    "architecture": {
+      "enabled": true,
+      "rules": [
+        { "id": "L3-ARCH-001", "title": "单一职责原则", "severity": "P2" },
+        { "id": "L3-ARCH-002", "title": "开闭原则", "severity": "P2" },
+        { "id": "L3-ARCH-003", "title": "分层架构中不得跨层调用", "severity": "P1" },
+        { "id": "L3-ARCH-004", "title": "模块间不得循环依赖", "severity": "P1" },
+        { "id": "L3-ARCH-007", "title": "模块间通过接口通信", "severity": "P2" },
+        { "id": "L3-ARCH-010", "title": "避免上帝类", "severity": "P2" },
+        { "id": "L3-ARCH-016", "title": "REST API资源导向设计", "severity": "P2" },
+        { "id": "L3-ARCH-019", "title": "分页查询必须限制最大返回条数", "severity": "P1" },
+        { "id": "L3-ARCH-022", "title": "SQL迁移脚本必须可回滚", "severity": "P1" },
+        { "id": "L3-ARCH-027", "title": "代码结构应支持单元测试", "severity": "P2" }
+      ]
+    },
+    "performance": {
+      "enabled": true,
+      "rules": [
+        { "id": "L3-PERF-001", "title": "避免N+1查询", "severity": "P1" },
+        { "id": "L3-PERF-003", "title": "大数据集使用分页/流式处理", "severity": "P1" },
+        { "id": "L3-PERF-009", "title": "连接池大小必须合理配置", "severity": "P2" },
+        { "id": "L3-PERF-010", "title": "超时设置必须合理", "severity": "P1" },
+        { "id": "L3-PERF-012", "title": "文件句柄/网络连接必须及时关闭", "severity": "P1" },
+        { "id": "L3-PERF-013", "title": "限制并发数量防止资源耗尽", "severity": "P1" }
+      ]
+    },
+    "observability": {
+      "enabled": true,
+      "rules": [
+        { "id": "L3-OBS-001", "title": "关键业务操作必须有结构化日志", "severity": "P2" },
+        { "id": "L3-OBS-003", "title": "分布式调用必须有TraceID", "severity": "P2" },
+        { "id": "L3-OBS-004", "title": "关键指标必须有Metrics监控", "severity": "P2" },
+        { "id": "L3-OBS-005", "title": "关键服务必须有健康检查端点", "severity": "P2" },
+        { "id": "L3-OBS-008", "title": "敏感信息不得出现在日志中", "severity": "P0" }
+      ]
+    },
+    "documentation": {
+      "enabled": true,
+      "rules": [
+        { "id": "L3-DOC-001", "title": "公共API必须有文档注释", "severity": "P2" },
+        { "id": "L3-DOC-005", "title": "项目必须有README", "severity": "P2" },
+        { "id": "L3-DOC-007", "title": "环境搭建说明必须可执行", "severity": "P2" },
+        { "id": "L3-DOC-009", "title": "复杂算法必须有注释说明", "severity": "P2" }
+      ]
+    },
+    "languages": {
+      "python":     { "enabled": true, "strict": true },
+      "java":       { "enabled": true, "strict": true },
+      "javascript": { "enabled": true, "strict": true },
+      "typescript": { "enabled": true, "strict": true },
+      "go":         { "enabled": true, "strict": true },
+      "rust":       { "enabled": true, "strict": true },
+      "cpp":        { "enabled": true, "strict": true },
+      "c":          { "enabled": true, "strict": true },
+      "csharp":     { "enabled": true, "strict": false },
+      "php":        { "enabled": false, "strict": false },
+      "ruby":       { "enabled": false, "strict": false },
+      "swift":      { "enabled": false, "strict": false },
+      "kotlin":     { "enabled": false, "strict": false }
+    }
+  },
+  "overrides": [],
+  "loading_strategy": "merge",
+  "output_format": {
+    "sort_by": "severity",
+    "severity_order": ["P0", "P1", "P2", "P3"],
+    "include_suggestions": true,
+    "include_code_examples": true
+  }
+}

@@ -1,0 +1,32 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  - job_name: gewu-platform-logs
+    static_configs:
+      - targets:
+          - localhost
+        labels:
+          job: gewu-platform
+          app: gewu-platform
+          __path__: /var/log/gewu/*.log
+    pipeline_stages:
+      - json:
+          expressions:
+            level: level
+            timestamp: timestamp
+            message: message
+            traceId: traceId
+            spanId: spanId
+      - labels:
+          level:
+      - timestamp:
+          source: timestamp
+          format: RFC3339Nano

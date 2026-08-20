@@ -1,0 +1,721 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>格物平台 Agent 编排引擎 · 架构图集</title>
+<style>
+  :root{
+    --bg:#0d1117; --panel:#161b22; --border:#30363d; --text:#e6edf3;
+    --muted:#8b949e; --accent:#58a6ff; --green:#3fb950; --orange:#d29922;
+    --red:#f85149; --purple:#bc8cff;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:-apple-system,"Segoe UI",Roboto,"PingFang SC","Microsoft YaHei",sans-serif;
+    background:var(--bg);color:var(--text);line-height:1.6}
+  .layout{display:flex;min-height:100vh}
+  nav{width:280px;background:var(--panel);border-right:1px solid var(--border);
+    padding:24px 16px;position:fixed;height:100vh;overflow-y:auto}
+  nav h1{font-size:15px;color:var(--accent);margin-bottom:20px;line-height:1.4}
+  nav a{display:block;color:var(--muted);text-decoration:none;padding:8px 12px;
+    border-radius:6px;font-size:13px;margin-bottom:2px;transition:.15s}
+  nav a:hover{background:rgba(88,166,255,.1);color:var(--text)}
+  nav a.active{background:rgba(88,166,255,.15);color:var(--accent)}
+  main{margin-left:280px;flex:1;padding:40px 48px;max-width:1200px}
+  .section{margin-bottom:64px;scroll-margin-top:24px}
+  .section h2{font-size:22px;color:var(--text);margin-bottom:8px;
+    padding-bottom:12px;border-bottom:1px solid var(--border)}
+  .section .desc{color:var(--muted);font-size:14px;margin-bottom:20px}
+  .chart-card{background:var(--panel);border:1px solid var(--border);
+    border-radius:10px;padding:28px;margin-bottom:24px;overflow-x:auto}
+  .chart-card h3{font-size:15px;color:var(--accent);margin-bottom:16px}
+  .legend{display:flex;gap:16px;flex-wrap:wrap;margin-top:14px;
+    font-size:12px;color:var(--muted)}
+  .legend span{display:inline-flex;align-items:center;gap:6px}
+  .legend i{width:12px;height:12px;border-radius:3px;display:inline-block}
+  .badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:11px;font-weight:600}
+  .b-p0{background:rgba(248,81,73,.15);color:var(--red)}
+  .b-p1{background:rgba(210,153,34,.15);color:var(--orange)}
+  .b-p2{background:rgba(63,185,80,.15);color:var(--green)}
+  .mermaid{display:flex;justify-content:center}
+  @media(max-width:900px){nav{display:none}main{margin-left:0;padding:24px}}
+</style>
+</head>
+<body>
+<div class="layout">
+<nav>
+  <h1>🤖 格物平台<br>Agent 编排引擎<br>架构图集 v1.0</h1>
+  <a href="#overview" class="active">1. 总体分层架构</a>
+  <a href="#engine">2. 编排引擎核心</a>
+  <a href="#modes">3. 四种编排模式</a>
+  <a href="#sdlc">4. SDLC 角色编排</a>
+  <a href="#goal">5. 自主目标驱动循环</a>
+  <a href="#evolution">6. 自我进化闭环</a>
+  <a href="#hitl">7. 人机协同流程</a>
+  <a href="#memory">8. 认知记忆体系</a>
+  <a href="#data">9. 数据模型 ER 图</a>
+  <a href="#sequence">10. 编排执行时序</a>
+  <a href="#roadmap">11. 演进路线</a>
+</nav>
+<main>
+
+<!-- 1. 总体分层架构 -->
+<div class="section" id="overview">
+<h2>1. 总体分层架构</h2>
+<p class="desc">七层架构：从交互层到基础设施，核心是 Agent 编排引擎统一调度。复用 Wenshi 认知层与现有 Agent 引擎，不另起炉灶。</p>
+<div class="chart-card">
+<h3>分层架构全景</h3>
+<div class="mermaid">
+block-beta
+  columns 1
+  block:I["🖥️ 交互层 Interface\nWeb Console · REST API · SSE Stream · Webhook · IDE 插件"]:1
+  block:H["🤝 人机协同网关 HITL Gateway\n审批队列 · 实时接管 · 协同编辑 · 异步通知"]
+  block:AOE["★ Agent 编排引擎 Orchestration Engine ★\nGoalPlanner → Orchestrator → ExecutionScheduler\nSupervisor | Pipeline | Swarm | Debate"]:1
+  block:ROLE["📋 SDLC Agent 角色层 Role Registry\n需求PM · 架构师 · 开发者 · 审查 · 测试 · DevOps · SRE · 安全审计"]:1
+  block:RT["⚙️ Agent 运行时 Runtime\nReAct · Plan-Execute · Reflexion · Tool-Parallel\n（封装现有 AgentExecutionEngine）"]:1
+  block:COG["🧠 认知与进化层 Cognition & Evolution（复用 Wenshi）\n记忆4类 · 推理内核 · 经验库 · 技能演化 · 评测"]:1
+  block:CAP["🔧 能力层 Tool & Sandbox\nToolRegistry(代码+DB双轨) · MCP · HTTP · 沙箱 · Git/CI/DB工具"]:1
+  block:INF["🏗️ 基础设施 Infrastructure\nLlmClientFactory · pgvector · MySQL · RocketMQ · DragonflyDB · 国密SM2/3/4"]:1
+  I --> H --> AOE --> ROLE --> RT --> COG --> CAP --> INF
+  style AOE fill:#1f2d3d,stroke:#58a6ff,stroke-width:2px,color:#58a6ff
+  style COG fill:#1a2e1a,stroke:#3fb950,color:#3fb950
+  style H fill:#2d2a1a,stroke:#d29922,color:#d29922
+</div>
+<div class="legend">
+<span><i style="background:#58a6ff"></i>核心引擎</span>
+<span><i style="background:#3fb950"></i>认知复用</span>
+<span><i style="background:#d29922"></i>人机协同</span>
+<span><i style="background:#30363d"></i>现有资产</span>
+</div>
+</div>
+</div>
+
+<!-- 2. 编排引擎核心 -->
+<div class="section" id="engine">
+<h2>2. 编排引擎核心架构</h2>
+<p class="desc">编排引擎统一"工作流 DAG"与"Agent ReAct 循环"为同一编排图模型。一切皆节点：Agent / Tool / Human / Router / Parallel / Merge / SubGraph。</p>
+<div class="chart-card">
+<h3>编排引擎内部结构</h3>
+<div class="mermaid">
+flowchart TB
+  subgraph Entry["入口"]
+    GOAL["🎯 AutonomousGoal\n自主目标"]
+    GRAPH["📋 OrchestrationGraph\n编排图定义"]
+    MANUAL["👤 手动编排图"]
+  end
+
+  subgraph Core["★ 编排引擎核心"]
+    GP["GoalPlanner\n目标分解器\n经验匹配→LLM规划→Critic验证"]
+    ORC["Orchestrator\n编排调度器\n拓扑排序·节点分派"]
+    SCH["ExecutionScheduler\n执行调度器\n并行/串行/重试/超时"]
+    VARS["GraphVariables\n图变量上下文\n节点间数据传递"]
+  end
+
+  subgraph Modes["四种编排模式 ModeHandler"]
+    M1["Supervisor\n监督者路由"]
+    M2["Pipeline\n专家流水线"]
+    M3["Swarm\n群体交接"]
+    M4["Debate\n辩论共识"]
+  end
+
+  subgraph Runtime["Agent 运行时"]
+    R1["ReactRuntime\n（现有引擎封装）"]
+    R2["PlanExecuteRuntime"]
+    R3["ReflexionRuntime"]
+    R4["CompositeRuntime"]
+  end
+
+  subgraph Nodes["节点处理器"]
+    NA["AgentNodeHandler"]
+    NT["ToolNodeHandler"]
+    NH["HumanNodeHandler"]
+    NR["RouterNodeHandler"]
+    NP["ParallelNodeHandler"]
+  end
+
+  subgraph Hooks["进化钩子 EvolutionHook"]
+    H1["onNodeComplete\n推理轨迹"]
+    H2["onGraphComplete\n反思+经验+技能"]
+    H3["onGoalFailure\n失败经验"]
+  end
+
+  GOAL --> GP
+  GRAPH --> ORC
+  MANUAL --> ORC
+  GP -->|"生成编排图"| ORC
+  ORC --> SCH
+  SCH --> Modes
+  SCH --> Nodes
+  Modes --> Runtime
+  Nodes --> Runtime
+  Runtime --> VARS
+  VARS -->|"下游引用"| ORC
+  SCH -.->|"生命周期"| Hooks
+  Hooks -->|"回流"| COG2["Wenshi 学习层"]
+
+  style Core fill:#1f2d3d,stroke:#58a6ff
+  style Modes fill:#2d1f3d,stroke:#bc8cff
+  style Hooks fill:#1a2e1a,stroke:#3fb950
+</div>
+</div>
+</div>
+
+<!-- 3. 四种编排模式 -->
+<div class="section" id="modes">
+<h2>3. 四种编排模式</h2>
+<p class="desc">根据任务特征选择：边界不清→Supervisor，流程明确→Pipeline，探索性→Swarm，多方案权衡→Debate。GoalPlanner 自动推荐，用户可覆盖。</p>
+<div class="chart-card">
+<h3>模式一：Supervisor 监督者路由（动态分派）</h3>
+<div class="mermaid">
+flowchart LR
+  T["🎯 Task"] --> SUP{"🧠 Supervisor\nLLM路由决策"}
+  SUP -->|"子任务1"| A1["需求PM Agent"]
+  SUP -->|"子任务2"| A2["架构师 Agent"]
+  SUP -->|"子任务3"| A3["开发者 Agent"]
+  A1 --> SUP
+  A2 --> SUP
+  A3 --> SUP
+  SUP -->|"汇总裁决"| OUT["✅ 结果"]
+  style SUP fill:#2d1f3d,stroke:#bc8cff
+</div>
+</div>
+<div class="chart-card">
+<h3>模式二：Pipeline 专家流水线（SDLC贯通）</h3>
+<div class="mermaid">
+flowchart LR
+  P1["需求PM\n(PRD)"] --> P2["架构师\n(设计)"]
+  P2 --> P3["开发者\n(代码+单测)"]
+  P3 --> P4["代码审查\n(Review)"]
+  P4 --> P5["测试\n(测试报告)"]
+  P5 --> P6["DevOps\n(部署)"]
+  P6 --> P7["SRE\n(监控配置)"]
+  style P1 fill:#1f3d2d,stroke:#3fb950
+  style P7 fill:#1f3d2d,stroke:#3fb950
+</div>
+</div>
+<div class="chart-card">
+<h3>模式三：Swarm 群体交接（探索性）</h3>
+<div class="mermaid">
+flowchart LR
+  S1["SRE Agent\n定位故障"] -->|"handoff"| S2["开发者 Agent\n修复代码"]
+  S2 -->|"handoff"| S3["审查 Agent\nCode Review"]
+  S3 -->|"handoff"| S4["DevOps Agent\n热修部署"]
+  S4 -->|"FINISH"| END["✅ 完成"]
+  style S1 fill:#3d2d1f,stroke:#d29922
+</div>
+</div>
+<div class="chart-card">
+<h3>模式四：Debate 辩论共识（多方案权衡）</h3>
+<div class="mermaid">
+flowchart TB
+  Q["❓ 架构选型问题"] --> D1["方案A Agent\n微服务"]
+  Q --> D2["方案B Agent\n模块化单体"]
+  Q --> D3["方案C Agent\nServerless"]
+  D1 --> JUDGE{"⚖️ 裁判 Agent\nCritic 接地验证"}
+  D2 --> JUDGE
+  D3 --> JUDGE
+  JUDGE --> BEST["🏆 最优方案 + ADR"]
+  style JUDGE fill:#3d1f1f,stroke:#f85149
+</div>
+</div>
+</div>
+
+<!-- 4. SDLC 角色编排 -->
+<div class="section" id="sdlc">
+<h2>4. SDLC 全生命周期角色编排</h2>
+<p class="desc">12 个角色 Agent 覆盖需求→设计→开发→审查→测试→部署→运维全流程，按交付场景组合不同编排模式。</p>
+<div class="chart-card">
+<h3>SDLC 角色与编排场景矩阵</h3>
+<div class="mermaid">
+flowchart LR
+  subgraph REQ["需求阶段"]
+    R1["需求PM Agent"]
+    R2["需求评审 Agent"]
+  end
+  subgraph DES["设计阶段"]
+    D1["架构师 Agent"]
+    D2["数据库设计 Agent"]
+  end
+  subgraph DEV["开发阶段"]
+    V1["开发者 Agent"]
+    V2["重构 Agent"]
+  end
+  subgraph REV["审查阶段"]
+    RV1["代码审查 Agent"]
+    RV2["安全审计 Agent"]
+  end
+  subgraph TST["测试阶段"]
+    T1["测试工程师 Agent"]
+    T2["QA Agent"]
+  end
+  subgraph OPS["部署运维"]
+    O1["DevOps Agent"]
+    O2["SRE Agent"]
+    O3["文档工程师 Agent"]
+  end
+
+  REQ --> DES --> DEV --> REV --> TST --> OPS
+  REQ -.->|"场景C:架构决策"| RV2
+  OPS -.->|"场景B:Bug修复\nSwarm回流"| V1
+
+  style REQ fill:#1f2d3d,stroke:#58a6ff
+  style DES fill:#1f3d2d,stroke:#3fb950
+  style DEV fill:#2d2d1f,stroke:#d29922
+  style REV fill:#3d1f1f,stroke:#f85149
+  style TST fill:#2d1f3d,stroke:#bc8cff
+  style OPS fill:#1a2e2e,stroke:#39c5cf
+</div>
+<div class="legend">
+<span>场景A 标准开发：REQ→DES→DEV→REV→TST→OPS (Pipeline)</span><br>
+<span>场景B 紧急修复：SRE→DEV→REV→DevOps (Swarm)</span><br>
+<span>场景C 架构决策：架构师多方案权衡 (Debate)</span><br>
+<span>场景D 技术债治理：Supervisor 按优先级分派</span>
+</div>
+</div>
+</div>
+
+<!-- 5. 自主目标驱动循环 -->
+<div class="section" id="goal">
+<h2>5. 自主目标驱动循环</h2>
+<p class="desc">给定高层目标，自主分解→执行→验证→反思重规划，直到满足验收标准或触发边界。六重防失控机制保障安全。</p>
+<div class="chart-card">
+<h3>自主目标执行循环</h3>
+<div class="mermaid">
+flowchart TB
+  START(["🎯 目标接收\nOAuth2登录模块"]) --> DECOMP["1️⃣ GoalPlanner 目标分解"]
+  DECOMP --> MATCH{"经验库匹配?"}
+  MATCH -->|"命中"| REUSE["复用历史 PlanTree\n(微调)"]
+  MATCH -->|"未命中"| LLM["LLM Planner 规划"]
+  LLM --> CRITIC{"Critic 验证"}
+  CRITIC -->|"不通过(限3轮)"| LLM
+  CRITIC -->|"通过"| GRAPH["📋 生成编排图"]
+  REUSE --> GRAPH
+  GRAPH --> EXEC["2️⃣ Orchestrator 编排执行\n（含 HITL 审批节点）"]
+  EXEC --> VERIFY{"3️⃣ 验收标准校验"}
+  VERIFY -->|"通过"| DONE(["✅ 成功交付"])
+  VERIFY -->|"未通过"| REFLECT["4️⃣ Reflexion 反思重规划"]
+  REFLECT --> CHECK{"迭代 < 上限?"}
+  CHECK -->|"是"| GRAPH
+  CHECK -->|"否"| HUMAN["🚨 升级人工介入"]
+
+  DONE --> EXTRACT["5️⃣ 经验沉淀\n→ 进化引擎"]
+
+  subgraph Guard["🛡️ 六重防失控边界"]
+    G1["迭代上限 maxIterations=5"]
+    G2["Token 预算"]
+    G3["时间预算 30min"]
+    G4["强制 HITL 节点"]
+    G5["回退限制 3次"]
+    G6["资源配额熔断"]
+  end
+  EXEC -.-> Guard
+
+  style DECOMP fill:#1f2d3d,stroke:#58a6ff
+  style EXEC fill:#2d2d1f,stroke:#d29922
+  style REFLECT fill:#3d1f1f,stroke:#f85149
+  style Guard fill:#1a2e1a,stroke:#3fb950
+  style DONE fill:#1a2e1a,stroke:#3fb950
+</div>
+</div>
+</div>
+
+<!-- 6. 自我进化闭环 -->
+<div class="section" id="evolution">
+<h2>6. 自我进化学习闭环</h2>
+<p class="desc">进化钩子嵌入编排生命周期，每次执行自动产生进化数据：轨迹→反思→经验→技能演化→评测，形成闭环。复用并增强 Wenshi 学习层。</p>
+<div class="chart-card">
+<h3>进化引擎闭环</h3>
+<div class="mermaid">
+flowchart LR
+  EXEC["⚙️ Agent 执行"] --> TRACE["📝 推理轨迹\nwenshi_reasoning_trace"]
+  TRACE --> REFLECT["🤔 反思复盘\nReflectionAgent"]
+  REFLECT --> EXTRACT["📦 经验抽取\nExperienceExtractor"]
+  EXTRACT --> EXP[("🗄️ 经验库\nwenshi_experience")]
+  EXP --> EVOLVE["🧬 技能演化\nSkillEvolver"]
+  EVOLVE --> SKILL[("💡 技能库\nwenshi_procedural_memory")]
+  SKILL --> EVAL["📊 评测驱动\nEvaluationRunner"]
+  EVAL --> BASELINE{"能力对比基线"}
+  BASELINE -->|"提升"| UP["技能升级\n固化新模式"]
+  BASELINE -->|"退化"| DOWN["技能降级\n回滚版本"]
+  UP --> FEED["🔄 下次执行复用"]
+  DOWN --> FEED
+  FEED --> EXEC
+
+  EXP -.->|"GoalPlanner\n经验匹配复用"| GOALDECOMP["目标分解时\n直接套用成功经验"]
+
+  style EXEC fill:#2d2d1f,stroke:#d29922
+  style EXP fill:#1f2d3d,stroke:#58a6ff
+  style SKILL fill:#2d1f3d,stroke:#bc8cff
+  style EVAL fill:#1a2e1a,stroke:#3fb950
+</div>
+</div>
+<div class="chart-card">
+<h3>技能演化规则</h3>
+<div class="mermaid">
+flowchart TB
+  subgraph Rule1["升级规则"]
+    E1["同类经验 ≥3 次"] --> E2["平均 score ≥ 0.7"] --> E3["✅ 固化为技能"]
+  end
+  subgraph Rule2["降级规则"]
+    D1["技能 success_rate 持续下降"] --> D2["⚠️ 降级 skill_level"]
+  end
+  subgraph Rule3["淘汰规则"]
+    T1["技能长期未使用"] --> T2["usage_count 停滞"] --> T3["🗑️ 标记待淘汰"]
+  end
+  subgraph Rule4["回滚规则"]
+    R1["评测能力退化"] --> R2["↩️ 回滚技能版本"]
+  end
+</div>
+</div>
+</div>
+
+<!-- 7. 人机协同流程 -->
+<div class="section" id="hitl">
+<h2>7. 人机协同流程</h2>
+<p class="desc">编排图中的 HumanNode 在关键节点暂停执行，等待人工决策。支持审批、输入、协同编辑、接管、回退、异步通知六种模式。</p>
+<div class="chart-card">
+<h3>HITL 审批流程时序</h3>
+<div class="mermaid">
+sequenceDiagram
+  participant O as Orchestrator
+  participant H as HITL Gateway
+  participant DB as approval_request表
+  participant MQ as RocketMQ
+  participant U as 👤 人工审批人
+  participant A as Agent运行时
+
+  O->>A: 执行到 HumanNode(部署节点)
+  A->>O: 产出部署计划(artifact)
+  O->>H: requestApproval(部署计划)
+  H->>DB: 持久化审批请求(status=PENDING)
+  H->>MQ: 推送通知(延迟消息+超时升级)
+  MQ->>U: IM/Webhook 通知审批
+  O-->>O: 编排暂停(PAUSED)
+  Note over O: 当前节点阻塞,等待决策
+  U->>H: submitDecision(APPROVED)
+  H->>DB: 更新 status=APPROVED
+  H->>O: resume(决策内容)
+  O->>A: 继续执行(部署)
+  A->>O: 部署完成
+  O->>O: 编排继续下一节点
+</div>
+</div>
+<div class="chart-card">
+<h3>六种人机协同模式</h3>
+<div class="mermaid">
+flowchart TB
+  subgraph Sync["同步协同（阻塞执行）"]
+    S1["审批门\nAPPROVE/REJECT"]
+    S2["输入门\n需求澄清/方案选择"]
+    S3["协同编辑\n人工修改产物→反馈注入"]
+  end
+  subgraph Async["异步协同"]
+    A1["实时接管\n人工接管控制权"]
+    A2["回退重做\n回退到指定节点"]
+    A3["异步通知\nWebhook/IM推送"]
+  end
+  style Sync fill:#3d2d1f,stroke:#d29922
+  style Async fill:#1f2d3d,stroke:#58a6ff
+</div>
+</div>
+</div>
+
+<!-- 8. 认知记忆体系 -->
+<div class="section" id="memory">
+<h2>8. 认知与记忆体系</h2>
+<p class="desc">复用 Wenshi 四类记忆，按 Agent 角色域隔离。MemoryRouter 判断需要哪些记忆，MemoryInjector 检索去重截断后注入 prompt。</p>
+<div class="chart-card">
+<h3>记忆注入流程</h3>
+<div class="mermaid">
+flowchart LR
+  TASK["📨 AgentTask 到达"] --> ROUTER{"MemoryRouter\n规则优先+LLM兜底"}
+  ROUTER -->|"判断需要的记忆"| INJ["MemoryInjector\n检索→去重→截断(token预算)"]
+  INJ --> SEM["语义记忆\n领域知识/架构规范"]
+  INJ --> EPI["情景记忆\n历史执行事件"]
+  INJ --> PRO["程序性记忆\n技能库(演化产物)"]
+  INJ --> PAR["参数化记忆\n用户偏好/项目配置"]
+  INJ --> EXP["经验库\n成功/失败经验"]
+  SEM --> PROMPT["📝 注入 System Prompt"]
+  EPI --> PROMPT
+  PRO --> PROMPT
+  PAR --> PROMPT
+  EXP --> PROMPT
+  PROMPT --> RT["⚙️ AgentRuntime 执行"]
+  RT --> UPDATE["产出更新\n情景记忆+推理轨迹"]
+
+  style ROUTER fill:#2d1f3d,stroke:#bc8cff
+  style PROMPT fill:#1f2d3d,stroke:#58a6ff
+</div>
+</div>
+</div>
+
+<!-- 9. 数据模型 ER -->
+<div class="section" id="data">
+<h2>9. 数据模型 ER 图</h2>
+<p class="desc">新增5张表（agent_role / orchestration_graph / orchestration_execution / autonomous_goal / approval_request），扩展现有 agent 表6个字段，复用 Wenshi 6张记忆经验表。</p>
+<div class="chart-card">
+<h3>核心数据模型</h3>
+<div class="mermaid">
+erDiagram
+  agent ||--o{ agent_role : "role_code关联"
+  agent {
+    string id PK "ULID"
+    string agent_name
+    string agent_type "STANDARD/ROLE/SUPERVISOR 新增"
+    string role_code "SDLC角色 新增"
+    string orchestration_mode "SUPERVISOR/PIPELINE/SWARM/DEBATE 新增"
+    string execution_mode "REACT/PLAN_EXECUTE/REFLEXION 新增"
+    string memory_domain "记忆域 新增"
+    json capability_card "能力卡 新增"
+    text system_prompt
+    json model_config
+  }
+  agent_role {
+    string id PK
+    string role_code UK
+    string role_name
+    string sdlc_phase "REQUIREMENT~OPS"
+    text system_prompt_template
+    json tool_names
+    json skill_codes
+    string memory_domain
+    json capability_card
+  }
+  orchestration_graph ||--o{ orchestration_execution : "实例化"
+  orchestration_graph {
+    string id PK
+    string name
+    string graph_type "SDLC_PIPELINE/GOAL_DECOMPOSED/AD_HOC/TEMPLATE"
+    string orchestration_mode
+    json nodes "节点定义数组"
+    json edges "边定义数组"
+    json variables
+    int version
+  }
+  orchestration_execution {
+    string id PK
+    string graph_id FK
+    json graph_snapshot "执行时快照"
+    string goal_id FK
+    string status "RUNNING/PAUSED/APPROVAL_WAITING/SUCCESS/FAILED"
+    string current_node_id
+    json context "图变量"
+    json result
+    int iteration "自主循环迭代数"
+    bigint token_used
+    string tenant_id
+  }
+  autonomous_goal ||--o{ orchestration_execution : "触发"
+  autonomous_goal {
+    string id PK
+    text description
+    string goal_type "FEATURE/BUGFIX/REFACTOR/RESEARCH/OPS"
+    json constraints
+    json acceptances "验收标准"
+    int max_iterations
+    bigint budget_tokens
+    string status
+    string tenant_id
+  }
+  approval_request }o--|| orchestration_execution : "属于"
+  approval_request {
+    string id PK
+    string execution_id FK
+    string node_id
+    string approval_type "APPROVE_REJECT/INPUT/SELECT/EDIT"
+    text summary
+    json artifact
+    string status "PENDING/APPROVED/REJECTED/EXPIRED"
+    json decision
+    string operator_id
+    int timeout_seconds
+  }
+  wenshi_experience {
+    string id PK
+    string scenario_hash
+    text strategy
+    text outcome
+    float score
+    text lesson
+    string tenant_id
+  }
+  wenshi_procedural_memory {
+    string id PK
+    json skill_definition
+    int usage_count
+    float success_rate
+    string skill_level
+    string tenant_id
+  }
+  wenshi_reasoning_trace {
+    string id PK
+    json plan_tree
+    json trace_steps
+    json used_knowledge
+    json token_stats
+    string tenant_id
+  }
+</div>
+<div class="legend">
+<span><i style="background:#58a6ff"></i>新增表</span>
+<span><i style="background:#3fb950"></i>复用Wenshi表</span>
+<span><i style="background:#d29922"></i>扩展字段表</span>
+</div>
+</div>
+</div>
+
+<!-- 10. 编排执行时序 -->
+<div class="section" id="sequence">
+<h2>10. 编排执行时序（流式 SSE）</h2>
+<p class="desc">从自主目标提交到交付的完整时序，含目标分解、多Agent编排、HITL审批、经验沉淀，全程 SSE 流式回推。</p>
+<div class="chart-card">
+<h3>端到端执行时序</h3>
+<div class="mermaid">
+sequenceDiagram
+  participant U as 👤 用户
+  participant API as OrchestrationController
+  participant OE as OrchestrationEngine
+  participant GP as GoalPlanner
+  participant ORC as Orchestrator
+  participant A1 as 需求PM Agent
+  participant A2 as 架构师 Agent
+  participant A3 as 开发者 Agent
+  participant H as HITL Gateway
+  participant EV as EvolutionHook
+  participant W as Wenshi学习层
+
+  U->>API: POST /goals (OAuth2登录)
+  API->>OE: executeGoal(goal)
+  OE->>GP: decompose(goal)
+  GP->>W: 经验库匹配
+  W-->>GP: 未命中
+  GP->>GP: LLM规划+Critic验证
+  GP-->>OE: OrchestrationGraph(PIPELINE)
+  OE-->>U: SSE graph_start
+
+  OE->>ORC: run(graph)
+  ORC->>A1: 执行节点n1(需求PM)
+  A1-->>U: SSE thinking/content(PRD)
+  A1-->>ORC: 产出PRD
+  ORC->>EV: onNodeComplete(轨迹)
+  EV->>W: 记录reasoning_trace
+
+  ORC->>A2: 执行节点n2(架构师)
+  A2-->>U: SSE content(设计文档)
+  A2-->>ORC: 产出设计
+
+  ORC->>A3: 执行节点n3(开发者)
+  A3-->>U: SSE content/tool_call(代码)
+  A3-->>ORC: 产出代码+单测
+
+  ORC->>H: HumanNode(部署审批)
+  H-->>U: SSE approval_required
+  Note over H: 编排暂停
+  U->>H: submitDecision(APPROVED)
+  H-->>ORC: resume
+  ORC->>A3: 继续部署
+  A3-->>ORC: 部署完成
+  ORC-->>U: SSE node_complete
+
+  ORC-->>OE: graph完成
+  OE->>EV: onGraphComplete
+  EV->>W: 反思+经验抽取+技能演化
+  W-->>U: SSE experience_saved
+  OE->>OE: 验收校验
+  OE-->>U: SSE graph_complete(SUCCESS)
+</div>
+</div>
+</div>
+
+<!-- 11. 演进路线 -->
+<div class="section" id="roadmap">
+<h2>11. 演进路线（5 Phase · 约20周）</h2>
+<p class="desc">从编排内核到进化闭环的分阶段落地，每阶段有明确交付物，Phase 间依赖清晰。</p>
+<div class="chart-card">
+<h3>实施路线甘特图</h3>
+<div class="mermaid">
+gantt
+  title Agent 编排引擎演进路线
+  dateFormat YYYY-MM-DD
+  axisFormat %m月
+
+  section P1 编排内核 (4周)
+  编排图模型+Orchestrator+Scheduler      :p1a, 2026-08-11, 14d
+  封装AgentExecutionEngine为ReactRuntime :p1b, after p1a, 7d
+  agent表扩展+编排表+PIPELINE模式         :p1c, after p1b, 7d
+
+  section P2 多Agent+角色 (4周)
+  SDLC角色注册表+12角色预置              :p2a, after p1c, 10d
+  Supervisor/Swarm/Debate模式            :p2b, after p2a, 10d
+  代码级工具注册+SDLC工具集              :p2c, after p2a, 10d
+
+  section P3 HITL+自主目标 (4周)
+  HITL Gateway+审批表+HumanNode          :p3a, after p2b, 10d
+  GoalPlanner+AutonomousExecutor         :p3b, after p3a, 10d
+  防失控边界+验收校验                    :p3c, after p3b, 7d
+
+  section P4 进化闭环 (4周)
+  EvolutionHook嵌入生命周期              :p4a, after p3c, 10d
+  对接Wenshi反思/经验/技能演化           :p4b, after p4a, 10d
+  EvaluationRunner评测+能力雷达          :p4c, after p4b, 7d
+
+  section P5 治理优化 (持续)
+  可视化编辑器+成本看板                  :p5a, after p4c, 14d
+  模板市场+性能优化                      :p5b, after p5a, 14d
+</div>
+</div>
+<div class="chart-card">
+<h3>Phase 依赖关系</h3>
+<div class="mermaid">
+flowchart LR
+  P1["P1 编排内核\n4周"] --> P2["P2 多Agent+角色\n4周"]
+  P2 --> P3["P3 HITL+自主目标\n4周"]
+  P3 --> P4["P4 进化闭环\n4周"]
+  P4 --> P5["P5 治理优化\n持续"]
+  P1 -->|"交付: 可跑通\n需求→开发→审查"| M1["✅ MVP"]
+  P2 -->|"交付: 多Agent协作\n覆盖SDLC全流程"| M2["✅ 全流程"]
+  P3 -->|"交付: 自主目标\n+人机协同"| M3["✅ 自主驱动"]
+  P4 -->|"交付: 自我进化\n闭环"| M4["✅ 自进化"]
+  style P1 fill:#1f2d3d,stroke:#58a6ff
+  style M4 fill:#1a2e1a,stroke:#3fb950
+</div>
+</div>
+</div>
+
+</main>
+</div>
+
+<script type="module">
+  import mermaid from 'https://cdn.jsdelivr.net/npm/mermaid@10.9.1/dist/mermaid.esm.min.mjs';
+  mermaid.initialize({
+    startOnLoad: true,
+    theme: 'base',
+    themeVariables: {
+      primaryColor:'#1f2d3d',
+      primaryTextColor:'#e6edf3',
+      primaryBorderColor:'#58a6ff',
+      lineColor:'#8b949e',
+      secondaryColor:'#161b22',
+      tertiaryColor:'#0d1117',
+      fontFamily:'-apple-system,"PingFang SC","Microsoft YaHei",sans-serif',
+      fontSize:'14px'
+    },
+    flowchart:{curve:'basis',htmlLabels:true},
+    sequence:{actorMargin:50,mirrorActors:false}
+  });
+</script>
+<script>
+  // 侧边栏高亮
+  const links=document.querySelectorAll('nav a');
+  const sections=document.querySelectorAll('.section');
+  const obs=new IntersectionObserver((es)=>{
+    es.forEach(e=>{if(e.isIntersecting){
+      links.forEach(l=>l.classList.remove('active'));
+      const a=document.querySelector('nav a[href="#'+e.target.id+'"]');
+      if(a)a.classList.add('active');
+    }});
+  },{rootMargin:'-20% 0px -60% 0px'});
+  sections.forEach(s=>obs.observe(s));
+</script>
+</body>
+</html>

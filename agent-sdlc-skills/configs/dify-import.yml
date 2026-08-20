@@ -1,0 +1,220 @@
+# Dify 平台导入配置 — 软件生命周期角色技能体系
+# 导入方式：Dify后台 → 工具 → 导入 → 选择本文件
+
+version: "1.0"
+
+agent:
+  name: "SDLC角色技能体系"
+  description: "覆盖软件全生命周期的11角色23技能Agent体系"
+  type: "multi_agent"
+
+# 角色定义
+roles:
+  - id: "role-00"
+    name: "托管业务调研专家"
+    system_prompt_file: "roles/00-custody-research-expert.md"
+    skills:
+      - "industry-policy-search"
+      - "competitor-analysis"
+
+  - id: "role-01"
+    name: "业务需求分析师"
+    system_prompt_file: "roles/01-business-analyst.md"
+    skills:
+      - "market-feasibility-check"
+      - "user-requirement-mining"
+
+  - id: "role-02"
+    name: "产品经理/产品专家"
+    system_prompt_file: "roles/02-product-manager.md"
+    skills:
+      - "prd-generation"
+      - "user-journey-mapping"
+
+  - id: "role-03"
+    name: "资深技术架构师"
+    system_prompt_file: "roles/03-technical-architect.md"
+    skills:
+      - "system-design-doc"
+      - "api-contract-definition"
+
+  - id: "role-04"
+    name: "全栈高级开发工程师"
+    system_prompt_file: "roles/04-fullstack-developer.md"
+    skills:
+      - "fullstack-implementation"
+      - "unit-test-generator"
+      - "refactoring-guide"
+
+  - id: "role-05"
+    name: "安全与漏洞防护专家"
+    system_prompt_file: "roles/05-security-expert.md"
+    skills:
+      - "vulnerability-scanning"
+      - "owasp-top10-audit"
+
+  - id: "role-06"
+    name: "高级测试与质量专家"
+    system_prompt_file: "roles/06-testing-expert.md"
+    skills:
+      - "test-case-generation"
+      - "test-report-summary"
+
+  - id: "role-07"
+    name: "合规与风控专家"
+    system_prompt_file: "roles/07-compliance-expert.md"
+    skills:
+      - "regulatory-compliance-check"
+      - "data-privacy-audit"
+
+  - id: "role-08"
+    name: "数据与算法分析专家"
+    system_prompt_file: "roles/08-data-algorithm-expert.md"
+    skills:
+      - "data-metrics-design"
+      - "ab-test-analysis"
+
+  - id: "role-09"
+    name: "技术运维与SRE专家"
+    system_prompt_file: "roles/09-sre-expert.md"
+    skills:
+      - "cicd-pipeline-config"
+      - "incident-response-sop"
+
+  - id: "role-10"
+    name: "项目管理与敏捷教练"
+    system_prompt_file: "roles/10-project-manager.md"
+    skills:
+      - "epic-task-breakdown"
+      - "project-risk-tracker"
+
+# 技能模块定义
+skills:
+  - name: "industry-policy-search"
+    prompt_file: "skills/industry-policy-search.md"
+    description: "监管政策检索与解读"
+
+  - name: "competitor-analysis"
+    prompt_file: "skills/competitor-analysis.md"
+    description: "同业多维度对标分析"
+
+  - name: "market-feasibility-check"
+    prompt_file: "skills/market-feasibility-check.md"
+    description: "市场可行性研判"
+
+  - name: "user-requirement-mining"
+    prompt_file: "skills/user-requirement-mining.md"
+    description: "用户需求挖掘与画像"
+
+  - name: "prd-generation"
+    prompt_file: "skills/prd-generation.md"
+    description: "PRD文档生成"
+
+  - name: "user-journey-mapping"
+    prompt_file: "skills/user-journey-mapping.md"
+    description: "用户旅程图设计"
+
+  - name: "system-design-doc"
+    prompt_file: "skills/system-design-doc.md"
+    description: "系统架构设计文档"
+
+  - name: "api-contract-definition"
+    prompt_file: "skills/api-contract-definition.md"
+    description: "API契约定义"
+
+  - name: "fullstack-implementation"
+    prompt_file: "skills/fullstack-implementation.md"
+    description: "全栈代码实现"
+
+  - name: "unit-test-generator"
+    prompt_file: "skills/unit-test-generator.md"
+    description: "单元测试自动生成"
+
+  - name: "refactoring-guide"
+    prompt_file: "skills/refactoring-guide.md"
+    description: "代码重构方案"
+
+  - name: "vulnerability-scanning"
+    prompt_file: "skills/vulnerability-scanning.md"
+    description: "漏洞扫描与风险台账"
+
+  - name: "owasp-top10-audit"
+    prompt_file: "skills/owasp-top10-audit.md"
+    description: "OWASP TOP10安全审计"
+
+  - name: "test-case-generation"
+    prompt_file: "skills/test-case-generation.md"
+    description: "测试用例设计"
+
+  - name: "test-report-summary"
+    prompt_file: "skills/test-report-summary.md"
+    description: "测试报告与质量准出"
+
+  - name: "regulatory-compliance-check"
+    prompt_file: "skills/regulatory-compliance-check.md"
+    description: "合规性审查"
+
+  - name: "data-privacy-audit"
+    prompt_file: "skills/data-privacy-audit.md"
+    description: "数据隐私审计"
+
+  - name: "data-metrics-design"
+    prompt_file: "skills/data-metrics-design.md"
+    description: "指标体系与埋点"
+
+  - name: "ab-test-analysis"
+    prompt_file: "skills/ab-test-analysis.md"
+    description: "A/B测试分析"
+
+  - name: "cicd-pipeline-config"
+    prompt_file: "skills/cicd-pipeline-config.md"
+    description: "CI/CD流水线配置"
+
+  - name: "incident-response-sop"
+    prompt_file: "skills/incident-response-sop.md"
+    description: "故障应急响应"
+
+  - name: "epic-task-breakdown"
+    prompt_file: "skills/epic-task-breakdown.md"
+    description: "需求拆解与排期"
+
+  - name: "project-risk-tracker"
+    prompt_file: "skills/project-risk-tracker.md"
+    description: "项目风险跟踪"
+
+# 路由规则
+routing:
+  rules:
+    - keywords: ["政策", "行业", "同业", "对标", "调研"]
+      roles: ["role-00", "role-01"]
+
+    - keywords: ["PRD", "产品需求", "功能设计", "原型", "用户体验"]
+      roles: ["role-02"]
+
+    - keywords: ["架构", "技术选型", "API定义", "系统设计"]
+      roles: ["role-03"]
+
+    - keywords: ["需求拆解", "排期", "里程碑", "敏捷", "站会", "迭代"]
+      roles: ["role-10"]
+
+    - keywords: ["开发", "写代码", "实现功能", "前后端", "全栈"]
+      roles: ["role-04"]
+
+    - keywords: ["漏洞", "渗透测试", "安全审计", "应急响应"]
+      roles: ["role-05"]
+
+    - keywords: ["测试用例", "自动化测试", "性能测试", "质量准出"]
+      roles: ["role-06"]
+
+    - keywords: ["合规", "隐私", "等保", "数据安全"]
+      roles: ["role-07"]
+
+    - keywords: ["埋点", "指标", "A/B测试", "算法"]
+      roles: ["role-08"]
+
+    - keywords: ["部署", "CI/CD", "监控", "SLO", "故障", "容灾"]
+      roles: ["role-09"]
+
+  collaboration:
+    sequential: "role-00 → role-01 → role-02 → role-03 → role-10 → role-04 → role-06 → role-09"
+    parallel: ["role-05", "role-07", "role-08", "role-10"]

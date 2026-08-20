@@ -1,0 +1,3596 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>格物智能体平台需求规格说明书</title>
+  <style>
+    :root {
+      --text-primary: #1a1a1a;
+      --text-secondary: #555;
+      --bg-primary: #fff;
+      --bg-code: #f6f8fa;
+      --bg-code-inline: #eff1f3;
+      --border-color: #d0d7de;
+      --accent-color: #0969da;
+      --blockquote-border: #d0d7de;
+      --table-header-bg: #f6f8fa;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Noto Sans', Helvetica, Arial, sans-serif;
+      font-size: 16px;
+      line-height: 1.6;
+      color: var(--text-primary);
+      background: var(--bg-primary);
+      max-width: 900px;
+      margin: 0 auto;
+      padding: 2rem;
+    }
+
+    /* Headings */
+    h1, h2, h3, h4, h5, h6 {
+      margin-top: 1.5em;
+      margin-bottom: 0.5em;
+      font-weight: 600;
+      line-height: 1.25;
+    }
+    h1 { font-size: 2em; padding-bottom: 0.3em; border-bottom: 1px solid var(--border-color); }
+    h2 { font-size: 1.5em; padding-bottom: 0.3em; border-bottom: 1px solid var(--border-color); }
+    h3 { font-size: 1.25em; }
+    h4 { font-size: 1em; }
+    h5 { font-size: 0.875em; }
+    h6 { font-size: 0.85em; color: var(--text-secondary); }
+
+    /* Paragraphs */
+    p { margin: 0 0 1em; }
+
+    /* Links */
+    a { color: var(--accent-color); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+
+    /* Strong & Em */
+    strong { font-weight: 600; }
+    em { font-style: italic; }
+
+    /* Inline code */
+    code {
+      font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace;
+      font-size: 85%;
+      background: var(--bg-code-inline);
+      padding: 0.2em 0.4em;
+      border-radius: 6px;
+      word-wrap: break-word;
+    }
+
+    /* Code blocks */
+    pre {
+      background: var(--bg-code);
+      border: 1px solid var(--border-color);
+      border-radius: 6px;
+      padding: 1em;
+      overflow-x: auto;
+      margin: 1em 0;
+      line-height: 1.45;
+    }
+    pre code {
+      background: none;
+      padding: 0;
+      border-radius: 0;
+      font-size: 85%;
+      word-wrap: normal;
+    }
+
+    /* Blockquotes */
+    blockquote {
+      margin: 0 0 1em;
+      padding: 0 1em;
+      color: var(--text-secondary);
+      border-left: 4px solid var(--blockquote-border);
+    }
+    blockquote > :last-child { margin-bottom: 0; }
+
+    /* Lists */
+    ul, ol {
+      margin: 0 0 1em;
+      padding-left: 2em;
+    }
+    li { margin: 0.25em 0; }
+    li + li { margin-top: 0.25em; }
+    ul ul, ol ol, ul ol, ol ul { margin-bottom: 0; }
+
+    /* Task lists */
+    input[type="checkbox"] {
+      margin-right: 0.5em;
+      vertical-align: middle;
+    }
+
+    /* Tables */
+    table {
+      border-collapse: collapse;
+      width: 100%;
+      margin: 1em 0;
+      display: block;
+      overflow-x: auto;
+    }
+    th, td {
+      border: 1px solid var(--border-color);
+      padding: 0.5em 0.75em;
+      text-align: left;
+    }
+    th {
+      background: var(--table-header-bg);
+      font-weight: 600;
+    }
+    tr:nth-child(2n) { background: #f6f8fa; }
+
+    /* Horizontal rules */
+    hr {
+      height: 0.25em;
+      padding: 0;
+      margin: 1.5em 0;
+      background-color: var(--border-color);
+      border: 0;
+    }
+
+    /* Images */
+    img {
+      max-width: 100%;
+      height: auto;
+      border-radius: 4px;
+    }
+
+    /* Strikethrough */
+    del { text-decoration: line-through; color: var(--text-secondary); }
+
+    /* Keyboard */
+    kbd {
+      display: inline-block;
+      padding: 0.1em 0.4em;
+      font-family: 'SFMono-Regular', Consolas, monospace;
+      font-size: 85%;
+      line-height: 1;
+      color: var(--text-primary);
+      vertical-align: middle;
+      background: #fcfcfc;
+      border: 1px solid var(--border-color);
+      border-bottom-width: 2px;
+      border-radius: 3px;
+      box-shadow: inset 0 -1px 0 var(--border-color);
+    }
+
+    /* Superscript & Subscript */
+    sup { font-size: 75%; line-height: 0; position: relative; vertical-align: baseline; top: -0.5em; }
+    sub { font-size: 75%; line-height: 0; position: relative; vertical-align: baseline; bottom: -0.25em; }
+  </style>
+</head>
+<body>
+<h1>格物智能体平台需求规格说明书</h1>
+<blockquote>
+<p><strong>文档编号</strong>：SRS-GEWU-2026-001<br><strong>版本</strong>：V1.0<br><strong>编制日期</strong>：2026-07-29<br><strong>编制人</strong>：产品团队<br><strong>审核人</strong>：架构组<br><strong>批准人</strong>：项目负责人<br><strong>状态</strong>：已批准</p>
+</blockquote>
+<hr>
+<h2>1. 引言</h2>
+<h3>1.1 目的</h3>
+<p>本文档描述「格物智能体平台」的软件需求规格，作为开发、测试、验收的统一依据。本文档基于项目当前已实现的功能和需求调研分析资料，形成完整的需求基线。</p>
+<h3>1.2 范围</h3>
+<p><strong>产品是什么</strong>：
+格物智能体平台是一个 AI 驱动的智能开发协作平台，提供 Agent 智能体会话、工作流编排、代码沙箱执行、项目管理、知识增强等核心能力。平台采用模块化单体 + 微服务混合架构，支持多数据库、多缓存、多消息队列，满足信创合规要求。</p>
+<p><strong>产品不是什么</strong>：</p>
+<ul>
+<li>不包含完整的 IDE 功能（仅提供代码沙箱执行能力）</li>
+<li>不包含企业资源计划（ERP）功能</li>
+<li>不包含客户关系管理（CRM）功能</li>
+<li>不包含财务管理系统</li>
+</ul>
+<h3>1.3 定义与缩略语</h3>
+<table>
+<thead>
+<tr>
+<th>术语</th>
+<th>定义</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>SRS</td>
+<td>Software Requirements Specification，软件需求规格说明书</td>
+</tr>
+<tr>
+<td>MVP</td>
+<td>Minimum Viable Product，最小可行产品</td>
+</tr>
+<tr>
+<td>SLA</td>
+<td>Service Level Agreement，服务等级协议</td>
+</tr>
+<tr>
+<td>LLM</td>
+<td>Large Language Model，大语言模型</td>
+</tr>
+<tr>
+<td>MCP</td>
+<td>Model Context Protocol，模型上下文协议</td>
+</tr>
+<tr>
+<td>SSE</td>
+<td>Server-Sent Events，服务器推送事件</td>
+</tr>
+<tr>
+<td>RBAC</td>
+<td>Role-Based Access Control，基于角色的访问控制</td>
+</tr>
+<tr>
+<td>ULID</td>
+<td>Universally Unique Lexicographically Sortable Identifier，通用唯一可排序标识符</td>
+</tr>
+<tr>
+<td>Wenshi</td>
+<td>格物知行，企业级 LLM 增强架构</td>
+</tr>
+<tr>
+<td>Agent</td>
+<td>智能体，具备自主决策和工具调用能力的 AI 实体</td>
+</tr>
+<tr>
+<td>JWT</td>
+<td>JSON Web Token，JSON Web 令牌</td>
+</tr>
+</tbody></table>
+<h3>1.4 参考资料</h3>
+<table>
+<thead>
+<tr>
+<th>文档</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>技术架构总览</td>
+<td>docs/design/01-technical-architecture.md</td>
+</tr>
+<tr>
+<td>部署架构设计</td>
+<td>docs/design/02-deployment-architecture.md</td>
+</tr>
+<tr>
+<td>数据库设计文档</td>
+<td>docs/design/03-database-design.md</td>
+</tr>
+<tr>
+<td>安全合规设计</td>
+<td>docs/design/07-security-compliance.md</td>
+</tr>
+<tr>
+<td>工作流引擎设计</td>
+<td>docs/design/28-workflow-engine-design.md</td>
+</tr>
+<tr>
+<td>Agent 沙箱设计</td>
+<td>docs/design/27-agent-sandbox-design.md</td>
+</tr>
+<tr>
+<td>信创合规适配</td>
+<td>docs/design/29-xinchuang-compliance.md</td>
+</tr>
+<tr>
+<td>测试策略文档</td>
+<td>docs/design/32-test-strategy.md</td>
+</tr>
+<tr>
+<td>开发实施路线图</td>
+<td>docs/design/33-dev-roadmap.md</td>
+</tr>
+<tr>
+<td>Wenshi 架构方案</td>
+<td>docs/wenshi/WENSHI-ARCHITECTURE-v3.md</td>
+</tr>
+<tr>
+<td>安全审查报告</td>
+<td>docs/CODE-SECURITY-REVIEW-REPORT.md</td>
+</tr>
+<tr>
+<td>安全修复计划</td>
+<td>docs/GEWU-SECURITY-FIX-PRIORITY-PLAN.md</td>
+</tr>
+<tr>
+<td>API 文档总览</td>
+<td>docs/api/overview.md</td>
+</tr>
+<tr>
+<td>产品需求文档</td>
+<td>docs/requirement/PRD.md</td>
+</tr>
+<tr>
+<td>项目完成报告</td>
+<td>docs/project/PROJECT-COMPLETION-REPORT.md</td>
+</tr>
+</tbody></table>
+<h3>1.5 文档约定</h3>
+<ul>
+<li><strong>优先级定义</strong>：P0（必须）/ P1（应当）/ P2（可以）/ P3（暂缓）</li>
+<li><strong>状态定义</strong>：草稿 / 评审中 / 已批准 / 已废弃</li>
+<li><strong>用户故事格式</strong>：As a [角色], I want [功能], so that [价值]</li>
+<li><strong>验收标准格式</strong>：Given-When-Then（Gherkin 语法）</li>
+</ul>
+<hr>
+<h2>2. 总体描述</h2>
+<h3>2.1 产品背景</h3>
+<p><strong>业务背景</strong>：
+随着 AI 大模型技术的快速发展，企业对于 AI 智能体的需求日益增长。传统开发协作工具缺乏 AI 能力集成，无法有效利用大模型提升开发效率。格物智能体平台旨在构建一个企业级 AI 协作平台，通过 Agent 智能体、工作流编排、代码沙箱等能力，帮助企业提升研发效率。</p>
+<p><strong>市场机会</strong>：</p>
+<ul>
+<li>AI 智能体市场规模持续增长，预计 2026 年达到数百亿美元</li>
+<li>企业级 AI 协作平台需求旺盛，尤其在信创合规领域</li>
+<li>国产替代趋势明显，信创合规成为企业选型的重要考量</li>
+</ul>
+<p><strong>竞争格局</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>竞品</th>
+<th>优势</th>
+<th>劣势</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>GitHub Copilot</td>
+<td>生态完善、用户基数大</td>
+<td>无信创合规、无工作流编排</td>
+</tr>
+<tr>
+<td>Cursor</td>
+<td>IDE 集成度高</td>
+<td>无团队协作、无沙箱执行</td>
+</tr>
+<tr>
+<td>Dify</td>
+<td>工作流编排能力强</td>
+<td>无信创合规、无知识增强</td>
+</tr>
+<tr>
+<td>Coze</td>
+<td>字节生态、模型丰富</td>
+<td>无企业级权限、无信创合规</td>
+</tr>
+</tbody></table>
+<h3>2.2 产品定位</h3>
+<blockquote>
+<p><strong>格物智能体平台</strong>是一个企业级 AI 开发协作平台，帮助开发团队通过 Agent 智能体、工作流编排、代码沙箱和知识增强能力，提升研发效率、规范开发流程、积累团队知识。</p>
+</blockquote>
+<p><strong>核心价值主张</strong>：</p>
+<ul>
+<li><strong>信创合规</strong>：100% 满足信创目录要求，国密算法支持</li>
+<li><strong>知识增强</strong>：Wenshi 三层增强架构，让 LLM 越用越聪明</li>
+<li><strong>自主可控</strong>：自研 API 网关、自研工作流引擎</li>
+<li><strong>安全合规</strong>：等保 2.0 三级合规，92/100 分 A 级</li>
+</ul>
+<h3>2.3 目标用户</h3>
+<h4>2.3.1 用户画像</h4>
+<p><strong>画像一：后端开发工程师</strong></p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>基本信息</td>
+<td>25-35 岁，本科及以上，一二线城市</td>
+</tr>
+<tr>
+<td>使用场景</td>
+<td>日常开发中需要 AI 辅助编码、调试、文档生成</td>
+</tr>
+<tr>
+<td>核心痛点</td>
+<td>重复性工作多、文档编写耗时、代码质量不稳定</td>
+</tr>
+<tr>
+<td>期望目标</td>
+<td>提升开发效率、减少重复工作、提高代码质量</td>
+</tr>
+<tr>
+<td>技术能力</td>
+<td>熟悉 Java/Spring Boot，对 AI 有一定了解</td>
+</tr>
+<tr>
+<td>使用频率</td>
+<td>日活，每天使用 2-4 小时</td>
+</tr>
+</tbody></table>
+<p><strong>画像二：技术负责人</strong></p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>基本信息</td>
+<td>30-40 岁，本科及以上，一二线城市</td>
+</tr>
+<tr>
+<td>使用场景</td>
+<td>项目管理、技术方案评审、团队协调</td>
+</tr>
+<tr>
+<td>核心痛点</td>
+<td>项目进度不透明、技术方案质量参差不齐、团队协作效率低</td>
+</tr>
+<tr>
+<td>期望目标</td>
+<td>提升团队协作效率、规范开发流程、积累技术知识</td>
+</tr>
+<tr>
+<td>技术能力</td>
+<td>精通技术架构，具备团队管理能力</td>
+</tr>
+<tr>
+<td>使用频率</td>
+<td>日活，每天使用 1-2 小时</td>
+</tr>
+</tbody></table>
+<p><strong>画像三：产品经理</strong></p>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>基本信息</td>
+<td>25-35 岁，本科及以上，一二线城市</td>
+</tr>
+<tr>
+<td>使用场景</td>
+<td>需求管理、原型设计、项目跟踪</td>
+</tr>
+<tr>
+<td>核心痛点</td>
+<td>需求变更频繁、项目进度不透明、跨团队协作困难</td>
+</tr>
+<tr>
+<td>期望目标</td>
+<td>提升需求管理效率、规范项目流程、提高交付质量</td>
+</tr>
+<tr>
+<td>技术能力</td>
+<td>了解技术实现，具备产品规划能力</td>
+</tr>
+<tr>
+<td>使用频率</td>
+<td>日活，每天使用 1-2 小时</td>
+</tr>
+</tbody></table>
+<h4>2.3.2 用户角色与权限</h4>
+<table>
+<thead>
+<tr>
+<th>角色</th>
+<th>描述</th>
+<th>权限范围</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>超级管理员</strong></td>
+<td>系统最高权限</td>
+<td>全部功能、系统配置</td>
+</tr>
+<tr>
+<td><strong>管理员</strong></td>
+<td>日常管理</td>
+<td>用户管理、项目管理、模型配置</td>
+</tr>
+<tr>
+<td><strong>开发者</strong></td>
+<td>核心使用者</td>
+<td>会话管理、Agent 配置、工作流设计</td>
+</tr>
+<tr>
+<td><strong>产品经理</strong></td>
+<td>需求管理</td>
+<td>需求创建、评审、项目跟踪</td>
+</tr>
+<tr>
+<td><strong>测试工程师</strong></td>
+<td>测试执行</td>
+<td>测试案例、测试执行、缺陷管理</td>
+</tr>
+<tr>
+<td><strong>运维工程师</strong></td>
+<td>运维管理</td>
+<td>监控查看、日志查看、部署管理</td>
+</tr>
+<tr>
+<td><strong>访客</strong></td>
+<td>未注册用户</td>
+<td>浏览公开内容</td>
+</tr>
+</tbody></table>
+<h3>2.4 业务目标</h3>
+<table>
+<thead>
+<tr>
+<th>目标</th>
+<th>衡量指标</th>
+<th>目标值</th>
+<th>时间节点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>用户规模</td>
+<td>注册用户数</td>
+<td>500+</td>
+<td>上线后 3 个月</td>
+</tr>
+<tr>
+<td>活跃度</td>
+<td>日活用户数</td>
+<td>200+</td>
+<td>上线后 3 个月</td>
+</tr>
+<tr>
+<td>系统性能</td>
+<td>核心 API P95 延迟</td>
+<td>&lt; 200ms</td>
+<td>上线即达标</td>
+</tr>
+<tr>
+<td>系统可用性</td>
+<td>系统可用性</td>
+<td>≥ 99.9%</td>
+<td>上线即达标</td>
+</tr>
+<tr>
+<td>安全合规</td>
+<td>等保 2.0 三级</td>
+<td>通过测评</td>
+<td>上线后 1 个月</td>
+</tr>
+<tr>
+<td>信创合规</td>
+<td>信创目录符合率</td>
+<td>100%</td>
+<td>上线即达标</td>
+</tr>
+</tbody></table>
+<h3>2.5 约束条件</h3>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>约束</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>时间</td>
+<td>必须在 2026-08-31 前完成全部功能上线</td>
+</tr>
+<tr>
+<td>技术</td>
+<td>必须使用 Java 21 + Spring Boot 3.2+</td>
+</tr>
+<tr>
+<td>合规</td>
+<td>必须满足等保 2.0 三级和信创目录要求</td>
+</tr>
+<tr>
+<td>安全</td>
+<td>必须使用国密 SM2/SM3/SM4 算法</td>
+</tr>
+<tr>
+<td>数据库</td>
+<td>必须支持 OceanBase 4.2+ 和 MySQL 8.0</td>
+</tr>
+<tr>
+<td>资源</td>
+<td>开发团队 8-10 人</td>
+</tr>
+</tbody></table>
+<h3>2.6 假设与依赖</h3>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>假设/依赖</th>
+<th>影响</th>
+<th>验证方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>A01</td>
+<td>用户有稳定的网络环境</td>
+<td>影响 SSE 流式推送体验</td>
+<td>用户调研</td>
+</tr>
+<tr>
+<td>A02</td>
+<td>用户具备基本的 AI 使用经验</td>
+<td>影响 Agent 配置复杂度</td>
+<td>用户培训</td>
+</tr>
+<tr>
+<td>D01</td>
+<td>依赖 DeepSeek/Qwen 等 LLM 服务</td>
+<td>影响 AI 对话功能可用性</td>
+<td>接口联调</td>
+</tr>
+<tr>
+<td>D02</td>
+<td>依赖 Docker 容器环境</td>
+<td>影响沙箱执行功能</td>
+<td>环境验证</td>
+</tr>
+<tr>
+<td>D03</td>
+<td>依赖 OceanBase/MySQL 数据库</td>
+<td>影响数据持久化</td>
+<td>数据库部署</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>3. 功能需求</h2>
+<h3>3.1 功能架构总览</h3>
+<pre><code>格物智能体平台
+├── 用户认证模块
+│   ├── 用户注册
+│   ├── 用户登录
+│   ├── Token 刷新
+│   ├── 用户登出
+│   └── 密码管理
+├── 项目管理模块
+│   ├── 项目 CRUD
+│   ├── 项目成员管理
+│   └── 项目配置
+├── 会话管理模块
+│   ├── 会话 CRUD
+│   ├── 消息发送/接收
+│   ├── 消息历史
+│   └── SSE 实时推送
+├── Agent 系统模块
+│   ├── Agent 配置管理
+│   ├── 工具绑定
+│   ├── Agent 执行引擎
+│   └── 执行历史
+├── AI 对话模块
+│   ├── 流式对话
+│   ├── 模型选择
+│   ├── 上下文管理
+│   └── 思考强度控制
+├── 工作流引擎模块
+│   ├── 工作流定义
+│   ├── 工作流实例
+│   ├── 节点管理
+│   └── 通知服务
+├── 沙箱执行模块
+│   ├── 沙箱生命周期
+│   ├── 代码执行
+│   ├── 资源管理
+│   └── 安全策略
+├── Wenshi 知识增强模块
+│   ├── 知识层（记忆管理）
+│   ├── 推理层（思维编排）
+│   └── 学习层（经验进化）
+├── 需求管理模块
+│   ├── 需求 CRUD
+│   ├── 需求评审
+│   ├── 需求状态流转
+│   └── 需求看板
+├── 监控告警模块
+│   ├── 系统监控
+│   ├── 应用监控
+│   └── 告警通知
+└── 系统管理模块
+    ├── 用户管理
+    ├── 角色权限管理
+    ├── 模型配置
+    └── 系统配置
+</code></pre>
+<h3>3.2 功能列表</h3>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>模块</th>
+<th>功能名称</th>
+<th>优先级</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>F-001</td>
+<td>用户认证</td>
+<td>用户注册</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-002</td>
+<td>用户认证</td>
+<td>用户登录</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-003</td>
+<td>用户认证</td>
+<td>Token 刷新</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-004</td>
+<td>用户认证</td>
+<td>用户登出</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-005</td>
+<td>用户认证</td>
+<td>密码策略校验</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-006</td>
+<td>项目管理</td>
+<td>项目 CRUD</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-007</td>
+<td>项目管理</td>
+<td>项目成员管理</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-008</td>
+<td>项目管理</td>
+<td>项目权限控制</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-009</td>
+<td>会话管理</td>
+<td>会话 CRUD</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-010</td>
+<td>会话管理</td>
+<td>消息发送/接收</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-011</td>
+<td>会话管理</td>
+<td>SSE 实时推送</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-012</td>
+<td>会话管理</td>
+<td>消息历史</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-013</td>
+<td>Agent 系统</td>
+<td>Agent 配置管理</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-014</td>
+<td>Agent 系统</td>
+<td>工具绑定</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-015</td>
+<td>Agent 系统</td>
+<td>Agent 执行引擎</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-016</td>
+<td>Agent 系统</td>
+<td>执行历史</td>
+<td>P1</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-017</td>
+<td>AI 对话</td>
+<td>流式对话</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-018</td>
+<td>AI 对话</td>
+<td>模型选择</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-019</td>
+<td>AI 对话</td>
+<td>上下文管理</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-020</td>
+<td>AI 对话</td>
+<td>思考强度控制</td>
+<td>P1</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-021</td>
+<td>工作流引擎</td>
+<td>工作流定义</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-022</td>
+<td>工作流引擎</td>
+<td>工作流实例</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-023</td>
+<td>工作流引擎</td>
+<td>节点管理</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-024</td>
+<td>工作流引擎</td>
+<td>通知服务</td>
+<td>P1</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-025</td>
+<td>沙箱执行</td>
+<td>沙箱生命周期</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-026</td>
+<td>沙箱执行</td>
+<td>代码执行</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-027</td>
+<td>沙箱执行</td>
+<td>资源管理</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-028</td>
+<td>沙箱执行</td>
+<td>安全策略</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-029</td>
+<td>Wenshi 增强</td>
+<td>知识层（记忆管理）</td>
+<td>P1</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-030</td>
+<td>Wenshi 增强</td>
+<td>推理层（思维编排）</td>
+<td>P1</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-031</td>
+<td>Wenshi 增强</td>
+<td>学习层（经验进化）</td>
+<td>P1</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-032</td>
+<td>需求管理</td>
+<td>需求 CRUD</td>
+<td>P1</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-033</td>
+<td>需求管理</td>
+<td>需求评审</td>
+<td>P1</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-034</td>
+<td>需求管理</td>
+<td>需求状态流转</td>
+<td>P1</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-035</td>
+<td>需求管理</td>
+<td>需求看板</td>
+<td>P1</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-036</td>
+<td>监控告警</td>
+<td>系统监控</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-037</td>
+<td>监控告警</td>
+<td>应用监控</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-038</td>
+<td>监控告警</td>
+<td>告警通知</td>
+<td>P1</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-039</td>
+<td>系统管理</td>
+<td>用户管理</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-040</td>
+<td>系统管理</td>
+<td>角色权限管理</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-041</td>
+<td>系统管理</td>
+<td>模型配置</td>
+<td>P0</td>
+<td>✅ 已实现</td>
+</tr>
+<tr>
+<td>F-042</td>
+<td>系统管理</td>
+<td>系统配置</td>
+<td>P1</td>
+<td>✅ 已实现</td>
+</tr>
+</tbody></table>
+<hr>
+<h3>3.3 模块一：用户认证模块</h3>
+<h4>3.3.1 模块概述</h4>
+<p>用户认证模块负责平台的身份认证和权限管理，包括用户注册、登录、Token 管理、密码策略校验等功能。采用 JWT 无状态认证方案，支持 Access Token + Refresh Token 双 Token 机制。</p>
+<h4>3.3.2 功能详细需求</h4>
+<hr>
+<p><strong>F-001：用户注册</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-001</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+<tr>
+<td>估算工作量</td>
+<td>3 人天</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 新用户, I want 通过用户名、邮箱和密码注册账号, so that 可以使用平台的完整功能</p>
+</blockquote>
+<p><strong>前置条件</strong>：</p>
+<ul>
+<li>用户访问注册页面</li>
+<li>用户名和邮箱未被注册</li>
+</ul>
+<p><strong>主流程</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>用户操作</th>
+<th>系统响应</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>访问注册页面</td>
+<td>展示注册表单（用户名、邮箱、密码、确认密码）</td>
+</tr>
+<tr>
+<td>2</td>
+<td>输入注册信息</td>
+<td>实时校验格式（邮箱格式、密码强度）</td>
+</tr>
+<tr>
+<td>3</td>
+<td>点击&quot;注册&quot;按钮</td>
+<td>提交注册请求</td>
+</tr>
+<tr>
+<td>4</td>
+<td>-</td>
+<td>校验用户名/邮箱唯一性</td>
+</tr>
+<tr>
+<td>5</td>
+<td>-</td>
+<td>使用 SM3 哈希密码</td>
+</tr>
+<tr>
+<td>6</td>
+<td>-</td>
+<td>创建用户账号</td>
+</tr>
+<tr>
+<td>7</td>
+<td>-</td>
+<td>生成 JWT Token（Access + Refresh）</td>
+</tr>
+<tr>
+<td>8</td>
+<td>-</td>
+<td>返回 Token 和用户信息</td>
+</tr>
+</tbody></table>
+<p><strong>备选流程</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>触发条件</th>
+<th>处理流程</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>AF-01</td>
+<td>用户名已存在</td>
+<td>提示&quot;该用户名已被使用&quot;</td>
+</tr>
+<tr>
+<td>AF-02</td>
+<td>邮箱已注册</td>
+<td>提示&quot;该邮箱已注册，请直接登录&quot;</td>
+</tr>
+<tr>
+<td>AF-03</td>
+<td>密码强度不足</td>
+<td>实时提示&quot;密码至少8位，包含大小写字母、数字、特殊字符&quot;</td>
+</tr>
+<tr>
+<td>AF-04</td>
+<td>两次密码不一致</td>
+<td>提示&quot;两次输入的密码不一致&quot;</td>
+</tr>
+</tbody></table>
+<p><strong>异常流程</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>异常场景</th>
+<th>系统处理</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>EF-01</td>
+<td>服务端500错误</td>
+<td>记录日志，展示友好错误提示</td>
+</tr>
+<tr>
+<td>EF-02</td>
+<td>数据库连接失败</td>
+<td>重试3次，仍失败则提示服务不可用</td>
+</tr>
+</tbody></table>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 使用有效信息注册成功
+  Given 用户访问注册页面
+  And 用户名 &quot;testuser&quot; 未被注册
+  And 邮箱 &quot;test@example.com&quot; 未被注册
+  When 输入用户名 &quot;testuser&quot;
+  And 输入邮箱 &quot;test@example.com&quot;
+  And 输入密码 &quot;Passw0rd!&quot;
+  And 点击&quot;注册&quot;按钮
+  Then 系统创建用户账号
+  And 返回有效的 Access Token 和 Refresh Token
+  And 跳转到首页
+
+Scenario: 使用已注册邮箱注册
+  Given 邮箱 &quot;existing@example.com&quot; 已被注册
+  When 输入邮箱 &quot;existing@example.com&quot;
+  And 点击&quot;注册&quot;按钮
+  Then 页面提示&quot;该邮箱已注册，请直接登录&quot;
+
+Scenario: 密码强度不足
+  When 输入密码 &quot;123456&quot;
+  Then 实时提示&quot;密码至少8位，包含大小写字母、数字、特殊字符&quot;
+  And &quot;注册&quot;按钮不可点击
+</code></pre>
+<p><strong>业务规则</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>规则编号</th>
+<th>规则描述</th>
+<th>校验逻辑</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>BR-001</td>
+<td>用户名格式校验</td>
+<td>3-20 位字母、数字、下划线</td>
+</tr>
+<tr>
+<td>BR-002</td>
+<td>邮箱格式校验</td>
+<td>符合 RFC 5322 标准</td>
+</tr>
+<tr>
+<td>BR-003</td>
+<td>密码强度要求</td>
+<td>≥8位，包含大写字母+小写字母+数字+特殊字符</td>
+</tr>
+<tr>
+<td>BR-004</td>
+<td>注册频率限制</td>
+<td>同一IP每小时最多注册5个账号</td>
+</tr>
+<tr>
+<td>BR-005</td>
+<td>密码加密存储</td>
+<td>使用 SM3 加盐多轮迭代哈希</td>
+</tr>
+</tbody></table>
+<p><strong>数据需求</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>字段</th>
+<th>类型</th>
+<th>必填</th>
+<th>约束</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>username</td>
+<td>VARCHAR(50)</td>
+<td>是</td>
+<td>唯一，3-20位</td>
+<td>用户名</td>
+</tr>
+<tr>
+<td>email</td>
+<td>VARCHAR(255)</td>
+<td>是</td>
+<td>唯一，有效邮箱格式</td>
+<td>用户邮箱</td>
+</tr>
+<tr>
+<td>password_hash</td>
+<td>VARCHAR(255)</td>
+<td>是</td>
+<td>-</td>
+<td>SM3 密码哈希</td>
+</tr>
+<tr>
+<td>display_name</td>
+<td>VARCHAR(100)</td>
+<td>否</td>
+<td>-</td>
+<td>显示名称</td>
+</tr>
+<tr>
+<td>status</td>
+<td>TINYINT</td>
+<td>是</td>
+<td>默认1</td>
+<td>0=禁用,1=正常</td>
+</tr>
+<tr>
+<td>created_at</td>
+<td>BIGINT</td>
+<td>系统生成</td>
+<td>-</td>
+<td>注册时间（毫秒时间戳）</td>
+</tr>
+</tbody></table>
+<hr>
+<p><strong>F-002：用户登录</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-002</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+<tr>
+<td>估算工作量</td>
+<td>2 人天</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 已注册用户, I want 通过用户名/邮箱和密码登录, so that 可以访问我的账户和使用平台功能</p>
+</blockquote>
+<p><strong>前置条件</strong>：</p>
+<ul>
+<li>用户已注册且账号状态正常</li>
+<li>用户访问登录页面</li>
+</ul>
+<p><strong>主流程</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>用户操作</th>
+<th>系统响应</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>访问登录页面</td>
+<td>展示登录表单</td>
+</tr>
+<tr>
+<td>2</td>
+<td>输入用户名/邮箱、密码</td>
+<td>-</td>
+</tr>
+<tr>
+<td>3</td>
+<td>点击&quot;登录&quot;按钮</td>
+<td>验证账号密码</td>
+</tr>
+<tr>
+<td>4</td>
+<td>-</td>
+<td>校验密码（SM3 哈希比对）</td>
+</tr>
+<tr>
+<td>5</td>
+<td>-</td>
+<td>生成 JWT Token（Access + Refresh）</td>
+</tr>
+<tr>
+<td>6</td>
+<td>-</td>
+<td>设置 httpOnly Cookie（可选）</td>
+</tr>
+<tr>
+<td>7</td>
+<td>-</td>
+<td>返回 Token 和用户信息</td>
+</tr>
+</tbody></table>
+<p><strong>备选流程</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>触发条件</th>
+<th>处理流程</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>AF-01</td>
+<td>密码错误</td>
+<td>提示&quot;用户名或密码错误&quot;，显示剩余尝试次数</td>
+</tr>
+<tr>
+<td>AF-02</td>
+<td>连续5次失败</td>
+<td>锁定账号30分钟</td>
+</tr>
+<tr>
+<td>AF-03</td>
+<td>账号被禁用</td>
+<td>提示&quot;账号已被禁用，请联系管理员&quot;</td>
+</tr>
+</tbody></table>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 使用正确凭证登录成功
+  Given 用户 &quot;testuser&quot; 已注册且密码为 &quot;Passw0rd!&quot;
+  When 输入用户名 &quot;testuser&quot; 和密码 &quot;Passw0rd!&quot;
+  And 点击&quot;登录&quot;按钮
+  Then 登录成功，跳转到首页
+  And 返回有效的 Access Token（30分钟有效期）
+  And 返回有效的 Refresh Token（7天有效期）
+
+Scenario: 密码错误
+  When 输入用户名 &quot;testuser&quot; 和密码 &quot;WrongPass&quot;
+  Then 提示&quot;用户名或密码错误，还有4次尝试机会&quot;
+
+Scenario: 账号被锁定
+  Given 用户已连续5次输入错误密码
+  When 再次尝试登录
+  Then 提示&quot;账号已锁定，请30分钟后重试&quot;
+</code></pre>
+<p><strong>业务规则</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>规则编号</th>
+<th>规则描述</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>BR-006</td>
+<td>Access Token 有效期 30 分钟</td>
+</tr>
+<tr>
+<td>BR-007</td>
+<td>Refresh Token 有效期 7 天</td>
+</tr>
+<tr>
+<td>BR-008</td>
+<td>连续5次失败锁定30分钟</td>
+</tr>
+<tr>
+<td>BR-009</td>
+<td>同一IP每分钟最多10次登录尝试</td>
+</tr>
+<tr>
+<td>BR-010</td>
+<td>支持 httpOnly Cookie 和 Bearer Token 两种认证方式</td>
+</tr>
+</tbody></table>
+<hr>
+<p><strong>F-003：Token 刷新</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-003</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 已登录用户, I want 在 Access Token 过期后自动刷新, so that 可以继续使用平台功能而无需重新登录</p>
+</blockquote>
+<p><strong>主流程</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>用户操作</th>
+<th>系统响应</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>Access Token 过期</td>
+<td>客户端检测到 401 响应</td>
+</tr>
+<tr>
+<td>2</td>
+<td>使用 Refresh Token 请求刷新</td>
+<td>验证 Refresh Token 有效性</td>
+</tr>
+<tr>
+<td>3</td>
+<td>-</td>
+<td>检查 Token 是否在黑名单</td>
+</tr>
+<tr>
+<td>4</td>
+<td>-</td>
+<td>生成新的 Access Token 和 Refresh Token</td>
+</tr>
+<tr>
+<td>5</td>
+<td>-</td>
+<td>将旧 Refresh Token 加入黑名单</td>
+</tr>
+<tr>
+<td>6</td>
+<td>-</td>
+<td>返回新的 Token 对</td>
+</tr>
+</tbody></table>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 使用有效 Refresh Token 刷新成功
+  Given 用户持有有效的 Refresh Token
+  When 请求刷新接口
+  Then 返回新的 Access Token 和 Refresh Token
+  And 旧 Refresh Token 失效
+
+Scenario: Refresh Token 已过期
+  Given 用户的 Refresh Token 已过期
+  When 请求刷新接口
+  Then 返回 401 错误
+  And 提示&quot;登录已过期，请重新登录&quot;
+</code></pre>
+<hr>
+<h3>3.4 模块二：项目管理模块</h3>
+<h4>3.4.1 模块概述</h4>
+<p>项目管理模块负责项目全生命周期管理，包括项目创建、编辑、删除、成员管理、权限控制等功能。支持多角色协作，每个项目有独立的所有权和成员权限体系。</p>
+<h4>3.4.2 功能详细需求</h4>
+<hr>
+<p><strong>F-006：项目 CRUD</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-006</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 开发者, I want 创建和管理项目, so that 可以组织和管理我的开发工作</p>
+</blockquote>
+<p><strong>主流程</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>用户操作</th>
+<th>系统响应</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>点击&quot;新建项目&quot;</td>
+<td>展示项目创建表单</td>
+</tr>
+<tr>
+<td>2</td>
+<td>输入项目名称、描述</td>
+<td>实时校验名称唯一性</td>
+</tr>
+<tr>
+<td>3</td>
+<td>点击&quot;创建&quot;按钮</td>
+<td>创建项目，当前用户为项目所有者</td>
+</tr>
+<tr>
+<td>4</td>
+<td>-</td>
+<td>返回项目详情</td>
+</tr>
+</tbody></table>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 创建项目成功
+  Given 用户已登录
+  When 输入项目名称 &quot;My Project&quot;
+  And 输入描述 &quot;A test project&quot;
+  And 点击&quot;创建&quot;按钮
+  Then 项目创建成功
+  And 当前用户为项目所有者
+  And 跳转到项目详情页
+
+Scenario: 项目名称重复
+  Given 用户已有一个名为 &quot;My Project&quot; 的项目
+  When 再次创建同名项目
+  Then 提示&quot;项目名称已存在&quot;
+</code></pre>
+<p><strong>业务规则</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>规则编号</th>
+<th>规则描述</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>BR-011</td>
+<td>项目名称在同一用户下唯一</td>
+</tr>
+<tr>
+<td>BR-012</td>
+<td>项目创建者自动成为项目所有者</td>
+</tr>
+<tr>
+<td>BR-013</td>
+<td>项目支持逻辑删除</td>
+</tr>
+<tr>
+<td>BR-014</td>
+<td>项目所有者不可被移除</td>
+</tr>
+</tbody></table>
+<hr>
+<p><strong>F-007：项目成员管理</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-007</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 项目所有者, I want 邀请和管理项目成员, so that 可以与团队协作完成项目</p>
+</blockquote>
+<p><strong>主流程</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>用户操作</th>
+<th>系统响应</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>进入项目设置</td>
+<td>展示成员列表</td>
+</tr>
+<tr>
+<td>2</td>
+<td>点击&quot;邀请成员&quot;</td>
+<td>展示邀请表单</td>
+</tr>
+<tr>
+<td>3</td>
+<td>输入用户名/邮箱、选择角色</td>
+<td>-</td>
+</tr>
+<tr>
+<td>4</td>
+<td>点击&quot;发送邀请&quot;</td>
+<td>发送邀请通知</td>
+</tr>
+<tr>
+<td>5</td>
+<td>被邀请用户接受邀请</td>
+<td>添加为项目成员</td>
+</tr>
+</tbody></table>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 邀请成员成功
+  Given 用户是项目所有者
+  When 输入被邀请人邮箱 &quot;member@example.com&quot;
+  And 选择角色 &quot;开发者&quot;
+  And 点击&quot;发送邀请&quot;
+  Then 邀请发送成功
+  And 被邀请人收到通知
+
+Scenario: 移除项目成员
+  Given 用户是项目所有者
+  When 选择成员 &quot;member@example.com&quot;
+  And 点击&quot;移除&quot;
+  Then 成员被移除
+  And 该成员失去项目访问权限
+</code></pre>
+<hr>
+<h3>3.5 模块三：会话管理模块</h3>
+<h4>3.5.1 模块概述</h4>
+<p>会话管理模块负责 AI 对话会话的全生命周期管理，包括会话创建、消息发送/接收、消息历史、SSE 实时推送等功能。支持多轮对话和上下文管理。</p>
+<h4>3.5.2 功能详细需求</h4>
+<hr>
+<p><strong>F-009：会话 CRUD</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-009</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 开发者, I want 创建和管理 AI 对话会话, so that 可以与 AI 助手进行多轮对话</p>
+</blockquote>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 创建会话成功
+  Given 用户已登录
+  When 点击&quot;新建会话&quot;
+  And 输入会话标题 &quot;代码审查讨论&quot;
+  And 选择 Agent &quot;CodeReview Agent&quot;
+  And 点击&quot;创建&quot;
+  Then 会话创建成功
+  And 跳转到会话详情页
+
+Scenario: 删除会话
+  Given 用户有一个会话
+  When 点击&quot;删除&quot;
+  And 确认删除
+  Then 会话被逻辑删除
+  And 从会话列表中移除
+</code></pre>
+<hr>
+<p><strong>F-010：消息发送/接收</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-010</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 开发者, I want 在会话中发送消息并接收 AI 响应, so that 可以获得 AI 的帮助</p>
+</blockquote>
+<p><strong>主流程</strong>：</p>
+<table>
+<thead>
+<tr>
+<th>步骤</th>
+<th>用户操作</th>
+<th>系统响应</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>1</td>
+<td>在输入框输入消息</td>
+<td>-</td>
+</tr>
+<tr>
+<td>2</td>
+<td>按 Enter 或点击发送</td>
+<td>消息发送到服务器</td>
+</tr>
+<tr>
+<td>3</td>
+<td>-</td>
+<td>保存消息到数据库</td>
+</tr>
+<tr>
+<td>4</td>
+<td>-</td>
+<td>调用 LLM 生成响应</td>
+</tr>
+<tr>
+<td>5</td>
+<td>-</td>
+<td>通过 SSE 流式推送响应</td>
+</tr>
+<tr>
+<td>6</td>
+<td>-</td>
+<td>保存 AI 响应到数据库</td>
+</tr>
+</tbody></table>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 发送消息并接收流式响应
+  Given 用户在会话详情页
+  When 输入消息 &quot;帮我写一个排序算法&quot;
+  And 点击发送
+  Then 消息显示在聊天区域
+  And AI 响应通过 SSE 流式显示
+  And 响应完成后消息保存到历史
+
+Scenario: 停止生成
+  Given AI 正在生成响应
+  When 点击&quot;停止生成&quot;按钮
+  Then 停止生成
+  And 保留已生成的部分
+</code></pre>
+<hr>
+<p><strong>F-011：SSE 实时推送</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-011</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 开发者, I want 实时接收 AI 响应, so that 可以立即看到 AI 的输出</p>
+</blockquote>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: SSE 连接建立成功
+  Given 用户已登录
+  When 打开会话详情页
+  Then 建立 SSE 连接
+  And 每30秒收到心跳事件
+
+Scenario: 断线重连
+  Given SSE 连接已建立
+  When 网络断开并恢复
+  Then 自动重连
+  And 恢复接收消息
+</code></pre>
+<hr>
+<h3>3.6 模块四：Agent 系统模块</h3>
+<h4>3.6.1 模块概述</h4>
+<p>Agent 系统模块负责智能体的配置、工具绑定、执行引擎等功能。支持自定义 Agent 配置、工具注册与调用、执行历史记录等能力。</p>
+<h4>3.6.2 功能详细需求</h4>
+<hr>
+<p><strong>F-013：Agent 配置管理</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-013</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 开发者, I want 创建和配置 Agent, so that 可以定义 AI 助手的行为和能力</p>
+</blockquote>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 创建 Agent 成功
+  Given 用户已登录
+  When 点击&quot;新建 Agent&quot;
+  And 输入 Agent 名称 &quot;CodeReview Agent&quot;
+  And 输入系统提示词 &quot;你是一个代码审查专家&quot;
+  And 选择模型 &quot;DeepSeek&quot;
+  And 点击&quot;创建&quot;
+  Then Agent 创建成功
+  And 显示在 Agent 列表中
+
+Scenario: 编辑 Agent
+  Given 用户有一个 Agent
+  When 修改系统提示词
+  And 点击&quot;保存&quot;
+  Then Agent 配置更新成功
+</code></pre>
+<hr>
+<p><strong>F-014：工具绑定</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-014</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 开发者, I want 为 Agent 绑定工具, so that Agent 可以调用外部工具完成任务</p>
+</blockquote>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 绑定工具成功
+  Given 用户有一个 Agent
+  When 点击&quot;绑定工具&quot;
+  And 选择工具 &quot;代码搜索&quot;
+  And 点击&quot;确认&quot;
+  Then 工具绑定成功
+  And Agent 可以使用该工具
+
+Scenario: 解绑工具
+  Given Agent 已绑定工具
+  When 点击&quot;解绑&quot;
+  Then 工具解绑成功
+</code></pre>
+<hr>
+<p><strong>F-015：Agent 执行引擎</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-015</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 开发者, I want Agent 自主执行任务, so that 可以自动完成复杂的工作</p>
+</blockquote>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: Agent 执行任务成功
+  Given 用户有一个配置好的 Agent
+  When 发送消息 &quot;帮我审查这段代码&quot;
+  Then Agent 分析任务
+  And 调用相应工具
+  And 返回执行结果
+
+Scenario: Agent 执行超时
+  Given Agent 正在执行任务
+  When 执行时间超过 30 秒
+  Then 返回超时提示
+  And 任务状态标记为超时
+</code></pre>
+<hr>
+<h3>3.7 模块五：AI 对话模块</h3>
+<h4>3.7.1 模块概述</h4>
+<p>AI 对话模块负责与 LLM 的交互，包括流式对话、模型选择、上下文管理、思考强度控制等功能。支持多模型切换和智能上下文压缩。</p>
+<h4>3.7.2 功能详细需求</h4>
+<hr>
+<p><strong>F-017：流式对话</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-017</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 开发者, I want 与 AI 进行流式对话, so that 可以实时看到 AI 的响应</p>
+</blockquote>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 流式对话成功
+  Given 用户已登录
+  When 输入消息 &quot;写一个 Hello World&quot;
+  And 点击发送
+  Then AI 响应通过 SSE 流式显示
+  And 响应完成后保存到历史
+
+Scenario: 切换模型
+  Given 用户正在进行对话
+  When 切换模型从 &quot;DeepSeek&quot; 到 &quot;Qwen&quot;
+  And 发送新消息
+  Then 使用新模型生成响应
+</code></pre>
+<hr>
+<p><strong>F-019：上下文管理</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-019</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 开发者, I want AI 记住对话上下文, so that 可以进行连贯的多轮对话</p>
+</blockquote>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 上下文自动管理
+  Given 用户正在进行多轮对话
+  When 对话上下文超过 token 阈值
+  Then 自动压缩历史消息
+  And 保留系统消息和最近 6 条消息
+  And 对话继续正常进行
+</code></pre>
+<hr>
+<h3>3.8 模块六：工作流引擎模块</h3>
+<h4>3.8.1 模块概述</h4>
+<p>工作流引擎模块负责流程编排和执行，支持串行和并行流程、节点管理、状态流转、通知服务等功能。</p>
+<h4>3.8.2 功能详细需求</h4>
+<hr>
+<p><strong>F-021：工作流定义</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-021</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 技术负责人, I want 设计和定义工作流, so that 可以规范开发流程</p>
+</blockquote>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 创建工作流成功
+  Given 用户已登录
+  When 点击&quot;新建工作流&quot;
+  And 输入工作流名称 &quot;代码审查流程&quot;
+  And 拖拽节点（开始→审查→结束）
+  And 连接节点
+  And 点击&quot;发布&quot;
+  Then 工作流创建成功
+  And 状态变为&quot;已发布&quot;
+
+Scenario: 编辑工作流
+  Given 用户有一个草稿状态的工作流
+  When 添加新节点
+  And 修改节点配置
+  And 点击&quot;保存&quot;
+  Then 工作流更新成功
+</code></pre>
+<hr>
+<p><strong>F-022：工作流实例</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-022</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 开发者, I want 启动和执行工作流实例, so可以按照流程完成工作</p>
+</blockquote>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 启动工作流实例
+  Given 用户有一个已发布的工作流
+  When 点击&quot;启动&quot;
+  And 输入关联实体信息
+  Then 工作流实例创建成功
+  And 第一个节点变为&quot;待处理&quot;
+
+Scenario: 完成节点任务
+  Given 工作流实例正在执行
+  When 当前节点负责人点击&quot;完成&quot;
+  And 输入输出信息
+  Then 当前节点状态变为&quot;已完成&quot;
+  And 下一个节点变为&quot;待处理&quot;
+</code></pre>
+<hr>
+<h3>3.9 模块七：沙箱执行模块</h3>
+<h4>3.9.1 模块概述</h4>
+<p>沙箱执行模块负责代码的安全隔离执行，包括沙箱生命周期管理、代码执行、资源限制、安全策略等功能。</p>
+<h4>3.9.2 功能详细需求</h4>
+<hr>
+<p><strong>F-025：沙箱生命周期</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-025</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 开发者, I want 创建和管理沙箱环境, so that 可以安全地执行代码</p>
+</blockquote>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 创建沙箱成功
+  Given 用户已登录
+  When 点击&quot;新建沙箱&quot;
+  And 选择镜像 &quot;python:3.11&quot;
+  And 配置资源限制（CPU: 1核, 内存: 512MB）
+  And 点击&quot;创建&quot;
+  Then 沙箱创建成功
+  And 状态变为&quot;运行中&quot;
+
+Scenario: 停止沙箱
+  Given 用户有一个运行中的沙箱
+  When 点击&quot;停止&quot;
+  Then 沙箱状态变为&quot;已停止&quot;
+  And 释放资源
+
+Scenario: 销毁沙箱
+  Given 用户有一个沙箱
+  When 点击&quot;销毁&quot;
+  And 确认销毁
+  Then 沙箱被销毁
+  And 所有数据被清除
+</code></pre>
+<hr>
+<p><strong>F-026：代码执行</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-026</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 开发者, I want 在沙箱中执行代码, so that 可以安全地运行不受信任的代码</p>
+</blockquote>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 执行代码成功
+  Given 用户有一个运行中的沙箱
+  When 输入代码 &quot;print(&#39;Hello World&#39;)&quot;
+  And 点击&quot;执行&quot;
+  Then 代码在沙箱中执行
+  And 返回执行结果 &quot;Hello World&quot;
+
+Scenario: 危险代码被拦截
+  Given 用户有一个运行中的沙箱
+  When 输入危险代码 &quot;import os; os.system(&#39;rm -rf /&#39;)&quot;
+  And 点击&quot;执行&quot;
+  Then 代码被安全策略拦截
+  And 返回错误提示
+
+Scenario: 执行超时
+  Given 用户有一个运行中的沙箱
+  When 输入死循环代码
+  And 执行时间超过 30 秒
+  Then 执行被中断
+  And 返回超时提示
+</code></pre>
+<hr>
+<h3>3.10 模块八：Wenshi 知识增强模块</h3>
+<h4>3.10.1 模块概述</h4>
+<p>Wenshi 知识增强模块为 LLM 提供三层增强能力：知识层（结构化记忆）、推理层（思维编排）、学习层（经验进化）。</p>
+<h4>3.10.2 功能详细需求</h4>
+<hr>
+<p><strong>F-029：知识层（记忆管理）</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-029</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P1</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 开发者, I want AI 拥有长期记忆, so that 可以跨会话积累和利用知识</p>
+</blockquote>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 知识写入成功
+  Given 用户完成一次对话
+  When 系统自动抽取知识
+  Then 知识存储到语义记忆
+  And 可通过向量检索查询
+
+Scenario: 知识检索成功
+  Given 用户发起新对话
+  When 系统检索相关知识
+  Then 返回相关记忆片段
+  And 注入到对话上下文中
+</code></pre>
+<hr>
+<p><strong>F-030：推理层（思维编排）</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-030</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P1</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 开发者, I want AI 进行结构化推理, so that 可以获得更准确的回答</p>
+</blockquote>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 经验优先路由
+  Given 用户发起任务
+  When 经验库中有匹配的经验
+  Then 直接复用经验策略
+  And 无需调用 LLM
+
+Scenario: LLM 兜底推理
+  Given 用户发起任务
+  When 经验库和知识库均无匹配
+  Then 调用 LLM 进行推理
+  And 返回推理结果
+</code></pre>
+<hr>
+<h3>3.11 模块九：需求管理模块</h3>
+<h4>3.11.1 模块概述</h4>
+<p>需求管理模块负责需求全生命周期管理，包括需求创建、评审、状态流转、看板展示等功能。</p>
+<h4>3.11.2 功能详细需求</h4>
+<hr>
+<p><strong>F-032：需求 CRUD</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-032</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P1</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 产品经理, I want 创建和管理需求, so that 可以跟踪需求的整个生命周期</p>
+</blockquote>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 创建需求成功
+  Given 用户已登录
+  When 点击&quot;新建需求&quot;
+  And 输入标题 &quot;用户登录优化&quot;
+  And 选择类型 &quot;FEATURE&quot;
+  And 选择优先级 &quot;P1&quot;
+  And 输入描述 &quot;优化用户登录流程&quot;
+  And 点击&quot;创建&quot;
+  Then 需求创建成功
+  And 自动生成需求编号 &quot;REQ-2026-001&quot;
+  And 状态为&quot;草稿&quot;
+</code></pre>
+<hr>
+<p><strong>F-034：需求状态流转</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-034</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P1</td>
+</tr>
+</tbody></table>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 需求状态流转
+  Given 需求当前状态为&quot;草稿&quot;
+  When 产品经理提交评审
+  Then 状态变为&quot;待需求评审&quot;
+  When 技术负责人通过评审
+  Then 状态变为&quot;已通过&quot;
+  When 进入设计阶段
+  Then 状态变为&quot;设计&quot;
+</code></pre>
+<hr>
+<h3>3.12 模块十：监控告警模块</h3>
+<h4>3.12.1 模块概述</h4>
+<p>监控告警模块负责系统全链路监控，包括系统监控、应用监控、告警通知等功能。</p>
+<h4>3.12.2 功能详细需求</h4>
+<hr>
+<p><strong>F-036：系统监控</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-036</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 运维工程师, I want 实时查看系统运行状态, so that 可以及时发现和解决问题</p>
+</blockquote>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 查看系统指标
+  Given 用户已登录
+  When 进入监控页面
+  Then 显示 CPU、内存、磁盘、网络指标
+  And 支持时间范围选择
+
+Scenario: 查看应用指标
+  Given 用户已登录
+  When 进入应用监控页面
+  Then 显示 QPS、延迟、错误率指标
+  And 支持接口级别查看
+</code></pre>
+<hr>
+<h3>3.13 模块十一：系统管理模块</h3>
+<h4>3.13.1 模块概述</h4>
+<p>系统管理模块负责平台级配置管理，包括用户管理、角色权限管理、模型配置、系统配置等功能。</p>
+<h4>3.13.2 功能详细需求</h4>
+<hr>
+<p><strong>F-039：用户管理</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-039</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 管理员, I want 管理平台用户, so that 可以控制用户访问权限</p>
+</blockquote>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 查看用户列表
+  Given 用户是管理员
+  When 进入用户管理页面
+  Then 显示所有用户列表
+  And 支持搜索和筛选
+
+Scenario: 禁用用户
+  Given 用户是管理员
+  When 选择用户 &quot;testuser&quot;
+  And 点击&quot;禁用&quot;
+  Then 用户状态变为&quot;禁用&quot;
+  And 该用户无法登录
+</code></pre>
+<hr>
+<p><strong>F-041：模型配置</strong></p>
+<table>
+<thead>
+<tr>
+<th>属性</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>功能编号</td>
+<td>F-041</td>
+</tr>
+<tr>
+<td>优先级</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<p><strong>用户故事</strong>：</p>
+<blockquote>
+<p>As a 管理员, I want 配置 LLM 模型, so that 可以选择合适的模型服务</p>
+</blockquote>
+<p><strong>验收标准</strong>：</p>
+<pre><code class="language-gherkin">Scenario: 添加模型配置
+  Given 用户是管理员
+  When 进入模型配置页面
+  And 点击&quot;添加模型&quot;
+  And 输入模型名称 &quot;DeepSeek-V3&quot;
+  And 输入 API 地址和 API Key
+  And 点击&quot;保存&quot;
+  Then 模型配置成功
+  And 模型出现在可选列表中
+
+Scenario: 删除模型配置
+  Given 用户是管理员
+  When 选择模型 &quot;DeepSeek-V3&quot;
+  And 点击&quot;删除&quot;
+  Then 模型配置被删除
+  And API Key 从数据库中清除
+</code></pre>
+<hr>
+<h2>4. 非功能需求</h2>
+<h3>4.1 性能需求</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>目标值</th>
+<th>测量方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>页面首屏加载时间</td>
+<td>≤ 2秒（P95）</td>
+<td>Lighthouse / APM</td>
+</tr>
+<tr>
+<td>核心 API 响应时间</td>
+<td>≤ 200ms（P95），≤ 500ms（P99）</td>
+<td>APM 监控</td>
+</tr>
+<tr>
+<td>并发用户数</td>
+<td>≥ 10,000</td>
+<td>压力测试</td>
+</tr>
+<tr>
+<td>系统吞吐量</td>
+<td>≥ 5,000 QPS</td>
+<td>压测工具</td>
+</tr>
+<tr>
+<td>数据库查询时间</td>
+<td>≤ 50ms（P95）</td>
+<td>慢查询日志</td>
+</tr>
+<tr>
+<td>SSE 消息延迟</td>
+<td>≤ 100ms</td>
+<td>实际测试</td>
+</tr>
+</tbody></table>
+<h3>4.2 可用性需求</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>目标值</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>系统可用性</td>
+<td>≥ 99.9%（全年不超过8.76小时不可用）</td>
+</tr>
+<tr>
+<td>计划内停机</td>
+<td>每月不超过30分钟</td>
+</tr>
+<tr>
+<td>故障恢复时间（RTO）</td>
+<td>≤ 15分钟</td>
+</tr>
+<tr>
+<td>数据恢复点（RPO）</td>
+<td>≤ 5分钟</td>
+</tr>
+<tr>
+<td>健康检查</td>
+<td>提供 /actuator/health 端点</td>
+</tr>
+</tbody></table>
+<h3>4.3 安全需求</h3>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>需求</th>
+<th>实现方式</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>SEC-01</td>
+<td>数据传输加密</td>
+<td>全站 HTTPS（TLS 1.2+），支持国密 TLS</td>
+</tr>
+<tr>
+<td>SEC-02</td>
+<td>密码安全存储</td>
+<td>SM3 加盐多轮迭代哈希</td>
+</tr>
+<tr>
+<td>SEC-03</td>
+<td>SQL注入防护</td>
+<td>参数化查询 + MyBatis-Plus</td>
+</tr>
+<tr>
+<td>SEC-04</td>
+<td>XSS防护</td>
+<td>XssRequestWrapper 输入过滤 + CSP 头</td>
+</tr>
+<tr>
+<td>SEC-05</td>
+<td>CSRF防护</td>
+<td>Spring Security CSRF Token</td>
+</tr>
+<tr>
+<td>SEC-06</td>
+<td>接口限流</td>
+<td>Token Bucket，单IP 100次/分钟</td>
+</tr>
+<tr>
+<td>SEC-07</td>
+<td>敏感数据脱敏</td>
+<td>API Key、密码等敏感信息脱敏展示</td>
+</tr>
+<tr>
+<td>SEC-08</td>
+<td>操作审计日志</td>
+<td>记录所有敏感操作</td>
+</tr>
+<tr>
+<td>SEC-09</td>
+<td>会话管理</td>
+<td>JWT Token 过期机制、黑名单、强制下线</td>
+</tr>
+<tr>
+<td>SEC-10</td>
+<td>文件上传安全</td>
+<td>类型白名单 + 大小限制 + 病毒扫描</td>
+</tr>
+<tr>
+<td>SEC-11</td>
+<td>API Key 加密存储</td>
+<td>SM4-GCM 对称加密</td>
+</tr>
+<tr>
+<td>SEC-12</td>
+<td>SSRF 防护</td>
+<td>URL 白名单 + 内网 IP 拦截</td>
+</tr>
+<tr>
+<td>SEC-13</td>
+<td>命令注入防护</td>
+<td>命令白名单 + 危险字符校验</td>
+</tr>
+<tr>
+<td>SEC-14</td>
+<td>沙箱隔离</td>
+<td>Docker/gVisor/Firecracker 三层隔离</td>
+</tr>
+</tbody></table>
+<h3>4.4 兼容性需求</h3>
+<table>
+<thead>
+<tr>
+<th>维度</th>
+<th>要求</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>浏览器</td>
+<td>Chrome 90+, Firefox 90+, Safari 15+, Edge 90+</td>
+</tr>
+<tr>
+<td>移动端</td>
+<td>iOS 14+, Android 10+</td>
+</tr>
+<tr>
+<td>屏幕分辨率</td>
+<td>1920×1080, 1366×768, 375×812（移动端）</td>
+</tr>
+<tr>
+<td>API版本</td>
+<td>支持最近2个版本的API共存</td>
+</tr>
+<tr>
+<td>数据库</td>
+<td>OceanBase 4.2+, MySQL 8.0, PostgreSQL 15+</td>
+</tr>
+</tbody></table>
+<h3>4.5 可扩展性需求</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>要求</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>水平扩展</td>
+<td>支持无状态水平扩展</td>
+</tr>
+<tr>
+<td>数据库</td>
+<td>支持读写分离、分库分表</td>
+</tr>
+<tr>
+<td>缓存</td>
+<td>支持 Redis/DragonflyDB 集群</td>
+</tr>
+<tr>
+<td>消息队列</td>
+<td>支持 RocketMQ 集群</td>
+</tr>
+<tr>
+<td>沙箱</td>
+<td>支持多节点分布式部署</td>
+</tr>
+</tbody></table>
+<h3>4.6 可维护性需求</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>要求</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>代码规范</td>
+<td>遵循阿里巴巴 Java 开发手册</td>
+</tr>
+<tr>
+<td>测试覆盖率</td>
+<td>单元测试 ≥ 80%，核心逻辑 ≥ 100%</td>
+</tr>
+<tr>
+<td>文档</td>
+<td>API 文档自动生成（OpenAPI 3.0）</td>
+</tr>
+<tr>
+<td>日志</td>
+<td>结构化日志，支持 ELK 收集</td>
+</tr>
+<tr>
+<td>监控</td>
+<td>Prometheus + Grafana + Nightingale</td>
+</tr>
+</tbody></table>
+<h3>4.7 数据需求</h3>
+<table>
+<thead>
+<tr>
+<th>指标</th>
+<th>要求</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>数据备份</td>
+<td>每日全量备份 + 实时增量备份</td>
+</tr>
+<tr>
+<td>数据保留</td>
+<td>用户数据保留至注销后90天</td>
+</tr>
+<tr>
+<td>数据导出</td>
+<td>支持用户数据导出（GDPR合规）</td>
+</tr>
+<tr>
+<td>数据迁移</td>
+<td>支持从旧系统迁移，停机时间 ≤ 1小时</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>5. 系统接口</h2>
+<h3>5.1 用户接口</h3>
+<h4>5.1.1 UI 规范</h4>
+<ul>
+<li>遵循设计系统规范</li>
+<li>响应式布局，支持桌面端和移动端</li>
+<li>无障碍支持（WCAG 2.1 AA级）</li>
+</ul>
+<h4>5.1.2 页面清单</h4>
+<table>
+<thead>
+<tr>
+<th>页面编号</th>
+<th>页面名称</th>
+<th>路由</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>P-001</td>
+<td>登录页</td>
+<td>/login</td>
+<td>用户登录入口</td>
+</tr>
+<tr>
+<td>P-002</td>
+<td>注册页</td>
+<td>/register</td>
+<td>新用户注册</td>
+</tr>
+<tr>
+<td>P-003</td>
+<td>首页</td>
+<td>/home</td>
+<td>登录后首页</td>
+</tr>
+<tr>
+<td>P-004</td>
+<td>项目列表</td>
+<td>/projects</td>
+<td>项目列表页</td>
+</tr>
+<tr>
+<td>P-005</td>
+<td>项目详情</td>
+<td>/projects/:id</td>
+<td>项目详情页</td>
+</tr>
+<tr>
+<td>P-006</td>
+<td>会话列表</td>
+<td>/sessions</td>
+<td>会话列表页</td>
+</tr>
+<tr>
+<td>P-007</td>
+<td>会话详情</td>
+<td>/sessions/:id</td>
+<td>会话详情页（聊天）</td>
+</tr>
+<tr>
+<td>P-008</td>
+<td>Agent 列表</td>
+<td>/agents</td>
+<td>Agent 列表页</td>
+</tr>
+<tr>
+<td>P-009</td>
+<td>Agent 配置</td>
+<td>/agents/:id</td>
+<td>Agent 配置页</td>
+</tr>
+<tr>
+<td>P-010</td>
+<td>工作流设计</td>
+<td>/workflows/design</td>
+<td>工作流设计器</td>
+</tr>
+<tr>
+<td>P-011</td>
+<td>工作流列表</td>
+<td>/workflows</td>
+<td>工作流列表页</td>
+</tr>
+<tr>
+<td>P-012</td>
+<td>沙箱管理</td>
+<td>/sandboxes</td>
+<td>沙箱管理页</td>
+</tr>
+<tr>
+<td>P-013</td>
+<td>需求列表</td>
+<td>/requirements</td>
+<td>需求列表页</td>
+</tr>
+<tr>
+<td>P-014</td>
+<td>需求详情</td>
+<td>/requirements/:id</td>
+<td>需求详情页</td>
+</tr>
+<tr>
+<td>P-015</td>
+<td>监控面板</td>
+<td>/monitor</td>
+<td>监控面板页</td>
+</tr>
+<tr>
+<td>P-016</td>
+<td>系统设置</td>
+<td>/settings</td>
+<td>系统设置页</td>
+</tr>
+</tbody></table>
+<h3>5.2 硬件接口</h3>
+<ul>
+<li>无特殊硬件接口需求</li>
+</ul>
+<h3>5.3 软件接口</h3>
+<h4>5.3.1 外部接口</h4>
+<table>
+<thead>
+<tr>
+<th>接口编号</th>
+<th>接口名称</th>
+<th>提供方</th>
+<th>协议</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>API-01</td>
+<td>DeepSeek API</td>
+<td>DeepSeek</td>
+<td>HTTPS SSE</td>
+<td>LLM 推理</td>
+</tr>
+<tr>
+<td>API-02</td>
+<td>通义千问 API</td>
+<td>阿里云</td>
+<td>HTTPS SSE</td>
+<td>LLM 推理</td>
+</tr>
+<tr>
+<td>API-03</td>
+<td>MCP Server</td>
+<td>第三方</td>
+<td>stdio/SSE</td>
+<td>工具接入</td>
+</tr>
+<tr>
+<td>API-04</td>
+<td>Docker API</td>
+<td>Docker</td>
+<td>Socket</td>
+<td>沙箱管理</td>
+</tr>
+</tbody></table>
+<h3>5.4 通信接口</h3>
+<table>
+<thead>
+<tr>
+<th>协议</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>HTTPS</td>
+<td>所有 API 通信</td>
+</tr>
+<tr>
+<td>SSE</td>
+<td>实时推送（AI 响应、通知）</td>
+</tr>
+<tr>
+<td>WebSocket</td>
+<td>实时聊天（可选）</td>
+</tr>
+<tr>
+<td>TCP</td>
+<td>RocketMQ 消息队列</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>6. 数据需求</h2>
+<h3>6.1 数据模型概述</h3>
+<pre><code>用户 (user_account)
+├── 项目 (project) 1:N
+│   ├── 项目成员 (project_member) 1:N
+│   ├── 会话 (session) 1:N
+│   │   ├── 会话成员 (session_member) 1:N
+│   │   └── 会话消息 (session_message) 1:N
+│   └── 工作流实例 (workflow_instance) 1:N
+├── Agent (agent) 1:N
+│   ├── Agent 工具 (agent_tool) 1:N
+│   └── Agent 执行 (agent_execution) 1:N
+├── 工作流 (workflow) 1:N
+│   ├── 工作流节点 (workflow_node) 1:N
+│   └── 工作流实例 (workflow_instance) 1:N
+├── 沙箱 (sandbox) 1:N
+├── 模型供应商 (model_provider) 1:N
+├── MCP 服务器 (mcp_server) 1:N
+├── 需求 (requirement) 1:N
+└── 审计日志 (audit_log) 1:N
+</code></pre>
+<h3>6.2 数据字典（核心表）</h3>
+<h4>用户表（user_account）</h4>
+<table>
+<thead>
+<tr>
+<th>字段名</th>
+<th>类型</th>
+<th>长度</th>
+<th>必填</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>id</td>
+<td>VARCHAR</td>
+<td>26</td>
+<td>是</td>
+<td>ULID</td>
+<td>主键</td>
+</tr>
+<tr>
+<td>username</td>
+<td>VARCHAR</td>
+<td>50</td>
+<td>是</td>
+<td>-</td>
+<td>用户名（唯一索引）</td>
+</tr>
+<tr>
+<td>email</td>
+<td>VARCHAR</td>
+<td>255</td>
+<td>是</td>
+<td>-</td>
+<td>邮箱（唯一索引）</td>
+</tr>
+<tr>
+<td>password_hash</td>
+<td>VARCHAR</td>
+<td>255</td>
+<td>是</td>
+<td>-</td>
+<td>SM3 密码哈希</td>
+</tr>
+<tr>
+<td>display_name</td>
+<td>VARCHAR</td>
+<td>100</td>
+<td>否</td>
+<td>-</td>
+<td>显示名称</td>
+</tr>
+<tr>
+<td>status</td>
+<td>TINYINT</td>
+<td>-</td>
+<td>是</td>
+<td>1</td>
+<td>0=禁用,1=正常</td>
+</tr>
+<tr>
+<td>created_at</td>
+<td>BIGINT</td>
+<td>-</td>
+<td>是</td>
+<td>-</td>
+<td>创建时间（毫秒时间戳）</td>
+</tr>
+<tr>
+<td>updated_at</td>
+<td>BIGINT</td>
+<td>-</td>
+<td>是</td>
+<td>-</td>
+<td>更新时间（毫秒时间戳）</td>
+</tr>
+</tbody></table>
+<h4>项目表（project）</h4>
+<table>
+<thead>
+<tr>
+<th>字段名</th>
+<th>类型</th>
+<th>长度</th>
+<th>必填</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>id</td>
+<td>VARCHAR</td>
+<td>26</td>
+<td>是</td>
+<td>ULID</td>
+<td>主键</td>
+</tr>
+<tr>
+<td>project_name</td>
+<td>VARCHAR</td>
+<td>200</td>
+<td>是</td>
+<td>-</td>
+<td>项目名称</td>
+</tr>
+<tr>
+<td>description</td>
+<td>TEXT</td>
+<td>-</td>
+<td>否</td>
+<td>-</td>
+<td>项目描述</td>
+</tr>
+<tr>
+<td>owner_id</td>
+<td>VARCHAR</td>
+<td>26</td>
+<td>是</td>
+<td>-</td>
+<td>项目所有者</td>
+</tr>
+<tr>
+<td>status</td>
+<td>TINYINT</td>
+<td>-</td>
+<td>是</td>
+<td>1</td>
+<td>0=删除,1=正常</td>
+</tr>
+<tr>
+<td>created_at</td>
+<td>BIGINT</td>
+<td>-</td>
+<td>是</td>
+<td>-</td>
+<td>创建时间</td>
+</tr>
+</tbody></table>
+<h4>会话表（session）</h4>
+<table>
+<thead>
+<tr>
+<th>字段名</th>
+<th>类型</th>
+<th>长度</th>
+<th>必填</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>id</td>
+<td>VARCHAR</td>
+<td>26</td>
+<td>是</td>
+<td>ULID</td>
+<td>主键</td>
+</tr>
+<tr>
+<td>title</td>
+<td>VARCHAR</td>
+<td>200</td>
+<td>是</td>
+<td>-</td>
+<td>会话标题</td>
+</tr>
+<tr>
+<td>project_id</td>
+<td>VARCHAR</td>
+<td>26</td>
+<td>否</td>
+<td>-</td>
+<td>关联项目</td>
+</tr>
+<tr>
+<td>agent_id</td>
+<td>VARCHAR</td>
+<td>26</td>
+<td>否</td>
+<td>-</td>
+<td>关联 Agent</td>
+</tr>
+<tr>
+<td>user_id</td>
+<td>VARCHAR</td>
+<td>26</td>
+<td>是</td>
+<td>-</td>
+<td>创建者</td>
+</tr>
+<tr>
+<td>type</td>
+<td>VARCHAR</td>
+<td>20</td>
+<td>是</td>
+<td>-</td>
+<td>会话类型</td>
+</tr>
+<tr>
+<td>status</td>
+<td>TINYINT</td>
+<td>-</td>
+<td>是</td>
+<td>1</td>
+<td>状态</td>
+</tr>
+<tr>
+<td>created_at</td>
+<td>BIGINT</td>
+<td>-</td>
+<td>是</td>
+<td>-</td>
+<td>创建时间</td>
+</tr>
+</tbody></table>
+<h4>模型供应商表（model_provider）</h4>
+<table>
+<thead>
+<tr>
+<th>字段名</th>
+<th>类型</th>
+<th>长度</th>
+<th>必填</th>
+<th>默认值</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>id</td>
+<td>VARCHAR</td>
+<td>26</td>
+<td>是</td>
+<td>ULID</td>
+<td>主键</td>
+</tr>
+<tr>
+<td>provider_name</td>
+<td>VARCHAR</td>
+<td>100</td>
+<td>是</td>
+<td>-</td>
+<td>供应商名称</td>
+</tr>
+<tr>
+<td>provider_code</td>
+<td>VARCHAR</td>
+<td>50</td>
+<td>是</td>
+<td>-</td>
+<td>供应商编码（唯一）</td>
+</tr>
+<tr>
+<td>base_url</td>
+<td>VARCHAR</td>
+<td>500</td>
+<td>是</td>
+<td>-</td>
+<td>API 地址</td>
+</tr>
+<tr>
+<td>api_key</td>
+<td>VARCHAR</td>
+<td>500</td>
+<td>是</td>
+<td>-</td>
+<td>加密存储的 API Key</td>
+</tr>
+<tr>
+<td>description</td>
+<td>TEXT</td>
+<td>-</td>
+<td>否</td>
+<td>-</td>
+<td>描述</td>
+</tr>
+<tr>
+<td>status</td>
+<td>TINYINT</td>
+<td>-</td>
+<td>是</td>
+<td>1</td>
+<td>状态</td>
+</tr>
+<tr>
+<td>created_at</td>
+<td>BIGINT</td>
+<td>-</td>
+<td>是</td>
+<td>-</td>
+<td>创建时间</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>7. 业务规则</h2>
+<table>
+<thead>
+<tr>
+<th>规则编号</th>
+<th>规则名称</th>
+<th>描述</th>
+<th>触发条件</th>
+<th>处理逻辑</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>BR-001</td>
+<td>用户名唯一性</td>
+<td>同一用户名只能注册一个账号</td>
+<td>注册时</td>
+<td>查询用户名是否已存在</td>
+</tr>
+<tr>
+<td>BR-002</td>
+<td>邮箱唯一性</td>
+<td>同一邮箱只能注册一个账号</td>
+<td>注册时</td>
+<td>查询邮箱是否已存在</td>
+</tr>
+<tr>
+<td>BR-003</td>
+<td>密码强度</td>
+<td>密码≥8位，含大小写+数字+特殊字符</td>
+<td>注册/修改密码</td>
+<td>正则校验</td>
+</tr>
+<tr>
+<td>BR-004</td>
+<td>登录锁定</td>
+<td>连续5次失败锁定30分钟</td>
+<td>登录失败</td>
+<td>计数并判断锁定</td>
+</tr>
+<tr>
+<td>BR-005</td>
+<td>Token 刷新</td>
+<td>Refresh Token 只能使用一次</td>
+<td>刷新时</td>
+<td>旧 Token 加入黑名单</td>
+</tr>
+<tr>
+<td>BR-006</td>
+<td>项目权限</td>
+<td>只有项目成员可访问项目数据</td>
+<td>访问项目时</td>
+<td>校验成员关系</td>
+</tr>
+<tr>
+<td>BR-007</td>
+<td>模型配置权限</td>
+<td>只有管理员可配置模型</td>
+<td>配置模型时</td>
+<td>校验管理员角色</td>
+</tr>
+<tr>
+<td>BR-008</td>
+<td>沙箱安全</td>
+<td>危险代码必须被拦截</td>
+<td>执行代码时</td>
+<td>安全策略校验</td>
+</tr>
+<tr>
+<td>BR-009</td>
+<td>API Key 加密</td>
+<td>API Key 必须加密存储</td>
+<td>保存 API Key 时</td>
+<td>SM4-GCM 加密</td>
+</tr>
+<tr>
+<td>BR-010</td>
+<td>上下文压缩</td>
+<td>超过 token 阈值时自动压缩</td>
+<td>对话时</td>
+<td>保留 system + 最近 6 条</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>8. 验收标准</h2>
+<h3>8.1 功能验收</h3>
+<table>
+<thead>
+<tr>
+<th>验收项</th>
+<th>验收标准</th>
+<th>优先级</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>用户认证</td>
+<td>所有验收场景通过</td>
+<td>P0</td>
+</tr>
+<tr>
+<td>项目管理</td>
+<td>所有验收场景通过</td>
+<td>P0</td>
+</tr>
+<tr>
+<td>会话管理</td>
+<td>所有验收场景通过</td>
+<td>P0</td>
+</tr>
+<tr>
+<td>Agent 系统</td>
+<td>所有验收场景通过</td>
+<td>P0</td>
+</tr>
+<tr>
+<td>AI 对话</td>
+<td>所有验收场景通过</td>
+<td>P0</td>
+</tr>
+<tr>
+<td>工作流引擎</td>
+<td>所有验收场景通过</td>
+<td>P0</td>
+</tr>
+<tr>
+<td>沙箱执行</td>
+<td>所有验收场景通过</td>
+<td>P0</td>
+</tr>
+<tr>
+<td>Wenshi 增强</td>
+<td>所有验收场景通过</td>
+<td>P1</td>
+</tr>
+<tr>
+<td>需求管理</td>
+<td>所有验收场景通过</td>
+<td>P1</td>
+</tr>
+<tr>
+<td>监控告警</td>
+<td>所有验收场景通过</td>
+<td>P0</td>
+</tr>
+<tr>
+<td>系统管理</td>
+<td>所有验收场景通过</td>
+<td>P0</td>
+</tr>
+</tbody></table>
+<h3>8.2 非功能验收</h3>
+<table>
+<thead>
+<tr>
+<th>验收项</th>
+<th>验收标准</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>性能测试</td>
+<td>满足 4.1 节所有指标</td>
+</tr>
+<tr>
+<td>安全测试</td>
+<td>通过 OWASP Top 10 检查</td>
+</tr>
+<tr>
+<td>兼容性测试</td>
+<td>满足 4.4 节所有浏览器/设备</td>
+</tr>
+<tr>
+<td>可用性测试</td>
+<td>连续7天无重大故障</td>
+</tr>
+<tr>
+<td>信创测试</td>
+<td>信创环境全部通过</td>
+</tr>
+<tr>
+<td>等保测试</td>
+<td>通过等保 2.0 三级测评</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>9. 项目计划</h2>
+<h3>9.1 里程碑</h3>
+<table>
+<thead>
+<tr>
+<th>里程碑</th>
+<th>交付物</th>
+<th>计划日期</th>
+<th>负责人</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>M1：需求评审通过</td>
+<td>SRS 文档、原型图</td>
+<td>2026-07-29</td>
+<td>产品团队</td>
+</tr>
+<tr>
+<td>M2：设计评审通过</td>
+<td>设计稿、技术方案</td>
+<td>2026-07-15</td>
+<td>架构组</td>
+</tr>
+<tr>
+<td>M3：开发完成</td>
+<td>功能代码、单元测试</td>
+<td>2026-07-25</td>
+<td>开发团队</td>
+</tr>
+<tr>
+<td>M4：测试完成</td>
+<td>测试报告、Bug 修复</td>
+<td>2026-07-28</td>
+<td>测试团队</td>
+</tr>
+<tr>
+<td>M5：上线发布</td>
+<td>生产环境部署</td>
+<td>2026-08-31</td>
+<td>运维团队</td>
+</tr>
+</tbody></table>
+<h3>9.2 迭代计划</h3>
+<table>
+<thead>
+<tr>
+<th>迭代</th>
+<th>时间范围</th>
+<th>交付内容</th>
+<th>故事点</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Sprint 0</td>
+<td>W1-W2</td>
+<td>技术 Spike、环境搭建、开发规范</td>
+<td>13</td>
+</tr>
+<tr>
+<td>Sprint 1</td>
+<td>W3-W6</td>
+<td>基础设施层（权限/缓存/DB/MQ）</td>
+<td>21</td>
+</tr>
+<tr>
+<td>Sprint 2</td>
+<td>W7-W10</td>
+<td>核心模块（Session/Agent/Workflow）</td>
+<td>34</td>
+</tr>
+<tr>
+<td>Sprint 3</td>
+<td>W11-W14</td>
+<td>工作流引擎 + SSE + 安全加固</td>
+<td>21</td>
+</tr>
+<tr>
+<td>Sprint 4</td>
+<td>W15-W18</td>
+<td>网关 + 沙箱 + 前端优化</td>
+<td>34</td>
+</tr>
+<tr>
+<td>Sprint 5</td>
+<td>W19-W22</td>
+<td>AI 集成 + 前端收尾 + 测试</td>
+<td>34</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>10. 风险管理</h2>
+<table>
+<thead>
+<tr>
+<th>风险编号</th>
+<th>风险描述</th>
+<th>影响</th>
+<th>概率</th>
+<th>应对措施</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>R-01</td>
+<td>LLM 服务不稳定</td>
+<td>高</td>
+<td>中</td>
+<td>多模型切换 + 降级方案</td>
+</tr>
+<tr>
+<td>R-02</td>
+<td>需求变更频繁</td>
+<td>中</td>
+<td>高</td>
+<td>敏捷迭代 + 变更控制</td>
+</tr>
+<tr>
+<td>R-03</td>
+<td>性能瓶颈</td>
+<td>高</td>
+<td>中</td>
+<td>提前压测 + 缓存方案</td>
+</tr>
+<tr>
+<td>R-04</td>
+<td>安全漏洞</td>
+<td>高</td>
+<td>低</td>
+<td>安全审计 + 渗透测试</td>
+</tr>
+<tr>
+<td>R-05</td>
+<td>信创环境兼容性</td>
+<td>中</td>
+<td>中</td>
+<td>Phase 0 提前验证</td>
+</tr>
+<tr>
+<td>R-06</td>
+<td>沙箱资源不足</td>
+<td>中</td>
+<td>中</td>
+<td>资源限制 + 自动回收</td>
+</tr>
+</tbody></table>
+<hr>
+<h2>11. 附录</h2>
+<h3>11.1 修订记录</h3>
+<table>
+<thead>
+<tr>
+<th>版本</th>
+<th>日期</th>
+<th>修订人</th>
+<th>修订内容</th>
+<th>审核人</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>V1.0</td>
+<td>2026-07-29</td>
+<td>产品团队</td>
+<td>初始版本</td>
+<td>架构组</td>
+</tr>
+</tbody></table>
+<h3>11.2 待确认事项</h3>
+<table>
+<thead>
+<tr>
+<th>编号</th>
+<th>事项</th>
+<th>负责人</th>
+<th>截止日期</th>
+<th>状态</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Q-01</td>
+<td>确认生产环境域名</td>
+<td>运维</td>
+<td>2026-08-15</td>
+<td>待确认</td>
+</tr>
+<tr>
+<td>Q-02</td>
+<td>确认 LLM 供应商优先级</td>
+<td>产品</td>
+<td>2026-08-01</td>
+<td>待确认</td>
+</tr>
+<tr>
+<td>Q-03</td>
+<td>确认信创环境配置</td>
+<td>架构</td>
+<td>2026-08-01</td>
+<td>待确认</td>
+</tr>
+</tbody></table>
+<h3>11.3 关联文档</h3>
+<ul>
+<li><a href="docs/design/01-technical-architecture.md">技术架构总览</a></li>
+<li><a href="docs/design/02-deployment-architecture.md">部署架构设计</a></li>
+<li><a href="docs/design/03-database-design.md">数据库设计文档</a></li>
+<li><a href="docs/design/07-security-compliance.md">安全合规设计</a></li>
+<li><a href="docs/design/28-workflow-engine-design.md">工作流引擎设计</a></li>
+<li><a href="docs/design/27-agent-sandbox-design.md">Agent 沙箱设计</a></li>
+<li><a href="docs/design/29-xinchuang-compliance.md">信创合规适配</a></li>
+<li><a href="docs/design/32-test-strategy.md">测试策略文档</a></li>
+<li><a href="docs/design/33-dev-roadmap.md">开发实施路线图</a></li>
+<li><a href="docs/wenshi/WENSHI-ARCHITECTURE-v3.md">Wenshi 架构方案</a></li>
+<li><a href="docs/CODE-SECURITY-REVIEW-REPORT.md">安全审查报告</a></li>
+<li><a href="docs/GEWU-SECURITY-FIX-PRIORITY-PLAN.md">安全修复计划</a></li>
+<li><a href="docs/api/overview.md">API 文档总览</a></li>
+<li><a href="docs/requirement/PRD.md">产品需求文档</a></li>
+<li><a href="docs/project/PROJECT-COMPLETION-REPORT.md">项目完成报告</a></li>
+<li><a href="docs/%E6%A0%BC%E7%89%A9%E5%B9%B3%E5%8F%B0-%E9%A1%B9%E7%9B%AE%E8%B5%84%E6%96%99%E6%80%BB%E8%A7%88.md">项目资料总览</a></li>
+</ul>
+<hr>
+<blockquote>
+<p><strong>文档结束</strong><br>本文档为格物智能体平台的完整需求规格说明书，作为项目开发、测试、验收的统一依据。<br>详细设计请参阅各子目录下的专项文档。</p>
+</blockquote>
+
+</body>
+</html>
