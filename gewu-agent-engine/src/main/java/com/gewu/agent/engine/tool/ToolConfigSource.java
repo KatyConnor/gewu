@@ -18,11 +18,14 @@ public interface ToolConfigSource {
 
     /**
      * 加载指定 Agent 绑定的工具配置。
-     * <p>默认实现从 {@link #loadTools()} 过滤；使用方可重写为更高效的按 Agent 查询。
+     * <p>{@link ToolConfig} 本身不携带 Agent 绑定信息，默认实现无法按 Agent 过滤：
+     * agentId 为空时返回全部，非空时返回空列表（视为无绑定）。
+     * 使用方若维护 Agent-工具关联（如 agent_tool 关联表），应重写本方法。
      */
     default List<ToolConfig> loadToolsByAgent(String agentId) {
-        return loadTools().stream()
-                .filter(t -> agentId == null || agentId.equals(t.getToolName()))
-                .toList();
+        if (agentId == null) {
+            return loadTools();
+        }
+        return List.of();
     }
 }

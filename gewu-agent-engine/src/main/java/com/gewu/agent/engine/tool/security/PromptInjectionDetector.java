@@ -44,6 +44,12 @@ public class PromptInjectionDetector implements SecurityCheck {
             Pattern.compile("eval\\s*\\(", Pattern.CASE_INSENSITIVE)
     );
 
+    /**
+     * 工具参数路径的安全检查（SecurityCheck 责任链插件）。
+     * <p>策略与主输入链路 {@link #checkInput(String)} 有意不同：工具边界从严，
+     * 高/中风险模式均拦截（工具参数由 LLM 生成，合法技术讨论不会出现在此处，
+     * 误伤概率低）；主输入链路中风险仅告警放行，避免误伤用户正常提问。
+     */
     @Override
     public void check(String toolName, String arguments, ToolContext context, ToolConfig config) {
         if (arguments == null || arguments.isBlank()) return;
@@ -51,14 +57,16 @@ public class PromptInjectionDetector implements SecurityCheck {
         for (Pattern p : HIGH_RISK_PATTERNS) {
             if (p.matcher(arguments).find()) {
                 log.warn("PromptInjectionDetector: 检测到高风险提示注入! tool={}, pattern={}", toolName, p.pattern());
-                throw new SecurityException("检测到提示注入攻击: " + p.pattern());
+                throw AgentEngineException.of("PROMPT_INJECTION_DETECTED",
+                        "检测到提示注入攻击: " + p.pattern());
             }
         }
 
         for (Pattern p : MEDIUM_RISK_PATTERNS) {
             if (p.matcher(arguments).find()) {
                 log.warn("PromptInjectionDetector: 检测到中风险模式! tool={}, pattern={}", toolName, p.pattern());
-                throw new SecurityException("检测到可疑指令模式: " + p.pattern());
+                throw AgentEngineException.of("SUSPICIOUS_TOOL_ARGS",
+                        "检测到可疑指令模式: " + p.pattern());
             }
         }
     }

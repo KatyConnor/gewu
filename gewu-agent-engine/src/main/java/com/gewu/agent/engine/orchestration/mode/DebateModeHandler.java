@@ -154,8 +154,9 @@ public class DebateModeHandler implements ModeHandler {
                             .metadata(Map.of("phase", "JUDGE"))
                             .build());
                     sink.next(AgentEvent.builder().type("graph_complete")
-                            .metadata(Map.of("status", "SUCCESS", "verdict", verdict.toString()))
-                            .metadata(Map.of("output", verdict.toString()))
+                            .metadata(Map.of("status", "SUCCESS",
+                                    "verdict", verdict.toString(),
+                                    "output", verdict.toString()))
                             .build());
                     sink.complete();
                 });
