@@ -5,9 +5,13 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
+
 /**
  * LLM 对话消息。
  * <p>遵循 OpenAI Chat Completions 消息格式：role 可为 system / user / assistant / tool。
+ * 多轮工具对话中，assistant 消息必须携带 {@code toolCalls} 声明，
+ * 后续 tool 消息才能通过 {@code toolCallId} 关联（严格校验协议顺序的供应商必需）。
  *
  * @since 1.0.0
  */
@@ -25,4 +29,6 @@ public class Message {
     private String toolCallId;
     /** tool 角色消息关联的工具名 */
     private String name;
+    /** assistant 角色消息携带的工具调用请求（多轮工具对话协议必需） */
+    private List<ToolCall> toolCalls;
 }

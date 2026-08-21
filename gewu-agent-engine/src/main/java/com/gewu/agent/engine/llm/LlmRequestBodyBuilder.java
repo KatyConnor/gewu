@@ -7,6 +7,7 @@ import com.fasterxml.jackson.databind.node.ArrayNode;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gewu.agent.engine.llm.model.Message;
 import com.gewu.agent.engine.llm.model.LlmRequest;
+import com.gewu.agent.engine.llm.model.ToolCall;
 import com.gewu.agent.engine.llm.model.ToolDefinition;
 import lombok.extern.slf4j.Slf4j;
 
@@ -51,6 +52,19 @@ public class LlmRequestBodyBuilder {
             }
             if (msg.getName() != null) {
                 msgNode.put("name", msg.getName());
+            }
+            // assistant 消息的工具调用声明（OpenAI 规范：[{id, type:"function", function:{name, arguments}}]）。
+            // 多轮工具对话缺少该声明时，tool 消息的 tool_call_id 无对应来源，严格校验的供应商会返回 400。
+            if (msg.getToolCalls() != null && !msg.getToolCalls().isEmpty()) {
+                ArrayNode calls = msgNode.putArray("tool_calls");
+                for (ToolCall tc : msg.getToolCalls()) {
+                    ObjectNode call = calls.addObject();
+                    call.put("id", tc.getId());
+                    call.put("type", "function");
+                    ObjectNode fn = call.putObject("function");
+                    fn.put("name", tc.getName());
+                    fn.put("arguments", tc.getArguments() != null ? tc.getArguments() : "{}");
+                }
             }
             messagesNode.add(msgNode);
         }

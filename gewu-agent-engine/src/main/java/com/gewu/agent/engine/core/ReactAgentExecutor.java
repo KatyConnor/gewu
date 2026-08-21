@@ -157,6 +157,7 @@ public class ReactAgentExecutor implements AgentExecutor {
             messages.add(Message.builder()
                     .role("assistant")
                     .content(response.getContent())
+                    .toolCalls(response.getToolCalls())
                     .build());
 
             List<CompletableFuture<ToolResult>> futures = response.getToolCalls().stream()
@@ -228,7 +229,8 @@ public class ReactAgentExecutor implements AgentExecutor {
                 plan.provider, plan.model, messages.size(), tools.size(), temperature);
 
         StringBuilder contentTracker = new StringBuilder();
-        return Flux.defer(() -> streamRound(client, plan.model, messages, tools, toolConfigMap, toolContext, temperature, 0, plan.budget))
+        int maxTokens = resolveMaxTokens(task);
+        return Flux.defer(() -> streamRound(client, plan.model, messages, tools, toolConfigMap, toolContext, temperature, maxTokens, 0, plan.budget))
                 .doOnNext(event -> {
                     if (AgentEvent.CONTENT.equals(event.getType()) && event.getContent() != null) {
                         contentTracker.append(event.getContent());
@@ -257,7 +259,7 @@ public class ReactAgentExecutor implements AgentExecutor {
 
     private Flux<AgentEvent> streamRound(LlmClient client, String model, List<Message> messages,
                                          List<ToolDefinition> tools, Map<String, ToolConfig> toolConfigMap,
-                                         ToolContext toolContext, double temperature, int round,
+                                         ToolContext toolContext, double temperature, int maxTokens, int round,
                                          BudgetContext budget) {
         if (round >= config.getMaxToolRounds()) {
             return Flux.just(AgentEvent.builder()
@@ -290,7 +292,7 @@ public class ReactAgentExecutor implements AgentExecutor {
                 .messages(messages)
                 .tools(tools.isEmpty() ? null : tools)
                 .temperature(temperature)
-                .maxTokens(resolveMaxTokens(null))
+                .maxTokens(maxTokens)
                 .stream(true)
                 .build();
 
@@ -344,6 +346,7 @@ public class ReactAgentExecutor implements AgentExecutor {
                     messages.add(Message.builder()
                             .role("assistant")
                             .content(content)
+                            .toolCalls(toolCalls.isEmpty() ? null : toolCalls)
                             .build());
 
                     if (toolCalls.isEmpty()) {
@@ -405,7 +408,7 @@ public class ReactAgentExecutor implements AgentExecutor {
                                             }))
                                     .concatWith(Flux.defer(() ->
                                             streamRound(client, model, messages, tools, toolConfigMap,
-                                                    toolContext, temperature, round + 1, budget))));
+                                                    toolContext, temperature, maxTokens, round + 1, budget))));
                 }));
     }
 
@@ -566,7 +569,16 @@ public class ReactAgentExecutor implements AgentExecutor {
 
     private void accumulateToolCall(Map<String, ToolCallAccumulator> accumulators,
                                     LlmChunk.ToolCallDelta delta) {
-        String key = delta.getId() != null ? delta.getId() : "default";
+        String key;
+        if (delta.getId() != null) {
+            key = delta.getId();
+        } else if (!accumulators.isEmpty()) {
+            // 标准 OpenAI 流式协议：id 仅在工具调用首个分块出现，后续分块无 id，
+            // 需按顺序关联到最近一次出现的工具调用（accumulators 为插入有序的 LinkedHashMap）
+            key = accumulators.keySet().stream().reduce((first, second) -> second).orElse("default");
+        } else {
+            key = "default";
+        }
         ToolCallAccumulator acc = accumulators.computeIfAbsent(key, k -> new ToolCallAccumulator());
         if (delta.getId() != null) {
             acc.id = delta.getId();
