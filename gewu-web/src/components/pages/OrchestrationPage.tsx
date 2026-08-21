@@ -1,0 +1,416 @@
+'use client';
+import { useState, useEffect, useCallback } from 'react';
+import {
+  Plus, Search, Play, Pause, Square, Trash2, Send, Loader2,
+  Network, CheckCircle, XCircle, Clock, Zap, Eye,
+} from 'lucide-react';
+import CustomSelect from '@/components/ui/Select';
+import { useToast } from '@/components/ui/Toast';
+import {
+  listGraphs, createGraph, activateGraph, deleteGraph, executeGraph,
+  listExecutions, pauseExecution, resumeExecution, cancelExecution,
+  executeGraphStream, type OrchestrationGraphEntity, type OrchestrationExecutionEntity,
+} from '@/lib/orchestration';
+
+interface StreamEvent {
+  type: string;
+  content?: string;
+  reasoning?: string;
+  nodeId?: string;
+  errorMessage?: string;
+  metadata?: Record<string, unknown>;
+}
+
+const statusBadge: Record<string, { color: string; bg: string; label: string }> = {
+  draft: { color: 'text-ink-400', bg: 'bg-ink-500/10', label: '草稿' },
+  active: { color: 'text-tech-400', bg: 'bg-tech-500/10', label: '已激活' },
+  RUNNING: { color: 'text-green-400', bg: 'bg-green-500/10', label: '运行中' },
+  PAUSED: { color: 'text-gold-400', bg: 'bg-gold-500/10', label: '已暂停' },
+  SUCCEEDED: { color: 'text-green-400', bg: 'bg-green-500/10', label: '已成功' },
+  FAILED: { color: 'text-cinnabar-400', bg: 'bg-cinnabar-500/10', label: '失败' },
+  CANCELLED: { color: 'text-ink-500', bg: 'bg-ink-500/10', label: '已取消' },
+  PENDING: { color: 'text-ink-400', bg: 'bg-ink-500/10', label: '等待中' },
+};
+
+function badge(status?: string) {
+  return statusBadge[status || ''] || { color: 'text-ink-400', bg: 'bg-ink-500/10', label: status || '-' };
+}
+
+function formatTime(ts?: number): string {
+  if (!ts) return '-';
+  const d = new Date(ts > 1e12 ? ts : ts * 1000);
+  return `${d.getMonth() + 1}-${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+export default function OrchestrationPage() {
+  const [graphs, setGraphs] = useState<OrchestrationGraphEntity[]>([]);
+  const [executions, setExecutions] = useState<OrchestrationExecutionEntity[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [execLoading, setExecLoading] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
+  const [searchText, setSearchText] = useState('');
+  const [statusFilter, setStatusFilter] = useState('all');
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [formName, setFormName] = useState('');
+  const [formMode, setFormMode] = useState('PIPELINE');
+  const [formDefinition, setFormDefinition] = useState('');
+  // 执行面板
+  const [execGraph, setExecGraph] = useState<OrchestrationGraphEntity | null>(null);
+  const [execInput, setExecInput] = useState('');
+  const [streaming, setStreaming] = useState(false);
+  const [streamEvents, setStreamEvents] = useState<StreamEvent[]>([]);
+  const toast = useToast();
+
+  const loadGraphs = useCallback(async () => {
+    setLoading(true);
+    try {
+      setGraphs(await listGraphs());
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '加载编排图失败', 'error');
+    } finally {
+      setLoading(false);
+    }
+  }, [toast]);
+
+  const loadExecutions = useCallback(async () => {
+    setExecLoading(true);
+    try {
+      setExecutions(await listExecutions());
+    } catch { /* 执行列表加载失败不阻塞 */ }
+    finally { setExecLoading(false); }
+  }, []);
+
+  useEffect(() => { loadGraphs(); loadExecutions(); }, [loadGraphs, loadExecutions]);
+
+  const filtered = graphs.filter(g => {
+    const matchStatus = statusFilter === 'all' || g.status === statusFilter;
+    const matchSearch = !searchText || g.graphName.includes(searchText);
+    return matchStatus && matchSearch;
+  });
+
+  const handleCreate = async () => {
+    if (!formName.trim()) return;
+    setBusy('create');
+    try {
+      await createGraph({
+        name: formName.trim(),
+        graphDefinition: formDefinition.trim() || undefined,
+        mode: formMode,
+      });
+      toast('编排图已创建', 'success');
+      setShowCreateModal(false);
+      setFormName(''); setFormDefinition('');
+      await loadGraphs();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '创建失败', 'error');
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const handleActivate = async (graphId: string) => {
+    setBusy(graphId);
+    try {
+      await activateGraph(graphId);
+      toast('编排图已激活', 'success');
+      await loadGraphs();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '激活失败', 'error');
+    } finally { setBusy(null); }
+  };
+
+  const handleDelete = async (graphId: string) => {
+    setBusy(graphId);
+    try {
+      await deleteGraph(graphId);
+      toast('已删除编排图', 'success');
+      await loadGraphs();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '删除失败', 'error');
+    } finally { setBusy(null); }
+  };
+
+  // 同步执行
+  const handleExecute = async (graph: OrchestrationGraphEntity) => {
+    setBusy(graph.id);
+    try {
+      const exec = await executeGraph(graph.id, execGraph?.id === graph.id ? execInput : '');
+      toast(`执行完成: ${exec.status}`, exec.status === 'SUCCEEDED' ? 'success' : 'error');
+      await loadExecutions();
+      if (exec.finalOutput) {
+        setExecGraph(graph);
+        setStreamEvents([{ type: 'result', content: exec.finalOutput }]);
+      }
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '执行失败', 'error');
+    } finally { setBusy(null); }
+  };
+
+  // 流式执行（SSE 事件实时展示）
+  const handleExecuteStream = (graph: OrchestrationGraphEntity) => {
+    setExecGraph(graph);
+    setStreamEvents([]);
+    setStreaming(true);
+    executeGraphStream(
+      graph.id,
+      execInput,
+      event => setStreamEvents(prev => [...prev.slice(-200), event]),
+      () => { setStreaming(false); toast('流式执行完成', 'success'); loadExecutions(); },
+      err => { setStreaming(false); toast(err.message, 'error'); }
+    );
+  };
+
+  // 生命周期操作
+  const handleLifecycle = async (executionId: string, action: 'pause' | 'resume' | 'cancel') => {
+    setBusy(executionId);
+    try {
+      if (action === 'pause') await pauseExecution(executionId);
+      else if (action === 'resume') await resumeExecution(executionId);
+      else await cancelExecution(executionId);
+      toast(`已${action === 'pause' ? '暂停' : action === 'resume' ? '恢复' : '取消'}执行`, 'success');
+      await loadExecutions();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '操作失败', 'error');
+    } finally { setBusy(null); }
+  };
+
+  return (
+    <div>
+      <header className="flex items-center justify-between mb-8">
+        <div>
+          <h1 className="text-2xl font-semibold text-ink-50">编排引擎</h1>
+          <p className="text-ink-400 text-sm mt-1">编排图管理、执行与生命周期控制</p>
+        </div>
+        <button onClick={() => setShowCreateModal(true)} className="flex items-center gap-2 px-4 py-2 btn-primary text-white text-sm rounded-lg">
+          <Plus className="w-4 h-4" />创建编排图
+        </button>
+      </header>
+
+      {/* 统计 */}
+      <div className="grid grid-cols-4 gap-4 mb-6">
+        <div className="glass-dark rounded-xl p-4">
+          <p className="text-xs text-ink-500 mb-1">编排图总数</p>
+          <p className="text-2xl font-bold text-ink-50">{graphs.length}</p>
+        </div>
+        <div className="glass-dark rounded-xl p-4">
+          <p className="text-xs text-ink-500 mb-1">已激活</p>
+          <p className="text-2xl font-bold text-tech-400">{graphs.filter(g => g.status === 'active').length}</p>
+        </div>
+        <div className="glass-dark rounded-xl p-4">
+          <p className="text-xs text-ink-500 mb-1">运行中执行</p>
+          <p className="text-2xl font-bold text-green-400">{executions.filter(e => e.status === 'RUNNING').length}</p>
+        </div>
+        <div className="glass-dark rounded-xl p-4">
+          <p className="text-xs text-ink-500 mb-1">累计执行</p>
+          <p className="text-2xl font-bold text-ink-200">{executions.length}</p>
+        </div>
+      </div>
+
+      {/* 搜索筛选 */}
+      <div className="flex items-center gap-3 mb-6">
+        <div className="flex items-center gap-2 px-3 py-2 bg-ink-800/50 rounded-lg border border-tech-500/10 flex-1 max-w-sm">
+          <Search className="w-4 h-4 text-ink-500" />
+          <input type="text" value={searchText} onChange={e => setSearchText(e.target.value)} placeholder="搜索编排图..." className="bg-transparent text-sm text-ink-200 placeholder-ink-500 outline-none flex-1" />
+        </div>
+        <CustomSelect value={statusFilter} onChange={setStatusFilter} className="w-28" options={[
+          { value: 'all', label: '所有状态' },
+          { value: 'draft', label: '草稿' },
+          { value: 'active', label: '已激活' },
+        ]} />
+        <button onClick={loadExecutions} className="ml-auto flex items-center gap-2 px-3 py-2 text-sm text-ink-300 hover:text-ink-100 border border-tech-500/20 rounded-lg">
+          <Clock className="w-4 h-4" />刷新执行
+        </button>
+      </div>
+
+      {/* 编排图列表 */}
+      {loading ? (
+        <div className="flex items-center justify-center py-12 text-ink-500">
+          <Loader2 className="w-6 h-6 animate-spin mr-2" />加载编排图...
+        </div>
+      ) : (
+        <div className="space-y-3 mb-10">
+          {filtered.map(g => {
+            const st = badge(g.status);
+            const isBusy = busy === g.id;
+            return (
+              <div key={g.id} className={`glass-dark rounded-xl p-5 card-hover ${isBusy ? 'opacity-60' : ''}`}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-4">
+                    <div className="w-10 h-10 rounded-lg bg-tech-500/10 flex items-center justify-center">
+                      <Network className="w-5 h-5 text-tech-400" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="text-sm font-semibold text-ink-50">{g.graphName}</h3>
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full ${st.bg} ${st.color}`}>{st.label}</span>
+                        <span className="text-[10px] text-ink-500">v{g.version || '1'}</span>
+                        <span className="text-[10px] text-ink-500">{g.orchestrationMode || 'PIPELINE'}</span>
+                      </div>
+                      <p className="text-xs text-ink-500 mt-0.5">
+                        {g.id} · 创建于 {formatTime(g.createdAt)}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    {g.status !== 'active' && (
+                      <button onClick={() => handleActivate(g.id)} disabled={isBusy}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-tech-400 border border-tech-500/20 rounded-lg hover:bg-tech-500/10 transition-colors">
+                        <Send className="w-3.5 h-3.5" />激活
+                      </button>
+                    )}
+                    <button onClick={() => handleExecute(g)} disabled={isBusy || g.status !== 'active'}
+                      className="p-1.5 text-ink-400 hover:text-green-400 rounded transition-colors disabled:opacity-40" title={g.status === 'active' ? '同步执行' : '请先激活'}>
+                      {isBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                    </button>
+                    <button onClick={() => handleExecuteStream(g)} disabled={streaming || g.status !== 'active'}
+                      className="p-1.5 text-ink-400 hover:text-cyan-400 rounded transition-colors disabled:opacity-40" title="流式执行">
+                      <Zap className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => handleDelete(g.id)} disabled={isBusy}
+                      className="p-1.5 text-ink-400 hover:text-cinnabar-400 rounded transition-colors" title="删除">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
+                </div>
+              </div>
+            );
+          })}
+          {filtered.length === 0 && (
+            <div className="text-center py-14 text-ink-500">
+              <Network className="w-12 h-12 mx-auto mb-3 opacity-30" />
+              <p>暂无编排图，点击右上角创建</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* 流式执行事件面板 */}
+      {execGraph && (
+        <div className="glass-dark rounded-xl p-5 mb-10">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <Eye className="w-4 h-4 text-tech-400" />
+              <h3 className="text-sm font-semibold text-ink-50">执行事件 - {execGraph.graphName}</h3>
+              {streaming && <Loader2 className="w-4 h-4 animate-spin text-tech-400" />}
+            </div>
+            <button onClick={() => { setExecGraph(null); setStreamEvents([]); }} className="text-ink-500 hover:text-ink-300 text-lg">✕</button>
+          </div>
+          <div className="flex items-center gap-2 mb-3">
+            <input type="text" value={execInput} onChange={e => setExecInput(e.target.value)} placeholder="执行输入（可选）..."
+              className="flex-1 px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30" />
+            <button onClick={() => handleExecuteStream(execGraph)} disabled={streaming}
+              className="flex items-center gap-1.5 px-3 py-2 text-xs btn-primary text-white rounded-lg disabled:opacity-50">
+              {streaming ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Zap className="w-3.5 h-3.5" />}
+              {streaming ? '执行中' : '再次执行'}
+            </button>
+          </div>
+          <div className="max-h-60 overflow-y-auto scrollbar-thin space-y-1 font-mono text-xs">
+            {streamEvents.map((ev, i) => (
+              <div key={i} className="flex gap-2">
+                <span className="text-ink-600 shrink-0">[{ev.type}]</span>
+                <span className={ev.type === 'error' ? 'text-cinnabar-400' : 'text-ink-300'}>
+                  {ev.content || ev.reasoning || ev.errorMessage || (ev.nodeId ? `node: ${ev.nodeId}` : JSON.stringify(ev.metadata || {}))}
+                </span>
+              </div>
+            ))}
+            {streamEvents.length === 0 && <p className="text-ink-500">等待事件...</p>}
+          </div>
+        </div>
+      )}
+
+      {/* 执行历史 */}
+      <div>
+        <h2 className="text-base font-semibold text-ink-50 mb-4 flex items-center gap-2">
+          <Clock className="w-4 h-4 text-tech-400" />执行历史
+          {execLoading && <Loader2 className="w-4 h-4 animate-spin text-ink-500" />}
+        </h2>
+        <div className="space-y-2">
+          {executions.map(exec => {
+            const st = badge(exec.status);
+            const isBusy = busy === exec.id;
+            const runnable = exec.status === 'RUNNING' || exec.status === 'PAUSED';
+            return (
+              <div key={exec.id} className={`glass-dark rounded-xl px-5 py-4 flex items-center justify-between ${isBusy ? 'opacity-60' : ''}`}>
+                <div className="flex items-center gap-3 min-w-0">
+                  {exec.status === 'SUCCEEDED' ? <CheckCircle className="w-4 h-4 text-green-400 shrink-0" />
+                    : exec.status === 'FAILED' ? <XCircle className="w-4 h-4 text-cinnabar-400 shrink-0" />
+                    : <Clock className="w-4 h-4 text-gold-400 shrink-0" />}
+                  <div className="min-w-0">
+                    <p className="text-xs text-ink-200 truncate">{exec.id}</p>
+                    <p className="text-[10px] text-ink-500">
+                      图 {exec.graphId} · {formatTime(exec.startedAt || exec.createdAt)}
+                      {exec.tokenUsed ? ` · ${exec.tokenUsed} tokens` : ''}
+                      {exec.currentNodeId ? ` · 节点 ${exec.currentNodeId}` : ''}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-2 shrink-0 ml-4">
+                  <span className={`text-xs px-2 py-0.5 rounded-full ${st.bg} ${st.color}`}>{st.label}</span>
+                  {runnable && (
+                    <>
+                      {exec.status === 'RUNNING' ? (
+                        <button onClick={() => handleLifecycle(exec.id, 'pause')} disabled={isBusy} className="p-1.5 text-gold-400 hover:text-gold-300 rounded" title="暂停">
+                          {isBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pause className="w-4 h-4" />}
+                        </button>
+                      ) : (
+                        <button onClick={() => handleLifecycle(exec.id, 'resume')} disabled={isBusy} className="p-1.5 text-green-400 hover:text-green-300 rounded" title="恢复">
+                          {isBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
+                        </button>
+                      )}
+                      <button onClick={() => handleLifecycle(exec.id, 'cancel')} disabled={isBusy} className="p-1.5 text-ink-400 hover:text-cinnabar-400 rounded" title="取消">
+                        <Square className="w-4 h-4" />
+                      </button>
+                    </>
+                  )}
+                </div>
+              </div>
+            );
+          })}
+          {!execLoading && executions.length === 0 && (
+            <div className="text-center py-10 text-ink-500 text-sm">暂无执行记录，激活编排图后点击执行</div>
+          )}
+        </div>
+      </div>
+
+      {/* 创建编排图弹窗 */}
+      {showCreateModal && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowCreateModal(false)}>
+          <div className="glass-dark rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5">
+              <h3 className="text-base font-semibold text-ink-50">创建编排图</h3>
+              <button onClick={() => setShowCreateModal(false)} className="text-ink-500 hover:text-ink-300 text-lg">✕</button>
+            </div>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-xs text-ink-400 mb-1">名称 <span className="text-cinnabar-400">*</span></label>
+                <input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="编排图名称"
+                  className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30" />
+              </div>
+              <div>
+                <label className="block text-xs text-ink-400 mb-1">编排模式</label>
+                <CustomSelect value={formMode} onChange={setFormMode} options={[
+                  { value: 'PIPELINE', label: '流水线（Pipeline）' },
+                  { value: 'SWARM', label: '群体协作（Swarm）' },
+                  { value: 'SUPERVISOR', label: '监督者（Supervisor）' },
+                ]} />
+              </div>
+              <div>
+                <label className="block text-xs text-ink-400 mb-1">图定义 JSON（可选）</label>
+                <textarea rows={5} value={formDefinition} onChange={e => setFormDefinition(e.target.value)}
+                  placeholder='{"nodes":[{"id":"n1","name":"步骤一"}],"edges":[]}'
+                  className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-xs text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30 font-mono resize-none" />
+              </div>
+            </div>
+            <div className="flex justify-end gap-3 mt-6">
+              <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 text-sm text-ink-300 hover:text-ink-100">取消</button>
+              <button onClick={handleCreate} disabled={busy === 'create' || !formName.trim()}
+                className="flex items-center gap-2 px-5 py-2 btn-primary text-white text-sm rounded-lg disabled:opacity-50">
+                {busy === 'create' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}创建
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
