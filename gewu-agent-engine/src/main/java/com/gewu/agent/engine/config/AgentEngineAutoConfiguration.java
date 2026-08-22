@@ -138,8 +138,12 @@ public class AgentEngineAutoConfiguration {
     @ConditionalOnMissingBean
     public LlmClientRegistry llmClientRegistry(List<LlmClient> clients, LlmProvider provider,
                                                 ObjectMapper objectMapper, HttpClient llmHttpClient,
-                                                LlmRequestBodyBuilder bodyBuilder) {
-        return new LlmClientRegistry(clients, provider, objectMapper, llmHttpClient, bodyBuilder);
+                                                LlmRequestBodyBuilder bodyBuilder,
+                                                AgentEngineProperties props) {
+        LlmClientRegistry registry = new LlmClientRegistry(clients, provider, objectMapper,
+                llmHttpClient, bodyBuilder);
+        registry.setRequestTimeout(props.getLlm().getRequestTimeout());
+        return registry;
     }
 
     // ==================== 工具层 ====================
@@ -295,7 +299,7 @@ public class AgentEngineAutoConfiguration {
                 .defaultMaxTokens(e.getDefaultMaxTokens())
                 .defaultTemperature(e.getDefaultTemperature())
                 .toolExecutor(agentToolExecutor)
-                .defaultHistoryLimit(50)
+                .defaultHistoryLimit(e.getDefaultHistoryLimit())
                 .build();
     }
 
@@ -330,10 +334,19 @@ public class AgentEngineAutoConfiguration {
     @ConditionalOnMissingBean
     public BudgetController budgetController(AgentEngineProperties props) {
         AgentEngineProperties.Engine e = props.getEngine();
+        AgentEngineProperties.Budget b = props.getBudget();
+        BudgetController.Quotas quotas = new BudgetController.Quotas();
+        quotas.setL1TokenDivisor(b.getL1TokenDivisor());
+        quotas.setL1TimeBudgetMs(b.getL1TimeBudgetMs());
+        quotas.setL1MaxRounds(b.getL1MaxRounds());
+        quotas.setL3TokenMultiplier(b.getL3TokenMultiplier());
+        quotas.setL3TimeMultiplier(b.getL3TimeMultiplier());
+        quotas.setL3RoundsMultiplier(b.getL3RoundsMultiplier());
         return new BudgetController(
                 e.getDefaultMaxTokens() * 10L,
-                300_000L,
-                e.getMaxToolRounds());
+                b.getTimeBudgetMs(),
+                e.getMaxToolRounds(),
+                quotas);
     }
 
     @Bean
@@ -459,8 +472,10 @@ public class AgentEngineAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public AgentLifecycleManager agentLifecycleManager() {
-        return new AgentLifecycleManager();
+    public AgentLifecycleManager agentLifecycleManager(AgentEngineProperties props) {
+        return new AgentLifecycleManager(
+                props.getLifecycle().getHeartbeatTimeoutMs(),
+                props.getLifecycle().getGlobalTimeoutMs());
     }
 
     @Bean

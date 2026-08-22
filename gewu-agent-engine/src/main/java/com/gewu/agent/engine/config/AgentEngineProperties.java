@@ -24,6 +24,12 @@ public class AgentEngineProperties {
     /** 工具执行配置 */
     private Tool tool = new Tool();
 
+    /** 预算控制配置 */
+    private Budget budget = new Budget();
+
+    /** Agent 生命周期管理配置 */
+    private Lifecycle lifecycle = new Lifecycle();
+
     @Data
     public static class Engine {
         /** 单次执行最大工具调用轮次（防失控） */
@@ -38,6 +44,8 @@ public class AgentEngineProperties {
         private int toolExecutorMaxPoolSize = 16;
         /** 工具执行队列容量 */
         private int toolExecutorQueueCapacity = 100;
+        /** 会话历史默认加载条数 */
+        private int defaultHistoryLimit = 50;
     }
 
     @Data
@@ -58,5 +66,31 @@ public class AgentEngineProperties {
         private int maxOutputSize = 10 * 1024;
         /** 默认工具执行超时（秒） */
         private int defaultTimeoutSeconds = 30;
+    }
+
+    @Data
+    public static class Budget {
+        /** L2（默认等级）时间预算（毫秒） */
+        private long timeBudgetMs = 300_000;
+        /** L1（轻量任务）token 预算除数 */
+        private int l1TokenDivisor = 5;
+        /** L1（轻量任务）时间预算（毫秒） */
+        private long l1TimeBudgetMs = 30_000;
+        /** L1（轻量任务）最大轮次 */
+        private int l1MaxRounds = 3;
+        /** L3（复杂任务）token 预算倍数 */
+        private int l3TokenMultiplier = 3;
+        /** L3（复杂任务）时间预算倍数 */
+        private int l3TimeMultiplier = 4;
+        /** L3（复杂任务）轮次倍数 */
+        private int l3RoundsMultiplier = 2;
+    }
+
+    @Data
+    public static class Lifecycle {
+        /** Agent 实例心跳超时阈值（毫秒） */
+        private long heartbeatTimeoutMs = 60_000;
+        /** 全局执行超时（毫秒） */
+        private long globalTimeoutMs = 300_000;
     }
 }

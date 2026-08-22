@@ -32,6 +32,9 @@ public class LlmClientRegistry {
     /** 运行时动态创建的客户端缓存 */
     private final Map<String, LlmClient> dynamicCache = new ConcurrentHashMap<>();
 
+    /** 动态创建客户端的同步请求超时（由自动装配注入 agent.engine.llm.request-timeout） */
+    private volatile java.time.Duration requestTimeout;
+
     private final LlmProvider provider;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
@@ -108,10 +111,15 @@ public class LlmClientRegistry {
             }
             String apiKey = config.apiKey() != null ? config.apiKey() : "";
             return new OpenAiCompatibleClient(
-                    providerCode, apiKey, config.baseUrl(), objectMapper, httpClient, bodyBuilder);
+                    providerCode, apiKey, config.baseUrl(), objectMapper, httpClient, bodyBuilder, requestTimeout);
         } catch (Exception e) {
             log.warn("从 LlmProvider 加载供应商 {} 失败: {}", providerCode, e.getMessage());
             return null;
         }
+    }
+
+    /** 动态创建客户端的同步请求超时（agent.engine.llm.request-timeout），null 时用客户端默认 120s */
+    public void setRequestTimeout(java.time.Duration requestTimeout) {
+        this.requestTimeout = requestTimeout;
     }
 }

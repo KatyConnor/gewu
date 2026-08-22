@@ -26,6 +26,12 @@ public class LlmResponse {
     private Usage usage;
     /** 结束原因：stop / length / tool_calls / content_filter */
     private String finishReason;
+    /**
+     * 思考内容回退标记：content 为空且无工具调用时以 reasoning_content 兜底返回，
+     * 标记为 true 供调用方感知（可能是 token 耗尽未产出正式回复，需要提示用户）。
+     */
+    @Builder.Default
+    private boolean reasoningFallback = false;
 
     @Data
     @Builder

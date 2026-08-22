@@ -24,11 +24,37 @@ public class BudgetController {
     private final long defaultTokenBudget;
     private final long defaultTimeBudgetMs;
     private final int defaultMaxRounds;
+    private final Quotas quotas;
+
+    /**
+     * L1/L3 等级配额参数（原硬编码倍率，现由 agent.engine.budget.* 配置）。
+     */
+    @lombok.Data
+    public static class Quotas {
+        /** L1 token 预算除数 */
+        private int l1TokenDivisor = 5;
+        /** L1 时间预算（毫秒） */
+        private long l1TimeBudgetMs = 30_000;
+        /** L1 最大轮次 */
+        private int l1MaxRounds = 3;
+        /** L3 token 预算倍数 */
+        private int l3TokenMultiplier = 3;
+        /** L3 时间预算倍数 */
+        private int l3TimeMultiplier = 4;
+        /** L3 轮次倍数 */
+        private int l3RoundsMultiplier = 2;
+    }
 
     public BudgetController(long defaultTokenBudget, long defaultTimeBudgetMs, int defaultMaxRounds) {
+        this(defaultTokenBudget, defaultTimeBudgetMs, defaultMaxRounds, new Quotas());
+    }
+
+    public BudgetController(long defaultTokenBudget, long defaultTimeBudgetMs, int defaultMaxRounds,
+                            Quotas quotas) {
         this.defaultTokenBudget = defaultTokenBudget;
         this.defaultTimeBudgetMs = defaultTimeBudgetMs;
         this.defaultMaxRounds = defaultMaxRounds;
+        this.quotas = quotas != null ? quotas : new Quotas();
     }
 
     /**
@@ -43,13 +69,13 @@ public class BudgetController {
         int maxRounds = defaultMaxRounds;
 
         if ("L1".equals(taskLevel)) {
-            tokenBudget = defaultTokenBudget / 5;
-            timeBudgetMs = 30_000;
-            maxRounds = 3;
+            tokenBudget = defaultTokenBudget / quotas.getL1TokenDivisor();
+            timeBudgetMs = quotas.getL1TimeBudgetMs();
+            maxRounds = quotas.getL1MaxRounds();
         } else if ("L3".equals(taskLevel)) {
-            tokenBudget = defaultTokenBudget * 3;
-            timeBudgetMs = defaultTimeBudgetMs * 4;
-            maxRounds = defaultMaxRounds * 2;
+            tokenBudget = defaultTokenBudget * quotas.getL3TokenMultiplier();
+            timeBudgetMs = defaultTimeBudgetMs * quotas.getL3TimeMultiplier();
+            maxRounds = defaultMaxRounds * quotas.getL3RoundsMultiplier();
         }
 
         return BudgetContext.builder()

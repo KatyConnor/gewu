@@ -24,15 +24,24 @@ import java.util.concurrent.ConcurrentHashMap;
 @Slf4j
 public class AgentLifecycleManager {
 
-    /** 心跳超时阈值（毫秒） */
-    private static final long HEARTBEAT_TIMEOUT_MS = 60_000;
-    /** 全局执行超时（毫秒） */
-    private static final long GLOBAL_TIMEOUT_MS = 300_000;
+    /** 心跳超时阈值（毫秒），由 agent.engine.lifecycle.heartbeat-timeout-ms 配置 */
+    private final long heartbeatTimeoutMs;
+    /** 全局执行超时（毫秒），由 agent.engine.lifecycle.global-timeout-ms 配置 */
+    private final long globalTimeoutMs;
     /** 最大等待链深度（防环检测） */
     private static final int MAX_WAIT_DEPTH = 8;
 
     /** 活跃 Agent 实例注册表 (instanceId -> AgentInstance) */
     private final Map<String, AgentInstance> activeAgents = new ConcurrentHashMap<>();
+
+    public AgentLifecycleManager() {
+        this(60_000, 300_000);
+    }
+
+    public AgentLifecycleManager(long heartbeatTimeoutMs, long globalTimeoutMs) {
+        this.heartbeatTimeoutMs = heartbeatTimeoutMs;
+        this.globalTimeoutMs = globalTimeoutMs;
+    }
 
     /**
      * 创建 Agent 实例。
@@ -91,7 +100,7 @@ public class AgentLifecycleManager {
 
         for (AgentInstance agent : activeAgents.values()) {
             // 1. 心跳超时检测
-            if (now - agent.getLastHeartbeat() > HEARTBEAT_TIMEOUT_MS) {
+            if (now - agent.getLastHeartbeat() > heartbeatTimeoutMs) {
                 log.warn("AgentLifecycleManager: 心跳超时 instanceId={}, role={}, lastHeartbeat={}ms ago",
                         agent.getInstanceId(), agent.getRoleCode(), now - agent.getLastHeartbeat());
                 problematic.add(agent);
@@ -108,7 +117,7 @@ public class AgentLifecycleManager {
             }
 
             // 2. 全局超时检测
-            if (now - agent.getStartedAt() > GLOBAL_TIMEOUT_MS) {
+            if (now - agent.getStartedAt() > globalTimeoutMs) {
                 log.warn("AgentLifecycleManager: 全局超时 instanceId={}, role={}, duration={}ms",
                         agent.getInstanceId(), agent.getRoleCode(), now - agent.getStartedAt());
                 problematic.add(agent);

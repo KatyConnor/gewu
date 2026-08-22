@@ -35,16 +35,27 @@ public class OpenAiCompatibleClient implements LlmClient {
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
     private final LlmRequestBodyBuilder bodyBuilder;
+    /** 同步请求超时（由 agent.engine.llm.request-timeout 配置） */
+    private final Duration requestTimeout;
+
+    private static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(120);
 
     public OpenAiCompatibleClient(String providerCode, String apiKey, String baseUrl,
                                    ObjectMapper objectMapper, HttpClient httpClient,
                                    LlmRequestBodyBuilder bodyBuilder) {
+        this(providerCode, apiKey, baseUrl, objectMapper, httpClient, bodyBuilder, DEFAULT_REQUEST_TIMEOUT);
+    }
+
+    public OpenAiCompatibleClient(String providerCode, String apiKey, String baseUrl,
+                                   ObjectMapper objectMapper, HttpClient httpClient,
+                                   LlmRequestBodyBuilder bodyBuilder, Duration requestTimeout) {
         this.providerCode = providerCode;
         this.apiKey = apiKey;
         this.baseUrl = baseUrl;
         this.objectMapper = objectMapper;
         this.httpClient = httpClient;
         this.bodyBuilder = bodyBuilder;
+        this.requestTimeout = requestTimeout != null ? requestTimeout : DEFAULT_REQUEST_TIMEOUT;
     }
 
     @Override
@@ -60,7 +71,7 @@ public class OpenAiCompatibleClient implements LlmClient {
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body))
-                .timeout(Duration.ofSeconds(120))
+                .timeout(requestTimeout)
                 .build();
 
         try {
@@ -177,13 +188,22 @@ public class OpenAiCompatibleClient implements LlmClient {
                 JsonNode message = firstChoice.path("message");
 
                 String content = message.path("content").asText(null);
-                if (content == null || content.isEmpty()) {
+                JsonNode toolCallsNode = message.path("tool_calls");
+                boolean hasToolCalls = toolCallsNode.isArray() && !toolCallsNode.isEmpty();
+                if ((content == null || content.isEmpty()) && !hasToolCalls) {
+                    // 仅当无正式回复且无工具调用时才以思考内容兜底（原实现会把
+                    // "模型只输出思考"误当正式答案；有工具调用时 content 为空是协议正常态）
                     content = message.path("reasoning_content").asText(null);
+                    if (content != null && !content.isEmpty()) {
+                        builder.reasoningFallback(true);
+                        log.warn("{} 响应无正式 content，以 reasoning_content 兜底（疑似 token 耗尽未产出回复）",
+                                providerCode);
+                    }
                 }
                 builder.content(content);
                 builder.finishReason(firstChoice.path("finish_reason").asText(null));
 
-                JsonNode toolCalls = message.path("tool_calls");
+                JsonNode toolCalls = toolCallsNode;
                 if (toolCalls.isArray() && !toolCalls.isEmpty()) {
                     List<ToolCall> calls = new ArrayList<>();
                     for (JsonNode tc : toolCalls) {
