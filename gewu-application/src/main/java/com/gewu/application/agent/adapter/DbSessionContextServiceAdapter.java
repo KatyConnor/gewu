@@ -36,6 +36,7 @@ public class DbSessionContextServiceAdapter implements SessionContextService {
 
     @Override
     public void appendInteraction(String sessionId, String userId, String userMessage, String assistantContent) {
-        delegate.appendChatInteraction(sessionId, userId, userMessage, assistantContent);
+        // 引擎 SPI 无 clientId 概念，传 null 走非幂等路径（幂等由 Controller 侧传入）
+        delegate.appendChatInteraction(sessionId, userId, userMessage, assistantContent, null);
     }
 }

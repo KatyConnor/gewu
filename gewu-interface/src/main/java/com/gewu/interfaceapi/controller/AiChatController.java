@@ -193,7 +193,7 @@ public class AiChatController {
                     }
                     if (!assistantContent.isBlank()) {
                         sessionContextService.appendChatInteraction(
-                                sessionId, userId, userMessage, assistantContent);
+                                sessionId, userId, userMessage, assistantContent, request.getClientId());
                     }
                 } catch (Exception e) {
                     log.error("保存会话交互记录失败: sessionId={}", sessionId, e);
@@ -291,7 +291,7 @@ public class AiChatController {
 
         if (request.getSessionId() != null) {
             sessionContextService.appendChatInteraction(
-                    request.getSessionId(), userId, request.getMessage(), result.getAnswer());
+                    request.getSessionId(), userId, request.getMessage(), result.getAnswer(), request.getClientId());
         }
 
         return ChatResponse.builder()
@@ -315,7 +315,7 @@ public class AiChatController {
         if (request.getSessionId() != null) {
             String userId = UserContext.currentUserId();
             sessionContextService.appendChatInteraction(
-                    request.getSessionId(), userId, request.getMessage(), llmResponse.getContent());
+                    request.getSessionId(), userId, request.getMessage(), llmResponse.getContent(), request.getClientId());
         }
 
         return toChatResponse(llmResponse);

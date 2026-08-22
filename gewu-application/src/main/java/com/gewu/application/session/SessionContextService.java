@@ -34,6 +34,7 @@ public class SessionContextService {
     private final SessionMapper sessionMapper;
     private final CacheService cacheService;
     private final ContextCompressor contextCompressor;
+    private final SessionMessageAppender messageAppender;
 
     public List<MessageDTO> getContext(String sessionId, int maxMessages) {
         int limit = maxMessages > 0 ? maxMessages : DEFAULT_MAX_MESSAGES;
@@ -176,28 +177,30 @@ public class SessionContextService {
     }
 
     @Transactional
-    public void appendChatInteraction(String sessionId, String userId, String userContent, String assistantContent) {
+    public void appendChatInteraction(String sessionId, String userId, String userContent,
+                                      String assistantContent, String clientId) {
         Session session = sessionMapper.selectById(sessionId);
         if (session == null) {
             log.warn("会话不存在，跳过持久化: sessionId={}", sessionId);
             return;
         }
-        // 使用 MAX(seq) + 1 计算下一个序列号，避免基于 session.messageCount 的非原子计数器
-        // 在前端已预先保存消息或并发调用时产生 (session_id, seq) 唯一键冲突
-        Integer maxSeq = sessionMessageMapper.selectMaxSeq(sessionId);
-        int nextSeq = (maxSeq != null ? maxSeq : 0) + 1;
-        long now = System.currentTimeMillis();
+        // clientId 幂等：流式接口重放/网络重试时避免重复落库与重复计费
+        if (messageAppender.findByIdempotentKey(sessionId, clientId) != null) {
+            log.info("AI 交互已落库，幂等跳过: sessionId={}, clientId={}", sessionId, clientId);
+            return;
+        }
 
+        int inserted = 0;
         if (userContent != null && !userContent.isBlank()) {
             SessionMessage userMsg = new SessionMessage();
             userMsg.setSessionId(sessionId);
             userMsg.setSenderId(userId);
             userMsg.setMessageType("user");
             userMsg.setContent(userContent);
-            userMsg.setSeq(nextSeq);
+            userMsg.setClientId(clientId);
             userMsg.setEdited(0);
-            sessionMessageMapper.insert(userMsg);
-            nextSeq++;
+            messageAppender.appendWithRetry(userMsg);
+            inserted++;
         }
 
         if (assistantContent != null && !assistantContent.isBlank()) {
@@ -206,15 +209,14 @@ public class SessionContextService {
             aiMsg.setSenderId("agent");
             aiMsg.setMessageType("assistant");
             aiMsg.setContent(assistantContent);
-            aiMsg.setSeq(nextSeq);
             aiMsg.setEdited(0);
-            sessionMessageMapper.insert(aiMsg);
-            nextSeq++;
+            messageAppender.appendWithRetry(aiMsg);
+            inserted++;
         }
 
-        session.setMessageCount(nextSeq - 1);
-        session.setLastMessageAt(now);
-        sessionMapper.updateById(session);
+        if (inserted > 0) {
+            messageAppender.bumpSessionCounters(sessionId, inserted);
+        }
 
         String cacheKey = CacheKeys.messages(sessionId);
         cacheService.delete(cacheKey);

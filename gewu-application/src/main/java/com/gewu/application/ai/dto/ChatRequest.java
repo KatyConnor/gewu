@@ -24,6 +24,8 @@ public class ChatRequest {
     private String projectId;
     /** 关联需求 ID（需求文件会话时传入，可为 null） */
     private String requirementId;
+    /** 客户端幂等 ID：流式接口重放/网络重试时避免重复落库，前端每次发送生成并复用 */
+    private String clientId;
     @Builder.Default
     private boolean stream = false;
 }

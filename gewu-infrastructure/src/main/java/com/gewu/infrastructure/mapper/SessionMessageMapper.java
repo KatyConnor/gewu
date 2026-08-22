@@ -16,4 +16,10 @@ public interface SessionMessageMapper extends BaseMapper<SessionMessage> {
      */
     @Select("SELECT COALESCE(MAX(seq), 0) FROM session_message WHERE session_id = #{sessionId}")
     Integer selectMaxSeq(@Param("sessionId") String sessionId);
+
+    /**
+     * 按 clientId 幂等查询已落库消息（网络重试/流式重放去重）。
+     */
+    @Select("SELECT * FROM session_message WHERE session_id = #{sessionId} AND client_id = #{clientId} AND deleted = 0 LIMIT 1")
+    SessionMessage selectByClientId(@Param("sessionId") String sessionId, @Param("clientId") String clientId);
 }

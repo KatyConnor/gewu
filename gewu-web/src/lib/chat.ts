@@ -34,6 +34,22 @@ export interface ChatRequest {
   agentMode?: string;
   /** 思维模式: chain-of-thought/tree-of-thought/react/step-by-step/socratic */
   thinkingStyle?: string;
+  /**
+   * 客户端幂等 ID：同一次发送动作的重复请求（网络重试/流式重放）后端直接
+   * 返回已有消息，避免重复调 LLM 与重复落库。不传时自动生成（单次请求唯一）。
+   */
+  clientId?: string;
+}
+
+/**
+ * 生成客户端幂等 ID。优先使用 crypto.randomUUID（安全上下文可用），
+ * 回退到时间戳+随机数组合。
+ */
+export function generateClientId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 }
 
 // 聊天响应
@@ -134,7 +150,7 @@ export async function chat(data: ChatRequest): Promise<ChatResponse> {
       'Content-Type': 'application/json',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify(data),
+    body: JSON.stringify({ clientId: generateClientId(), ...data }),
   });
 
   if (!res.ok) {
@@ -182,7 +198,7 @@ export async function chatStream(
       Accept: 'text/event-stream',
       ...(token ? { Authorization: `Bearer ${token}` } : {}),
     },
-    body: JSON.stringify(data),
+    body: JSON.stringify({ clientId: generateClientId(), ...data }),
   });
 
   if (!res.ok) {

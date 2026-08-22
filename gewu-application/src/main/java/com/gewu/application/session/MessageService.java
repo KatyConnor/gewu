@@ -39,6 +39,7 @@ public class MessageService {
     private final UserAccountMapper userMapper;
     private final ObjectMapper objectMapper;
     private final SseEventManager sseEventManager;
+    private final SessionMessageAppender messageAppender;
 
     @Transactional
     public MessageDTO sendMessage(String sessionId, SendMessageCommand command) {
@@ -51,7 +52,11 @@ public class MessageService {
             throw BusinessException.of(ResultCode.SESSION_NOT_FOUND);
         }
 
-        int nextSeq = (session.getMessageCount() != null ? session.getMessageCount() : 0) + 1;
+        // clientId 幂等：同一次发送动作重复请求（网络重试）直接返回已落库消息
+        SessionMessage existing = messageAppender.findByIdempotentKey(sessionId, command.getClientId());
+        if (existing != null) {
+            return toDTO(existing, getSenderName(existing.getSenderId()));
+        }
 
         SessionMessage message = new SessionMessage();
         message.setSessionId(sessionId);
@@ -62,13 +67,10 @@ public class MessageService {
         if (command.getMentionUserIds() != null && !command.getMentionUserIds().isEmpty()) {
             message.setMentionUserIds(toJson(command.getMentionUserIds()));
         }
-        message.setSeq(nextSeq);
+        message.setClientId(command.getClientId());
         message.setEdited(0);
-        messageMapper.insert(message);
-
-        session.setMessageCount(nextSeq);
-        session.setLastMessageAt(System.currentTimeMillis());
-        sessionMapper.updateById(session);
+        // seq 冲突重试 + 原子计数统一由 Appender 承担
+        messageAppender.appendWithRetry(message);
 
         MessageDTO messageDTO = toDTO(message, getSenderName(userId));
         sseEventManager.sendEvent(sessionId, "message", messageDTO);

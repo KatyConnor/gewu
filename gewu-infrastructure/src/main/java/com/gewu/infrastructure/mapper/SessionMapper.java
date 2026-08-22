@@ -6,6 +6,7 @@ import com.gewu.domain.session.Session;
 import org.apache.ibatis.annotations.Mapper;
 import org.apache.ibatis.annotations.Param;
 import org.apache.ibatis.annotations.Select;
+import org.apache.ibatis.annotations.Update;
 
 import java.util.List;
 
@@ -22,4 +23,13 @@ public interface SessionMapper extends BaseMapper<Session> {
             " GROUP BY agent" +
             "</script>")
     List<AgentExecutionCount> countByAgentIds(@Param("agentIds") List<String> agentIds);
+
+    /**
+     * 原子递增会话消息计数并刷新最后消息时间（替代应用层读改写，消除并发覆盖）.
+     */
+    @Update("UPDATE session SET message_count = COALESCE(message_count, 0) + #{delta}, " +
+            "last_message_at = #{lastMessageAt} WHERE id = #{sessionId} AND deleted = 0")
+    int incrementMessageCount(@Param("sessionId") String sessionId,
+                              @Param("delta") int delta,
+                              @Param("lastMessageAt") long lastMessageAt);
 }
