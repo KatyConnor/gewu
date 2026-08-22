@@ -182,10 +182,20 @@ public class AiChatController {
                 writer.close();
             }
 
-            // 流完成后保存会话交互记录
-            if (sessionId != null && errorRef.get() == null) {
+            // 流完成后保存会话交互记录。
+            // 异常中断但已产出实质内容时同样落库（追加中断标记），
+            // 避免已消耗 token 的交互丢失；clientId 幂等兜底防重复落库。
+            if (sessionId != null) {
                 try {
                     String assistantContent = accumulated.get().toString();
+                    if (errorRef.get() != null) {
+                        if (assistantContent.isBlank()) {
+                            return;
+                        }
+                        String reason = errorRef.get().getMessage() != null
+                                ? errorRef.get().getMessage() : "流式响应中断";
+                        assistantContent = assistantContent + "\n[异常中断: " + reason + "]";
+                    }
                     // 将文件元信息以 HTML 注释嵌入 content 末尾，前端加载时解析恢复文件卡片
                     if (!fileEvents.isEmpty()) {
                         String filesJson = objectMapper.writeValueAsString(fileEvents);
