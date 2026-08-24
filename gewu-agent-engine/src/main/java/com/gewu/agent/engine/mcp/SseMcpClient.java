@@ -18,10 +18,14 @@ import java.util.List;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * SSE / streamable_http 传输的 MCP 客户端 - 通过 HTTP 与远程 MCP 服务器通信。
+ * SSE 传输的 MCP 客户端 - 通过 HTTP 与远程 MCP 服务器通信（JSON-RPC POST）。
  *
+ * @deprecated 该实现并非真正的 SSE 事件流，仅是 JSON-RPC POST 透传，且未实现
+ * MCP initialized 通知握手。新传输请使用 {@link StreamableHttpClient}
+ * （MCP 2025-03-26 Streamable HTTP 规范）。保留一版兼容既有 sse 类型配置。
  * @since 1.0.0
  */
+@Deprecated
 @Slf4j
 public class SseMcpClient implements McpClient {
 
@@ -32,7 +36,6 @@ public class SseMcpClient implements McpClient {
             .build();
 
     private final String serverUrl;
-    private String endpointUrl;
     private boolean initialized;
 
     public SseMcpClient(String url) {
@@ -123,7 +126,7 @@ public class SseMcpClient implements McpClient {
         request.put("method", method);
         request.set("params", params);
 
-        String url = endpointUrl != null ? endpointUrl : serverUrl;
+        String url = serverUrl;
         HttpRequest httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create(url))
                 .timeout(Duration.ofSeconds(30))

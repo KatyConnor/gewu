@@ -17,9 +17,14 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("Stdio MCP 客户端")
 class StdioMcpClientTest {
 
-    /** 模拟 MCP 服务器的 bash 脚本：按请求内容响应 JSON-RPC */
+    /**
+     * 模拟 MCP 服务器的 bash 脚本：按 method 响应 JSON-RPC。
+     * 注意：bash case 模式中双引号是语法引号而非字面量，故用无引号子串匹配；
+     * notifications/initialized 分支置前且无响应（通知不回包）。
+     */
     private static final String MCP_SERVER_SCRIPT =
             "while read line; do case \"$line\" in "
+                    + "*notifications/initialized*) ;; "
                     + "*badtool*) echo '{\"jsonrpc\":\"2.0\",\"id\":9,\"error\":{\"code\":-32000,\"message\":\"tool not found\"}}';; "
                     + "*initialize*) echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2024-11-05\",\"serverInfo\":{\"name\":\"mock\"}}}';; "
                     + "*tools/list*) echo '{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[{\"name\":\"echo\",\"description\":\"回声工具\",\"inputSchema\":{\"type\":\"object\"}}]}}';; "

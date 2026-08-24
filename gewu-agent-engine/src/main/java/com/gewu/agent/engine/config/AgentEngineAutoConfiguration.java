@@ -204,8 +204,9 @@ public class AgentEngineAutoConfiguration {
 
     @Bean("agentEngineMcpServerManager")
     @ConditionalOnMissingBean
-    public McpServerManager agentEngineMcpServerManager(McpServerConfigSource configSource) {
-        return new McpServerManager(configSource);
+    public McpServerManager agentEngineMcpServerManager(McpServerConfigSource configSource,
+                                                        ObjectMapper objectMapper) {
+        return new McpServerManager(configSource, objectMapper);
     }
 
     @Bean

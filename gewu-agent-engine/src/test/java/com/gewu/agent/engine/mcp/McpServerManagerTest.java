@@ -14,9 +14,10 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @DisplayName("MCP 服务器管理器")
 class McpServerManagerTest {
 
-    /** 模拟 MCP 服务器的 bash 脚本（与 StdioMcpClientTest 相同） */
+    /** 模拟 MCP 服务器的 bash 脚本（通知分支置前无响应，其余按 method 响应） */
     private static final String MCP_SERVER_SCRIPT =
             "while read line; do case \"$line\" in "
+                    + "*notifications/initialized*) ;; "
                     + "*initialize*) echo '{\"jsonrpc\":\"2.0\",\"id\":1,\"result\":{\"protocolVersion\":\"2024-11-05\"}}}';; "
                     + "*tools/list*) echo '{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":{\"tools\":[{\"name\":\"echo\",\"description\":\"d\"}]}}';; "
                     + "esac; done";

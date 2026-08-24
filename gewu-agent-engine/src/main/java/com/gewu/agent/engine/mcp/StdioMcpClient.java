@@ -71,6 +71,17 @@ public class StdioMcpClient implements McpClient {
 
         JsonNode response = sendRequest("initialize", params);
         log.debug("MCP initialize response: {}", response);
+        // MCP 协议要求：initialize 响应后发送 initialized 通知（无需响应）
+        sendNotification("notifications/initialized");
+    }
+
+    /** 发送通知（无 id，不等待响应） */
+    private void sendNotification(String method) throws Exception {
+        ObjectNode notification = mapper.createObjectNode();
+        notification.put("jsonrpc", "2.0");
+        notification.put("method", method);
+        stdin.write(mapper.writeValueAsString(notification) + "\n");
+        stdin.flush();
     }
 
     @Override

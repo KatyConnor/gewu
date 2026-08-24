@@ -19,11 +19,17 @@ import java.util.concurrent.ConcurrentHashMap;
 public class McpServerManager {
 
     private final McpServerConfigSource configSource;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final ObjectMapper objectMapper;
     private final Map<String, McpClient> clients = new ConcurrentHashMap<>();
 
     public McpServerManager(McpServerConfigSource configSource) {
+        this(configSource, new ObjectMapper());
+    }
+
+    /** 复用 Spring 容器 ObjectMapper（D-14：消除私有 new） */
+    public McpServerManager(McpServerConfigSource configSource, ObjectMapper objectMapper) {
         this.configSource = configSource;
+        this.objectMapper = objectMapper != null ? objectMapper : new ObjectMapper();
     }
 
     /** 获取或建立与指定服务器的连接 */
@@ -47,7 +53,11 @@ public class McpServerManager {
             List<String> args = parseArgs(server.getArgs());
             Map<String, String> env = parseEnv(server.getEnv());
             client = new StdioMcpClient(server.getCommand(), args, env);
-        } else if ("sse".equals(transport) || "streamable_http".equals(transport)) {
+        } else if ("streamable_http".equals(transport)) {
+            // MCP 2025-03-26 Streamable HTTP（推荐：含会话管理与 initialized 握手）
+            client = new StreamableHttpClient(server.getUrl(), objectMapper);
+        } else if ("sse".equals(transport)) {
+            // 兼容既有 sse 配置（已废弃，建议迁移 streamable_http）
             client = new SseMcpClient(server.getUrl());
         } else {
             throw new IllegalArgumentException("不支持的传输方式: " + transport);
