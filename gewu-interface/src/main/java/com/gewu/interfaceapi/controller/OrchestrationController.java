@@ -114,21 +114,27 @@ public class OrchestrationController {
     }
 
     @PostMapping("/executions/{executionId}/pause")
-    @Operation(summary = "暂停执行")
+    @Operation(summary = "暂停执行", description = "协作式暂停：当前节点执行完毕后生效，流以 graph_complete(PAUSED) 结束")
     public Result<Void> pauseExecution(@PathVariable String executionId) {
         orchestrationService.pauseExecution(executionId);
         return Result.success();
     }
 
     @PostMapping("/executions/{executionId}/resume")
-    @Operation(summary = "恢复执行")
-    public Result<Void> resumeExecution(@PathVariable String executionId) {
-        orchestrationService.resumeExecution(executionId);
-        return Result.success();
+    @Operation(summary = "恢复执行", description = "恢复 DB 状态；返回 resumable 表示引擎存在断点检查点，可调用 resume/stream 续跑")
+    public Result<Boolean> resumeExecution(@PathVariable String executionId) {
+        boolean resumable = orchestrationService.resumeExecution(executionId);
+        return Result.success(resumable);
+    }
+
+    @PostMapping(value = "/executions/{executionId}/resume/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "断点续跑事件流", description = "从引擎暂停检查点恢复执行（SSE），跳过已完成节点")
+    public Flux<AgentEvent> resumeExecutionStream(@PathVariable String executionId) {
+        return orchestrationService.resumeExecutionStream(executionId);
     }
 
     @PostMapping("/executions/{executionId}/cancel")
-    @Operation(summary = "取消执行")
+    @Operation(summary = "取消执行", description = "运行中发协作信号优雅结束；已暂停的执行丢弃检查点")
     public Result<Void> cancelExecution(@PathVariable String executionId) {
         orchestrationService.cancelExecution(executionId);
         return Result.success();

@@ -44,6 +44,8 @@ import com.gewu.agent.engine.mcp.McpServerManager;
 import com.gewu.agent.engine.mcp.NoOpMcpServerConfigSource;
 import com.gewu.agent.engine.contract.ArtifactValidator;
 import com.gewu.agent.engine.orchestration.ConflictResolver;
+import com.gewu.agent.engine.orchestration.ExecutionControl;
+import com.gewu.agent.engine.orchestration.GraphNodeExecutor;
 import com.gewu.agent.engine.verification.DualLoopVerifier;
 import com.gewu.agent.engine.orchestration.AutonomousExecutor;
 import com.gewu.agent.engine.orchestration.DefaultGoalPlanner;
@@ -418,9 +420,26 @@ public class AgentEngineAutoConfiguration {
     @ConditionalOnMissingBean
     public Orchestrator orchestrator(AgentExecutor executor, HitlGateway hitlGateway,
                                       ObjectProvider<ConflictResolver> conflictResolverProvider,
-                                      ObjectProvider<ArtifactValidator> artifactValidatorProvider) {
+                                      ObjectProvider<ArtifactValidator> artifactValidatorProvider,
+                                      ObjectProvider<GraphNodeExecutor> graphNodeExecutorProvider,
+                                      ExecutionControl executionControl) {
         return new Orchestrator(executor, hitlGateway,
-                conflictResolverProvider.getIfAvailable(), artifactValidatorProvider.getIfAvailable());
+                conflictResolverProvider.getIfAvailable(), artifactValidatorProvider.getIfAvailable(),
+                graphNodeExecutorProvider.getIfAvailable(), executionControl);
+    }
+
+    /** 执行控制注册表：在途编排的协作式暂停/取消信号与断点检查点 */
+    @Bean
+    @ConditionalOnMissingBean
+    public ExecutionControl executionControl() {
+        return new ExecutionControl();
+    }
+
+    /** 图节点执行器：TOOL 类型节点的安全管线执行（可被使用方覆盖） */
+    @Bean
+    @ConditionalOnMissingBean
+    public GraphNodeExecutor graphNodeExecutor(ToolExecutor toolExecutor) {
+        return new GraphNodeExecutor(toolExecutor);
     }
 
     @Bean
@@ -447,8 +466,9 @@ public class AgentEngineAutoConfiguration {
     @Bean
     @ConditionalOnMissingBean
     public OrchestrationEngine orchestrationEngine(Orchestrator orchestrator, GoalPlanner goalPlanner,
-                                                    AutonomousExecutor autonomousExecutor) {
-        return new OrchestrationEngine(orchestrator, goalPlanner, autonomousExecutor);
+                                                    AutonomousExecutor autonomousExecutor,
+                                                    ExecutionControl executionControl) {
+        return new OrchestrationEngine(orchestrator, goalPlanner, autonomousExecutor, executionControl);
     }
 
     @Bean

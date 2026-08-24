@@ -96,4 +96,39 @@ public class AgentEvent {
     public static final String EXPERIENCE_SAVED = "experience_saved";
     /** 失败案例记录 */
     public static final String FAILURE_RECORDED = "failure_recorded";
+
+    // ===== 编排层事件类型（原字面量提取为常量，T3.1） =====
+    /** 编排图开始（metadata: executionId/mode） */
+    public static final String GRAPH_START = "graph_start";
+    /** 编排节点开始（nodeId/role） */
+    public static final String NODE_START = "node_start";
+    /** 编排节点完成（nodeId，metadata: outputLen） */
+    public static final String NODE_COMPLETE = "node_complete";
+    /** 编排图完成（metadata: status=SUCCESS/FAILED/PAUSED/CANCELLED，output） */
+    public static final String GRAPH_COMPLETE = "graph_complete";
+    /** Swarm 控制权移交（metadata: from/to） */
+    public static final String HANDOFF = "handoff";
+    /** 需要人工审批（metadata: approvalId/timeoutSeconds） */
+    public static final String APPROVAL_REQUIRED = "approval_required";
+    /** 审批结果（metadata: approved/operator/comment） */
+    public static final String APPROVAL_RESULT = "approval_result";
+    /** 编排消息信封（Supervisor 模式 TASK_DELEGATE/TASK_RESULT） */
+    public static final String MESSAGE = "message";
+    /** 自主目标开始 */
+    public static final String GOAL_START = "goal_start";
+    /** 自主目标分解完成 */
+    public static final String GOAL_DECOMPOSED = "goal_decomposed";
+    /** 自主目标完成（metadata: status=SUCCESS/FAILED） */
+    public static final String GOAL_COMPLETE = "goal_complete";
+    /** Agent 实例超时（心跳/全局） */
+    public static final String AGENT_TIMEOUT = "agent_timeout";
+    /** Agent 实例死锁（等待环） */
+    public static final String AGENT_DEADLOCK = "agent_deadlock";
+    /** 执行已暂停（graph_complete PAUSED 伴随事件） */
+    public static final String EXECUTION_PAUSED = "execution_paused";
+    /** 执行已取消 */
+    public static final String EXECUTION_CANCELLED = "execution_cancelled";
+
+    /** 上下文变量名：断点续跑的恢复起始节点 ID（Pipeline 暂停检查点机制） */
+    public static final String VAR_RESUME_FROM_NODE = "__resumeFromNode";
 }

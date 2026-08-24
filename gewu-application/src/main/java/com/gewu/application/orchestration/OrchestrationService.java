@@ -284,7 +284,8 @@ public class OrchestrationService {
     // ==================== 暂停/恢复/取消 ====================
 
     /**
-     * 暂停执行（标记状态为 PAUSED）。
+     * 暂停执行：DB 状态置 PAUSED + 引擎协作式信号（当前节点执行完毕后生效，
+     * 流以 graph_complete(PAUSED) 优雅结束，检查点保存在引擎执行控制注册表）。
      */
     public void pauseExecution(String executionId) {
         OrchestrationExecutionEntity entity = executionMapper.selectById(executionId);
@@ -294,15 +295,17 @@ public class OrchestrationService {
         if (!"RUNNING".equals(entity.getStatus())) {
             throw new IllegalStateException("仅 RUNNING 状态可暂停，当前状态: " + entity.getStatus());
         }
+        orchestrationEngine.pause(executionId);
         entity.setStatus("PAUSED");
         executionMapper.updateById(entity);
         log.info("暂停编排执行: executionId={}", executionId);
     }
 
     /**
-     * 恢复执行（标记状态为 RUNNING）。
+     * 恢复执行：优先从引擎暂停检查点断点续跑（返回续跑事件流供 SSE 订阅），
+     * 无检查点时仅恢复 DB 状态（进程重启丢失检查点的场景，由外部重放处理）。
      */
-    public void resumeExecution(String executionId) {
+    public boolean resumeExecution(String executionId) {
         OrchestrationExecutionEntity entity = executionMapper.selectById(executionId);
         if (entity == null) {
             throw new IllegalArgumentException("执行实例不存在: " + executionId);
@@ -310,9 +313,34 @@ public class OrchestrationService {
         if (!"PAUSED".equals(entity.getStatus())) {
             throw new IllegalStateException("仅 PAUSED 状态可恢复，当前状态: " + entity.getStatus());
         }
+        boolean resumable = orchestrationEngine.isPausable(executionId);
         entity.setStatus("RUNNING");
         executionMapper.updateById(entity);
-        log.info("恢复编排执行: executionId={}", executionId);
+        log.info("恢复编排执行: executionId={}, engineCheckpoint={}", executionId, resumable);
+        return resumable;
+    }
+
+    /**
+     * 断点续跑事件流（resumeExecution 返回 true 时调用）：
+     * 从引擎检查点恢复执行并桥接 DB 状态更新。
+     */
+    public Flux<AgentEvent> resumeExecutionStream(String executionId) {
+        OrchestrationExecutionEntity entity = executionMapper.selectById(executionId);
+        if (entity == null) {
+            return Flux.error(new IllegalArgumentException("执行实例不存在: " + executionId));
+        }
+        return orchestrationEngine.resume(executionId)
+                .doOnComplete(() -> finishExecution(entity, "SUCCEEDED", null))
+                .doOnError(e -> finishExecution(entity, "FAILED", e.getMessage()))
+                .doOnCancel(() -> finishExecution(entity, "CANCELLED", null));
+    }
+
+    private void finishExecution(OrchestrationExecutionEntity entity, String status, String error) {
+        entity.setStatus(status);
+        entity.setErrorMessage(error);
+        entity.setCompletedAt(Instant.now().toEpochMilli());
+        executionMapper.updateById(entity);
+        liveContexts.remove(entity.getId());
     }
 
     /**
@@ -322,6 +350,8 @@ public class OrchestrationService {
     public void cancelExecution(String executionId) {
         OrchestrationExecutionEntity entity = executionMapper.selectById(executionId);
         if (entity != null && ("RUNNING".equals(entity.getStatus()) || "PAUSED".equals(entity.getStatus()))) {
+            // 引擎协作式取消：运行中发信号（当前节点后优雅结束）；已暂停则丢弃检查点
+            orchestrationEngine.cancel(executionId);
             OrchestrationContext ctx = liveContexts.get(executionId);
             if (ctx != null) {
                 entity.setVariables(buildCancelSnapshot(ctx, entity));
