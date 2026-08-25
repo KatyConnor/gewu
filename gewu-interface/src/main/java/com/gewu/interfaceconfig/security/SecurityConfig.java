@@ -58,6 +58,8 @@ public class SecurityConfig {
                                 AntPathRequestMatcher.antMatcher("/api/v1/auth/register"),
                                 AntPathRequestMatcher.antMatcher("/api/v1/auth/refresh")
                         ).permitAll()
+                        // 会话分享链接的免鉴权只读访问（脱敏元数据，T3.3）
+                        .requestMatchers(AntPathRequestMatcher.antMatcher("/api/v1/share/**")).permitAll()
                         .requestMatchers(
                                 AntPathRequestMatcher.antMatcher("/swagger-ui/**"),
                                 AntPathRequestMatcher.antMatcher("/v3/api-docs/**"),

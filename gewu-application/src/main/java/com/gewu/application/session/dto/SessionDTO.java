@@ -15,6 +15,12 @@ public class SessionDTO {
     private Integer status;
     private String statusDesc;
     private Integer isPublic;
+    /** 置顶标记：0 否 / 1 是 */
+    private Integer pinned;
+    /** 分享短链标识（仅分享开启时返回） */
+    private String slug;
+    /** 分享链接相对路径 */
+    private String shareUrl;
     private Integer messageCount;
     private Long lastMessageAt;
     private String agent;

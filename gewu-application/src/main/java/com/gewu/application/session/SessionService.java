@@ -108,13 +108,15 @@ public class SessionService {
                 new LambdaQueryWrapper<SessionMember>().eq(SessionMember::getUserId, userId));
         List<String> memberSessionIds = members.stream().map(SessionMember::getSessionId).toList();
         
-        // 查询用户的会话 + 公开会话
+        // 查询用户的会话 + 公开会话（置顶优先，其次最近活动）
         LambdaQueryWrapper<Session> wrapper = new LambdaQueryWrapper<Session>()
                 .and(w -> {
                     w.in(Session::getId, memberSessionIds)
                      .or()
                      .eq(Session::getIsPublic, 1);
                 })
+                .orderByDesc(Session::getPinned)
+                .orderByDesc(Session::getLastMessageAt)
                 .orderByDesc(Session::getCreatedAt);
         
         Page<Session> page = new Page<>(query.getPage(), query.getSize());
@@ -138,6 +140,8 @@ public class SessionService {
         Page<Session> result = sessionMapper.selectPage(page,
                 new LambdaQueryWrapper<Session>()
                         .in(Session::getId, sessionIds)
+                        .orderByDesc(Session::getPinned)
+                        .orderByDesc(Session::getLastMessageAt)
                         .orderByDesc(Session::getCreatedAt));
         List<SessionDTO> dtos = result.getRecords().stream().map(this::toDTO).toList();
         return PageResult.of(dtos, result.getTotal(), query.getPage(), query.getSize());
@@ -177,6 +181,112 @@ public class SessionService {
         }
         checkMembership(sessionId, userId);
         sessionMapper.deleteById(sessionId);
+    }
+
+    // ==================== 会话增值生命周期（T3.3） ====================
+
+    /** 归档：status=2 并记录归档时间（需成员身份） */
+    @Transactional
+    public SessionDTO archiveSession(String sessionId) {
+        requireMemberSession(sessionId);
+        Session session = sessionMapper.selectById(sessionId);
+        session.setStatus(2);
+        session.setTimeArchived(System.currentTimeMillis());
+        sessionMapper.updateById(session);
+        return toDTO(session);
+    }
+
+    /** 取消归档：status=0 并清空归档时间 */
+    @Transactional
+    public SessionDTO unarchiveSession(String sessionId) {
+        requireMemberSession(sessionId);
+        Session session = sessionMapper.selectById(sessionId);
+        if (session.getStatus() == null || session.getStatus() != 2) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "仅已归档会话可取消归档");
+        }
+        session.setStatus(0);
+        session.setTimeArchived(null);
+        sessionMapper.updateById(session);
+        return toDTO(session);
+    }
+
+    /**
+     * 分享：生成短 slug 并置公开。幂等--已有 slug 直接返回既有分享信息。
+     *
+     * @return 分享信息（slug + shareUrl）
+     */
+    @Transactional
+    public SessionDTO shareSession(String sessionId) {
+        requireMemberSession(sessionId);
+        Session session = sessionMapper.selectById(sessionId);
+        if (session.getSlug() == null || session.getSlug().isBlank()) {
+            session.setSlug(generateSlug());
+            session.setShareUrl("/share/" + session.getSlug());
+            sessionMapper.updateById(session);
+        }
+        session.setIsPublic(1);
+        sessionMapper.updateById(session);
+        return toDTO(session);
+    }
+
+    /** 取消分享：关闭公开并清空 slug/shareUrl */
+    @Transactional
+    public SessionDTO unshareSession(String sessionId) {
+        requireMemberSession(sessionId);
+        Session session = sessionMapper.selectById(sessionId);
+        session.setIsPublic(0);
+        session.setSlug(null);
+        session.setShareUrl(null);
+        sessionMapper.updateById(session);
+        return toDTO(session);
+    }
+
+    /** 按 slug 公开读取分享的会话（免鉴权路径使用，只返回脱敏元数据） */
+    public SessionDTO getSharedSession(String slug) {
+        if (slug == null || slug.isBlank()) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "分享链接无效");
+        }
+        Session session = sessionMapper.selectOne(
+                new LambdaQueryWrapper<Session>()
+                        .eq(Session::getSlug, slug)
+                        .eq(Session::getIsPublic, 1)
+                        .last("LIMIT 1"));
+        if (session == null) {
+            throw BusinessException.of(ResultCode.SESSION_NOT_FOUND, "分享不存在或已取消");
+        }
+        SessionDTO dto = toDTO(session);
+        // 分享视图脱敏：不暴露创建者 ID
+        dto.setCreatedBy(null);
+        return dto;
+    }
+
+    /** 置顶 / 取消置顶 */
+    @Transactional
+    public SessionDTO pinSession(String sessionId, boolean pinned) {
+        requireMemberSession(sessionId);
+        Session session = sessionMapper.selectById(sessionId);
+        session.setPinned(pinned ? 1 : 0);
+        sessionMapper.updateById(session);
+        return toDTO(session);
+    }
+
+    private Session requireMemberSession(String sessionId) {
+        String userId = UserContext.currentUserId();
+        if (userId == null) {
+            throw BusinessException.of(ResultCode.UNAUTHORIZED);
+        }
+        Session session = sessionMapper.selectById(sessionId);
+        if (session == null) {
+            throw BusinessException.of(ResultCode.SESSION_NOT_FOUND);
+        }
+        checkMembership(sessionId, userId);
+        return session;
+    }
+
+    /** 生成 10 位小写分享 slug（ULID 前 10 位，含时间序保证唯一性概率） */
+    private String generateSlug() {
+        String slug = com.gewu.common.ulid.Ulid.next().toLowerCase();
+        return slug.length() > 10 ? slug.substring(0, 10) : slug;
     }
 
     public List<SessionMemberDTO> getSessionMembers(String sessionId) {
@@ -224,10 +334,13 @@ public class SessionService {
                 .status(session.getStatus())
                 .statusDesc(statusDesc(session.getStatus()))
                 .isPublic(session.getIsPublic())
+                .pinned(session.getPinned())
                 .messageCount(session.getMessageCount())
                 .lastMessageAt(session.getLastMessageAt())
                 .agent(session.getAgent())
                 .directory(session.getDirectory())
+                .slug(session.getSlug())
+                .shareUrl(session.getShareUrl())
                 .createdAt(session.getCreatedAt())
                 .createdBy(session.getCreatedBy())
                 .build();

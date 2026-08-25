@@ -40,6 +40,9 @@ class SessionContextServiceCompressionTest {
     @Mock
     private SessionMessageAppender messageAppender;
 
+    @Mock
+    private SessionTitleService titleService;
+
     private SessionContextService sessionContextService;
 
     @BeforeEach
@@ -49,7 +52,8 @@ class SessionContextServiceCompressionTest {
                 sessionMapper,
                 cacheService,
                 contextCompressor,
-                messageAppender
+                messageAppender,
+                titleService
         );
     }
 

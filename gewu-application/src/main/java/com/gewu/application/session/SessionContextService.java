@@ -35,6 +35,7 @@ public class SessionContextService {
     private final CacheService cacheService;
     private final ContextCompressor contextCompressor;
     private final SessionMessageAppender messageAppender;
+    private final SessionTitleService titleService;
 
     public List<MessageDTO> getContext(String sessionId, int maxMessages) {
         int limit = maxMessages > 0 ? maxMessages : DEFAULT_MAX_MESSAGES;
@@ -191,6 +192,7 @@ public class SessionContextService {
         }
 
         int inserted = 0;
+        boolean firstInteraction = false;
         if (userContent != null && !userContent.isBlank()) {
             SessionMessage userMsg = new SessionMessage();
             userMsg.setSessionId(sessionId);
@@ -200,6 +202,8 @@ public class SessionContextService {
             userMsg.setClientId(clientId);
             userMsg.setEdited(0);
             messageAppender.appendWithRetry(userMsg);
+            // 首条用户消息（seq==1）触发标题自动生成
+            firstInteraction = userMsg.getSeq() != null && userMsg.getSeq() == 1;
             inserted++;
         }
 
@@ -216,6 +220,11 @@ public class SessionContextService {
 
         if (inserted > 0) {
             messageAppender.bumpSessionCounters(sessionId, inserted);
+        }
+
+        // 首轮问答完成后异步生成会话标题（T3.3）
+        if (firstInteraction) {
+            titleService.generateIfAbsent(sessionId, userContent, assistantContent);
         }
 
         String cacheKey = CacheKeys.messages(sessionId);

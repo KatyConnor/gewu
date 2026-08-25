@@ -19,8 +19,14 @@ import com.gewu.application.wenshi.reasoning.WenshiReasoningEngine;
 import com.gewu.application.wenshi.reasoning.WenshiReasoningRequest;
 import com.gewu.application.wenshi.reasoning.WenshiReasoningResult;
 import com.gewu.common.context.UserContext;
+import com.gewu.common.result.BusinessException;
 import com.gewu.common.result.Result;
+import com.gewu.common.result.ResultCode;
+import com.gewu.domain.session.Session;
+import com.gewu.domain.session.SessionMessage;
 import com.gewu.infrastructure.llm.LlmResponse;
+import com.gewu.infrastructure.mapper.SessionMapper;
+import com.gewu.infrastructure.mapper.SessionMessageMapper;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -29,6 +35,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
@@ -56,6 +63,8 @@ public class AiChatController {
     private final SessionContextService sessionContextService;
     private final ModelConfigService modelConfigService;
     private final ObjectMapper objectMapper;
+    private final SessionMessageMapper sessionMessageMapper;
+    private final SessionMapper sessionMapper;
 
     @Autowired(required = false)
     private WenshiReasoningEngine wenshiReasoningEngine;
@@ -63,11 +72,15 @@ public class AiChatController {
     public AiChatController(AgentExecutionEngine agentExecutionEngine,
                             SessionContextService sessionContextService,
                             ModelConfigService modelConfigService,
-                            ObjectMapper objectMapper) {
+                            ObjectMapper objectMapper,
+                            SessionMessageMapper sessionMessageMapper,
+                            SessionMapper sessionMapper) {
         this.agentExecutionEngine = agentExecutionEngine;
         this.sessionContextService = sessionContextService;
         this.modelConfigService = modelConfigService;
         this.objectMapper = objectMapper;
+        this.sessionMessageMapper = sessionMessageMapper;
+        this.sessionMapper = sessionMapper;
     }
 
     @Value("${gewu.ai.qwen.api-key:}")
@@ -227,6 +240,56 @@ public class AiChatController {
                         .build())
                 .toList();
         return Result.success(models);
+    }
+
+    /**
+     * 消息重新生成（SSE）- 以目标 AI 消息对应的原始用户输入重跑流式对话。
+     * <p>语义：定位目标 assistant 消息前最近一条 user 消息，逻辑删除该 user 消息
+     * （含）之后的全部消息，再以原内容与原会话 Agent 绑定重走 chatStream。
+     */
+    @PostMapping(value = "/sessions/{sessionId}/messages/{messageId}/regenerate",
+            produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    @Operation(summary = "重新生成 AI 消息",
+            description = "删除目标 AI 消息及其后的历史，以原始用户输入重新流式生成（SSE）")
+    public StreamingResponseBody regenerateMessage(@PathVariable String sessionId,
+                                                   @PathVariable String messageId) {
+        SessionMessage target = sessionMessageMapper.selectById(messageId);
+        if (target == null || !sessionId.equals(target.getSessionId())) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "消息不存在");
+        }
+        if (!"assistant".equals(target.getMessageType())) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "仅支持对 AI 消息重新生成");
+        }
+        // 定位目标前最近一条 user 消息
+        SessionMessage userMsg = sessionMessageMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<SessionMessage>()
+                        .eq(SessionMessage::getSessionId, sessionId)
+                        .eq(SessionMessage::getMessageType, "user")
+                        .lt(SessionMessage::getSeq, target.getSeq())
+                        .orderByDesc(SessionMessage::getSeq)
+                        .last("LIMIT 1"));
+        if (userMsg == null) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "未找到对应的用户消息，无法重新生成");
+        }
+
+        // 逻辑删除：原始 user 消息（含）之后的所有消息
+        sessionMessageMapper.delete(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<SessionMessage>()
+                        .eq(SessionMessage::getSessionId, sessionId)
+                        .ge(SessionMessage::getSeq, userMsg.getSeq()));
+
+        // 以原输入重走流式（会话级 Agent 绑定回退保持一致）
+        Session session = sessionMapper.selectById(sessionId);
+        ChatRequest request = ChatRequest.builder()
+                .sessionId(sessionId)
+                .message(userMsg.getContent())
+                .agentId(session != null ? session.getAgent() : null)
+                .clientId(UUID.randomUUID().toString())
+                .stream(true)
+                .build();
+        log.info("消息重新生成: sessionId={}, 删除自 seq={} 起, messageId={}",
+                sessionId, userMsg.getSeq(), messageId);
+        return chatStream(request);
     }
 
     private ChatResponse toChatResponse(LlmResponse response) {

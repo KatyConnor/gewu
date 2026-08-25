@@ -66,4 +66,42 @@ public class SessionController {
     public Result<List<SessionMemberDTO>> members(@PathVariable String sessionId) {
         return Result.success(sessionService.getSessionMembers(sessionId));
     }
+
+    // ==================== 会话增值生命周期（T3.3） ====================
+
+    @PutMapping("/{sessionId}/archive")
+    @Operation(summary = "归档会话", description = "状态置为已归档并记录归档时间，需为会话成员")
+    public Result<SessionDTO> archive(@PathVariable String sessionId) {
+        return Result.success(sessionService.archiveSession(sessionId));
+    }
+
+    @PutMapping("/{sessionId}/unarchive")
+    @Operation(summary = "取消归档", description = "恢复为进行中状态，仅已归档会话可取消")
+    public Result<SessionDTO> unarchive(@PathVariable String sessionId) {
+        return Result.success(sessionService.unarchiveSession(sessionId));
+    }
+
+    @PostMapping("/{sessionId}/share")
+    @Operation(summary = "开启分享", description = "生成短 slug 并公开会话；幂等（已有 slug 复用）")
+    public Result<SessionDTO> share(@PathVariable String sessionId) {
+        return Result.success(sessionService.shareSession(sessionId));
+    }
+
+    @DeleteMapping("/{sessionId}/share")
+    @Operation(summary = "取消分享", description = "关闭公开并清空分享链接")
+    public Result<SessionDTO> unshare(@PathVariable String sessionId) {
+        return Result.success(sessionService.unshareSession(sessionId));
+    }
+
+    @PutMapping("/{sessionId}/pin")
+    @Operation(summary = "置顶会话", description = "会话列表置顶优先展示")
+    public Result<SessionDTO> pin(@PathVariable String sessionId) {
+        return Result.success(sessionService.pinSession(sessionId, true));
+    }
+
+    @DeleteMapping("/{sessionId}/pin")
+    @Operation(summary = "取消置顶", description = "取消会话置顶")
+    public Result<SessionDTO> unpin(@PathVariable String sessionId) {
+        return Result.success(sessionService.pinSession(sessionId, false));
+    }
 }

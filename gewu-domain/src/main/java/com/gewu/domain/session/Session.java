@@ -17,6 +17,8 @@ public class Session extends BaseEntity {
     private String projectId;
     private Integer status;
     private Integer isPublic;
+    /** 置顶标记：0 否 / 1 是（列表排序置顶优先） */
+    private Integer pinned;
     private Long lastMessageAt;
     private Integer messageCount;
     private String parentId;
