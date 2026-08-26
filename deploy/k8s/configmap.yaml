@@ -12,3 +12,7 @@ data:
   ROCKETMQ_NAMESERVER: rocketmq-nameserver.gewu.svc.cluster.local:9876
   AI_GATEWAY_URL: http://ai-gateway.gewu.svc.cluster.local:8081
   SPRING_PROFILES_ACTIVE: prod
+  # 可观测：K8s 环境自带 Jaeger（deploy/k8s/jaeger.yaml），链路追踪默认开启（T4.2）
+  OTEL_TRACING_ENABLED: "true"
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger.gewu.svc.cluster.local:4318
+  OTEL_TRACING_SAMPLING_PROBABILITY: "1.0"

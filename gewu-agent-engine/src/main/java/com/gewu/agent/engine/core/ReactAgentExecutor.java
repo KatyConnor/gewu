@@ -104,8 +104,10 @@ public class ReactAgentExecutor implements AgentExecutor {
         String cached = responseCache.get(task.getMessage(), cacheContext);
         if (cached != null && !cached.isBlank()) {
             log.info("语义缓存命中: agentId={}, responseLength={}", agentId, cached.length());
+            recordMetricSafe("agent.cache.hit", 1, Map.of("agentId", agentId != null ? agentId : "default"));
             return LlmResponse.builder().content(cached).build();
         }
+        recordMetricSafe("agent.cache.miss", 1, Map.of("agentId", agentId != null ? agentId : "default"));
 
         log.info("调用 LLM(同步): provider={}, model={}, messages={}, tools={}, temperature={}",
                 plan.provider, plan.model, messages.size(), tools.size(), temperature);
@@ -115,6 +117,8 @@ public class ReactAgentExecutor implements AgentExecutor {
             if (budgetController.shouldStop(plan.budget)) {
                 log.warn("预算熔断: tokenUtil={}, timeUtil={}, round={}",
                         plan.budget.getTokenUtilization(), plan.budget.getTimeUtilization(), round);
+                recordMetricSafe("agent.budget.exceeded", 1, Map.of(
+                        "agentId", agentId != null ? agentId : "unknown", "reason", "sync_loop"));
                 throw AgentEngineException.of("BUDGET_EXCEEDED",
                         "预算耗尽: token=" + plan.budget.getTokenConsumed() + "/" + plan.budget.getTokenBudget()
                                 + ", time=" + plan.budget.getElapsedMs() + "ms/" + plan.budget.getTimeBudgetMs() + "ms");
@@ -221,9 +225,11 @@ public class ReactAgentExecutor implements AgentExecutor {
         String cached = responseCache.get(task.getMessage(), cacheContext);
         if (cached != null && !cached.isBlank()) {
             log.info("语义缓存命中(流式): agentId={}, responseLength={}", agentId, cached.length());
+            recordMetricSafe("agent.cache.hit", 1, Map.of("agentId", agentId != null ? agentId : "default"));
             return Flux.just(AgentEvent.builder().type(AgentEvent.CONTENT).content(cached).build(),
                     AgentEvent.builder().type(AgentEvent.DONE).build());
         }
+        recordMetricSafe("agent.cache.miss", 1, Map.of("agentId", agentId != null ? agentId : "default"));
 
         log.info("调用 LLM(流式): provider={}, model={}, messages={}, tools={}, temperature={}",
                 plan.provider, plan.model, messages.size(), tools.size(), temperature);
@@ -272,6 +278,9 @@ public class ReactAgentExecutor implements AgentExecutor {
         if (budgetController.shouldStop(budget)) {
             log.warn("预算熔断(流式): tokenUtil={}, timeUtil={}, round={}",
                     budget.getTokenUtilization(), budget.getTimeUtilization(), round);
+            recordMetricSafe("agent.budget.exceeded", 1, Map.of(
+                    "agentId", toolContext.getAgentId() != null ? toolContext.getAgentId() : "unknown",
+                    "reason", "stream_loop"));
             return Flux.just(AgentEvent.builder()
                     .type(AgentEvent.BUDGET_EXCEEDED)
                     .errorMessage("预算耗尽: token=" + budget.getTokenConsumed() + "/" + budget.getTokenBudget())
@@ -490,6 +499,9 @@ public class ReactAgentExecutor implements AgentExecutor {
                 String provider = selection.getModelProvider() != null ? selection.getModelProvider() : pm[0];
                 log.info("模型路由: {} -> {} (provider={}, reason={})",
                         pm[1], selection.getModelName(), provider, selection.getReason());
+                recordMetricSafe("agent.model.route", 1, Map.of(
+                        "from", pm[1], "to", selection.getModelName(),
+                        "agentId", task.getAgentId() != null ? task.getAgentId() : "default"));
                 return new String[]{provider, selection.getModelName()};
             }
         } catch (Exception e) {
@@ -669,6 +681,15 @@ public class ReactAgentExecutor implements AgentExecutor {
             metricService.recordMetric("agent.task.failure", 1, Map.of("agentId", agentId, "reason", reason));
         } catch (Exception e) {
             log.debug("recordFailure failed: {}", e.getMessage());
+        }
+    }
+
+    /** 指标记录（缓存/路由/熔断等观测点，失败静默） */
+    private void recordMetricSafe(String name, double value, Map<String, String> tags) {
+        try {
+            metricService.recordMetric(name, value, tags);
+        } catch (Exception e) {
+            log.debug("recordMetric failed: {} {}", name, e.getMessage());
         }
     }
 }

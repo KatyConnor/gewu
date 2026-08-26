@@ -11,8 +11,16 @@
     {
       "title": "任务成功率（agent.task.success）",
       "type": "stat",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 6, "x": 0, "y": 0 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 6,
+        "x": 0,
+        "y": 0
+      },
       "targets": [
         {
           "expr": "sum(increase(agent_task_success_total[1h])) / clamp_min(sum(increase(agent_task_success_total[1h])) + sum(increase(agent_task_failure_total[1h])), 1)",
@@ -25,9 +33,18 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "red", "value": null },
-              { "color": "yellow", "value": 0.8 },
-              { "color": "green", "value": 0.9 }
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 0.8
+              },
+              {
+                "color": "green",
+                "value": 0.9
+              }
             ]
           }
         },
@@ -37,8 +54,16 @@
     {
       "title": "验证评分趋势（agent.verification.score）",
       "type": "timeseries",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 9, "x": 6, "y": 0 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 9,
+        "x": 6,
+        "y": 0
+      },
       "targets": [
         {
           "expr": "avg_over_time(agent_verification_score[15m])",
@@ -46,15 +71,27 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "short", "min": 0, "max": 10 },
+        "defaults": {
+          "unit": "short",
+          "min": 0,
+          "max": 10
+        },
         "overrides": []
       }
     },
     {
       "title": "HITL 触发次数（agent.hitl.triggered）",
       "type": "timeseries",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 9, "x": 15, "y": 0 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 9,
+        "x": 15,
+        "y": 0
+      },
       "targets": [
         {
           "expr": "sum(increase(agent_hitl_triggered_total[1h])) by (reason)",
@@ -65,8 +102,16 @@
     {
       "title": "预算利用率（agent.budget.utilization）",
       "type": "timeseries",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
       "targets": [
         {
           "expr": "avg by (agentId) (agent_budget_utilization)",
@@ -74,15 +119,25 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "short" },
+        "defaults": {
+          "unit": "short"
+        },
         "overrides": []
       }
     },
     {
       "title": "任务时长分布（agent.task.duration）",
       "type": "timeseries",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
       "targets": [
         {
           "expr": "histogram_quantile(0.95, sum by (le) (rate(agent_task_duration_seconds_bucket[30m])))",
@@ -94,15 +149,25 @@
         }
       ],
       "fieldConfig": {
-        "defaults": { "unit": "s" },
+        "defaults": {
+          "unit": "s"
+        },
         "overrides": []
       }
     },
     {
       "title": "Token 消耗（orchestration.tokens）",
       "type": "timeseries",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
       "targets": [
         {
           "expr": "sum(increase(orchestration_tokens_total[1h])) by (status)",
@@ -113,8 +178,16 @@
     {
       "title": "质量劣化告警（agent.evaluation.degraded）",
       "type": "stat",
-      "datasource": { "type": "prometheus", "uid": "${DS_PROMETHEUS}" },
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
       "targets": [
         {
           "expr": "sum(increase(agent_evaluation_degraded_total[24h])) by (level)",
@@ -126,29 +199,107 @@
           "thresholds": {
             "mode": "absolute",
             "steps": [
-              { "color": "green", "value": null },
-              { "color": "yellow", "value": 1 },
-              { "color": "red", "value": 3 }
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "yellow",
+                "value": 1
+              },
+              {
+                "color": "red",
+                "value": 3
+              }
             ]
           }
         },
         "overrides": []
       }
+    },
+    {
+      "title": "语义缓存命中率（T4.2）",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 0,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(agent_cache_hit_total[$__rate_interval])) / (sum(rate(agent_cache_hit_total[$__rate_interval])) + sum(rate(agent_cache_miss_total[$__rate_interval])))",
+          "legendFormat": "命中率"
+        }
+      ]
+    },
+    {
+      "title": "模型路由切换（T4.2）",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 8,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(agent_model_route_total[$__rate_interval])) by (to)",
+          "legendFormat": "路由至 {{to}}"
+        }
+      ]
+    },
+    {
+      "title": "预算熔断次数（T4.2）",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 8,
+        "x": 16,
+        "y": 24
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(agent_budget_exceeded_total[$__rate_interval])) by (reason)",
+          "legendFormat": "{{reason}}"
+        }
+      ]
     }
   ],
   "schemaVersion": 39,
-  "tags": ["gewu", "agent"],
+  "tags": [
+    "gewu",
+    "agent"
+  ],
   "templating": {
     "list": [
       {
         "name": "DS_PROMETHEUS",
         "type": "datasource",
         "query": "prometheus",
-        "current": { "text": "Prometheus", "value": "Prometheus" }
+        "current": {
+          "text": "Prometheus",
+          "value": "Prometheus"
+        }
       }
     ]
   },
-  "time": { "from": "now-6h", "to": "now" },
+  "time": {
+    "from": "now-6h",
+    "to": "now"
+  },
   "timezone": "browser",
   "title": "格物 Agent 业务指标看板",
   "uid": "gewu-agent",

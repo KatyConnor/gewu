@@ -58,6 +58,19 @@ public class DbMetricServiceAdapter implements MetricService {
             case "agent.hitl.triggered" -> {
                 agentMetricsRecorder.recordHITLTrigger(tags.get("reason"));
             }
+            case "agent.cache.hit" -> {
+                agentMetricsRecorder.recordCacheAccess(true, tags.get("agentId"));
+            }
+            case "agent.cache.miss" -> {
+                agentMetricsRecorder.recordCacheAccess(false, tags.get("agentId"));
+            }
+            case "agent.model.route" -> {
+                agentMetricsRecorder.recordModelRoute(
+                        tags.get("from"), tags.get("to"), tags.get("agentId"));
+            }
+            case "agent.budget.exceeded" -> {
+                agentMetricsRecorder.recordBudgetExceeded(tags.get("agentId"), tags.get("reason"));
+            }
             default -> log.debug("DbMetricServiceAdapter: 未识别的指标名 {}, value={}", name, value);
         }
     }
