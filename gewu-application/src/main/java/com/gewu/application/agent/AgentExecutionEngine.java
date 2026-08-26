@@ -38,6 +38,7 @@ public class AgentExecutionEngine {
     private final AgentMapper agentMapper;
     private final SessionMapper sessionMapper;
     private final AgentExecutionService agentExecutionService;
+    private final com.gewu.application.ai.CostAccountingService costAccountingService;
 
     /**
      * 同步执行：委托 ReactAgentExecutor 全链路（安全/记忆/预算/路由），映射回 legacy 响应结构。
@@ -53,7 +54,7 @@ public class AgentExecutionEngine {
         String executionId = recordStart(task);
         try {
             com.gewu.agent.engine.llm.model.LlmResponse result = agentExecutor.execute(task);
-            recordComplete(executionId, result);
+            recordComplete(executionId, result, task);
             return toLegacyResponse(result);
         } catch (RuntimeException e) {
             recordFail(executionId, e.getMessage());
@@ -82,7 +83,7 @@ public class AgentExecutionEngine {
                 .map(this::toChunk)
                 .doOnComplete(() -> recordComplete(executionId,
                         com.gewu.agent.engine.llm.model.LlmResponse.builder()
-                                .content(contentTracker.toString()).build()))
+                                .content(contentTracker.toString()).build(), task))
                 .doOnError(e -> recordFail(executionId, e.getMessage()));
     }
 
@@ -104,7 +105,8 @@ public class AgentExecutionEngine {
         }
     }
 
-    private void recordComplete(String executionId, com.gewu.agent.engine.llm.model.LlmResponse response) {
+    private void recordComplete(String executionId, com.gewu.agent.engine.llm.model.LlmResponse response,
+                                AgentTask task) {
         if (executionId == null) {
             return;
         }
@@ -115,6 +117,22 @@ public class AgentExecutionEngine {
                     response != null ? response.getContent() : null, tokens);
         } catch (Exception e) {
             log.warn("执行记录完成回写失败（忽略）: executionId={}, cause={}", executionId, e.getMessage());
+        }
+        // 会话维度成本核算（T4.1）：真实 usage 优先，缺失时按字符估算
+        if (task != null && task.getSessionId() != null && response != null) {
+            try {
+                if (response.getUsage() != null) {
+                    costAccountingService.recordUsage(task.getSessionId(), task.getModelName(),
+                            response.getUsage().getPromptTokens(),
+                            response.getUsage().getCompletionTokens(), 0);
+                } else {
+                    costAccountingService.recordEstimatedUsage(task.getSessionId(), task.getModelName(),
+                            task.getMessage(), response.getContent());
+                }
+            } catch (Exception e) {
+                log.warn("会话成本核算失败（忽略）: sessionId={}, cause={}",
+                        task.getSessionId(), e.getMessage());
+            }
         }
     }
 

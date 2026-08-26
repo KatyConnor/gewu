@@ -33,6 +33,7 @@ public class StatsService {
     private final AgentStatMapper agentStatMapper;
     private final OrchestrationExecutionMapper executionMapper;
     private final SessionService sessionService;
+    private final com.gewu.infrastructure.mapper.AgentExecutionMapper agentExecutionMapper;
 
     // ==================== 仪表盘 ====================
 
@@ -89,6 +90,21 @@ public class StatsService {
                 .mapToDouble(e -> e.getCostConsumed() != null ? e.getCostConsumed().doubleValue() : 0).sum();
         Map<String, Long> byStatus = new HashMap<>();
         executions.forEach(e -> byStatus.merge(e.getStatus(), 1L, Long::sum));
+
+        // 对话执行（agent_execution）与编排执行合并统计（T4.1：agent 账本已自动落库）
+        try {
+            List<com.gewu.domain.agent.AgentExecution> agentExecutions = agentExecutionMapper.selectList(
+                    new LambdaQueryWrapper<com.gewu.domain.agent.AgentExecution>()
+                            .orderByDesc(com.gewu.domain.agent.AgentExecution::getCreatedAt)
+                            .last("LIMIT 500"));
+            stats.totalTokenUsed += agentExecutions.stream()
+                    .mapToLong(e -> e.getTokensUsed() != null ? e.getTokensUsed() : 0).sum();
+            agentExecutions.forEach(e -> byStatus.merge(e.getStatus(), 1L, Long::sum));
+            stats.chatExecutionTotal = agentExecutions.size();
+        } catch (Exception e) {
+            log.debug("对话执行统计查询失败（忽略）: {}", e.getMessage());
+        }
+
         stats.byStatus = byStatus;
         stats.recentExecutions = executions.stream()
                 .limit(20)
@@ -131,6 +147,8 @@ public class StatsService {
         public double totalCost;
         /** 状态分布 -> count */
         public Map<String, Long> byStatus;
+        /** 对话执行（agent_execution）样本量 */
+        public long chatExecutionTotal;
         public List<RecentExecution> recentExecutions;
     }
 

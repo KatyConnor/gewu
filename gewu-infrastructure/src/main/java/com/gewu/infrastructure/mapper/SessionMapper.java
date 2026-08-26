@@ -32,4 +32,17 @@ public interface SessionMapper extends BaseMapper<Session> {
     int incrementMessageCount(@Param("sessionId") String sessionId,
                               @Param("delta") int delta,
                               @Param("lastMessageAt") long lastMessageAt);
+
+    /**
+     * 原子累计会话 token 用量与成本（T4.1 成本回填）.
+     */
+    @Update("UPDATE session SET tokens_input = COALESCE(tokens_input, 0) + #{inputTokens}, " +
+            "tokens_output = COALESCE(tokens_output, 0) + #{outputTokens}, " +
+            "tokens_reasoning = COALESCE(tokens_reasoning, 0) + #{reasoningTokens}, " +
+            "cost = COALESCE(cost, 0) + #{cost} WHERE id = #{sessionId} AND deleted = 0")
+    int appendUsage(@Param("sessionId") String sessionId,
+                    @Param("inputTokens") int inputTokens,
+                    @Param("outputTokens") int outputTokens,
+                    @Param("reasoningTokens") int reasoningTokens,
+                    @Param("cost") java.math.BigDecimal cost);
 }
