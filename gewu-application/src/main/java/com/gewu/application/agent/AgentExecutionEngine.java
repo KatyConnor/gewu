@@ -37,9 +37,12 @@ public class AgentExecutionEngine {
     private final AgentMessageBuilder messageBuilder;
     private final AgentMapper agentMapper;
     private final SessionMapper sessionMapper;
+    private final AgentExecutionService agentExecutionService;
 
     /**
      * 同步执行：委托 ReactAgentExecutor 全链路（安全/记忆/预算/路由），映射回 legacy 响应结构。
+     * 执行账本自动落库（T3.4/T4.1）：开始创建 running 记录，完成/失败回写，
+     * A/B 实验分组从 Agent modelConfig.experimentGroup 解析写入。
      */
     public LlmResponse executeAgent(AgentExecutionRequest request) {
         log.info("同步对话请求(收敛引擎): agentId={}, model={}, agentMode={}, messageLen={}",
@@ -47,12 +50,20 @@ public class AgentExecutionEngine {
                 request.getMessage() != null ? request.getMessage().length() : 0);
 
         AgentTask task = buildTask(request);
-        com.gewu.agent.engine.llm.model.LlmResponse result = agentExecutor.execute(task);
-        return toLegacyResponse(result);
+        String executionId = recordStart(task);
+        try {
+            com.gewu.agent.engine.llm.model.LlmResponse result = agentExecutor.execute(task);
+            recordComplete(executionId, result);
+            return toLegacyResponse(result);
+        } catch (RuntimeException e) {
+            recordFail(executionId, e.getMessage());
+            throw e;
+        }
     }
 
     /**
      * 流式执行：委托 ReactAgentExecutor，AgentEvent 逐项映射为 legacy AgentChunk 事件。
+     * 执行账本：流开始创建 running 记录，完成/错误回调回写（客户端取消不落库，与 SSE 主链路一致）。
      */
     public Flux<AgentChunk> executeAgentStream(AgentExecutionRequest request) {
         log.info("流式对话请求(收敛引擎): agentId={}, model={}, agentMode={}, messageLen={}",
@@ -60,8 +71,77 @@ public class AgentExecutionEngine {
                 request.getMessage() != null ? request.getMessage().length() : 0);
 
         AgentTask task = buildTask(request);
+        String executionId = recordStart(task);
+        StringBuilder contentTracker = new StringBuilder();
         return agentExecutor.executeStream(task)
-                .map(this::toChunk);
+                .doOnNext(event -> {
+                    if ("content".equals(event.getType()) && event.getContent() != null) {
+                        contentTracker.append(event.getContent());
+                    }
+                })
+                .map(this::toChunk)
+                .doOnComplete(() -> recordComplete(executionId,
+                        com.gewu.agent.engine.llm.model.LlmResponse.builder()
+                                .content(contentTracker.toString()).build()))
+                .doOnError(e -> recordFail(executionId, e.getMessage()));
+    }
+
+    // ==================== 执行账本（T3.4/T4.1） ====================
+
+    /** 创建执行记录并返回 executionId（账本失败不阻断对话主链路） */
+    private String recordStart(AgentTask task) {
+        if (task.getAgentId() == null || task.getAgentId().isBlank()) {
+            return null;
+        }
+        try {
+            return agentExecutionService.createExecution(
+                    task.getAgentId(), task.getSessionId(), task.getMessage(),
+                    resolveExperimentGroup(task.getAgentId())).getExecutionId();
+        } catch (Exception e) {
+            log.warn("执行记录创建失败（忽略，不阻断对话）: agentId={}, cause={}",
+                    task.getAgentId(), e.getMessage());
+            return null;
+        }
+    }
+
+    private void recordComplete(String executionId, com.gewu.agent.engine.llm.model.LlmResponse response) {
+        if (executionId == null) {
+            return;
+        }
+        try {
+            Integer tokens = response != null && response.getUsage() != null
+                    ? response.getUsage().getTotalTokens() : null;
+            agentExecutionService.completeExecution(executionId,
+                    response != null ? response.getContent() : null, tokens);
+        } catch (Exception e) {
+            log.warn("执行记录完成回写失败（忽略）: executionId={}, cause={}", executionId, e.getMessage());
+        }
+    }
+
+    private void recordFail(String executionId, String error) {
+        if (executionId == null) {
+            return;
+        }
+        try {
+            agentExecutionService.failExecution(executionId, error);
+        } catch (Exception e) {
+            log.warn("执行记录失败回写失败（忽略）: executionId={}, cause={}", executionId, e.getMessage());
+        }
+    }
+
+    /** 从 Agent modelConfig JSON 解析 A/B 实验分组 */
+    private String resolveExperimentGroup(String agentId) {
+        try {
+            Agent agent = agentMapper.selectById(agentId);
+            if (agent == null || agent.getModelConfig() == null || agent.getModelConfig().isBlank()) {
+                return null;
+            }
+            com.fasterxml.jackson.databind.JsonNode node =
+                    new com.fasterxml.jackson.databind.ObjectMapper().readTree(agent.getModelConfig());
+            return node.has("experimentGroup") ? node.path("experimentGroup").asText(null) : null;
+        } catch (Exception e) {
+            return null;
+        }
     }
 
     // ==================== 适配映射 ====================

@@ -30,6 +30,17 @@ public class AgentExecutionService {
 
     @Transactional
     public AgentExecutionDTO createExecution(String agentId, String sessionId, String input) {
+        return createExecution(agentId, sessionId, input, null);
+    }
+
+    /**
+     * 创建执行记录（带 A/B 实验分组，T3.4）。
+     *
+     * @param experimentGroup 实验分组（null 表示未参与实验）
+     */
+    @Transactional
+    public AgentExecutionDTO createExecution(String agentId, String sessionId, String input,
+                                              String experimentGroup) {
         Agent agent = agentMapper.selectById(agentId);
         if (agent == null) {
             throw BusinessException.of(ResultCode.AGENT_NOT_FOUND);
@@ -41,6 +52,7 @@ public class AgentExecutionService {
         execution.setUserId(UserContext.currentUserId());
         execution.setStatus("running");
         execution.setInput(input);
+        execution.setExperimentGroup(experimentGroup);
         execution.setStartedAt(Instant.now().toEpochMilli());
         agentExecutionMapper.insert(execution);
         return toDTO(execution);

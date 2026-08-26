@@ -1,6 +1,7 @@
 package com.gewu.infrastructure.mapper;
 
 import com.baomidou.mybatisplus.core.mapper.BaseMapper;
+import com.gewu.infrastructure.dto.ExperimentGroupStats;
 import com.gewu.domain.agent.AgentExecution;
 import com.gewu.domain.agent.AgentExecutionCount;
 import org.apache.ibatis.annotations.Mapper;
@@ -25,4 +26,28 @@ public interface AgentExecutionMapper extends BaseMapper<AgentExecution> {
             " GROUP BY agent_id" +
             "</script>")
     List<AgentExecutionCount> countByAgentIds(@Param("agentIds") List<String> agentIds);
+
+    /**
+     * A/B 实验分组聚合统计（T3.4）：按 experiment_group 分组，
+     * 左联 evaluation_record 取 LLM-as-Judge 平均分。
+     *
+     * @param from 开始时间（毫秒，null 不限）
+     * @param to 结束时间（毫秒，null 不限）
+     */
+    @Select("<script>" +
+            "SELECT e.experiment_group AS experimentGroup," +
+            "  COUNT(*) AS totalCount," +
+            "  SUM(CASE WHEN e.status = 'completed' THEN 1 ELSE 0 END) AS successCount," +
+            "  AVG(e.duration_ms) AS avgDurationMs," +
+            "  AVG(e.tokens_used) AS avgTokens," +
+            "  AVG(j.score) AS avgJudgeScore," +
+            "  COUNT(j.id) AS judgedCount " +
+            "FROM agent_execution e " +
+            "LEFT JOIN evaluation_record j ON j.execution_id = e.id " +
+            "WHERE e.experiment_group IS NOT NULL " +
+            "<if test='from != null'> AND e.started_at &gt;= #{from}</if>" +
+            "<if test='to != null'> AND e.started_at &lt;= #{to}</if>" +
+            " GROUP BY e.experiment_group ORDER BY e.experiment_group" +
+            "</script>")
+    List<ExperimentGroupStats> aggregateByExperimentGroup(@Param("from") Long from, @Param("to") Long to);
 }

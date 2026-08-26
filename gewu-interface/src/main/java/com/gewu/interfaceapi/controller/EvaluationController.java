@@ -1,6 +1,7 @@
 package com.gewu.interfaceapi.controller;
 
 import com.gewu.application.evaluation.EvaluationService;
+import com.gewu.application.evaluation.ExperimentService;
 import com.gewu.application.evaluation.LlmJudge;
 import com.gewu.application.evaluation.SPCDegradationDetector;
 import com.gewu.common.result.Result;
@@ -25,11 +26,22 @@ import java.util.List;
 public class EvaluationController {
 
     private final EvaluationService evaluationService;
+    private final ExperimentService experimentService;
 
     @GetMapping
     @Operation(summary = "查询最近评测记录")
     public Result<List<EvaluationRecordEntity>> listRecent(@RequestParam(defaultValue = "20") int limit) {
         return Result.success(evaluationService.listRecent(limit));
+    }
+
+    @GetMapping("/experiment-compare")
+    @Operation(summary = "A/B 实验分组对比报表",
+            description = "按 agent_execution.experiment_group 聚合成功率/时长/token/Judge 分值；"
+                    + "分组来自 Agent modelConfig JSON 的 experimentGroup 字段；含预置对照组说明")
+    public Result<java.util.Map<String, Object>> experimentCompare(
+            @RequestParam(required = false) Long from,
+            @RequestParam(required = false) Long to) {
+        return Result.success(experimentService.compare(from, to));
     }
 
     @GetMapping("/degradation")
