@@ -24,10 +24,6 @@ public class CacheKeys {
         return "gewu:project:info:" + projectId;
     }
 
-    public static String session(String sessionId) {
-        return "gewu:session:info:" + sessionId;
-    }
-
     public static String agent(String agentId) {
         return "gewu:agent:info:" + agentId;
     }

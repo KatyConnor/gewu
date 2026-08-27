@@ -25,7 +25,7 @@ public class SseController {
     @Operation(summary = "订阅会话事件", description = "建立 SSE 长连接以接收会话内实时消息推送")
     public SseEmitter subscribe(@PathVariable String sessionId) {
         SseEmitter emitter = new SseEmitter(0L);
-        sseEventManager.addEmitter(sessionId, emitter);
+        sseEventManager.addEmitter(sessionId, com.gewu.common.context.UserContext.currentUserId(), emitter);
         return emitter;
     }
 }

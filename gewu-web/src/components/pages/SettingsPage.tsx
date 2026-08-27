@@ -241,7 +241,7 @@ export default function SettingsPage() {
                 <div><button className="px-3 py-1.5 text-xs btn-primary text-white rounded-lg">更换头像</button><p className="text-xs text-ink-500 mt-1">支持 JPG、PNG，最大 2MB</p></div>
               </div>
               <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-xs text-ink-400 mb-1">姓名</label><input type="text" defaultValue="张明远" className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" /></div>
+                <div><label className="block text-xs text-ink-400 mb-1">姓名</label><input type="text" placeholder="请输入姓名" className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" /></div>
                 <div><label className="block text-xs text-ink-400 mb-1">邮箱</label><input type="email" defaultValue="zhang@company.com" className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" /></div>
                 <div><label className="block text-xs text-ink-400 mb-1">部门</label><input type="text" defaultValue="产品部" className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" /></div>
                 <div><label className="block text-xs text-ink-400 mb-1">职位</label><input type="text" defaultValue="高级总监" className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" /></div>

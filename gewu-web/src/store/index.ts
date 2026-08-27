@@ -57,13 +57,9 @@ const initialState: AppState = {
   isAuthenticated: initialAuth.isAuthenticated,
   sidebarOpen: true,
   messages: [],
-  chatSessions: [
-    { id: '1', title: 'Q3 产品规划文档撰写', messages: [
-      { id: '1', role: 'ai' as const, content: '您好！我是文档助手。我已了解您需要撰写 Q3 产品规划文档。让我先为您梳理框架：\n\n1. 市场分析与竞品调研\n2. 产品目标与 OKR 设定\n3. 核心功能路线图\n4. 资源规划与里程碑\n\n请问您希望从哪个部分开始？', timestamp: '10:30' },
-      { id: '2', role: 'user' as const, content: '从市场分析开始吧。我们主要关注金融科技领域的竞品，特别是支付和财富管理方向。', timestamp: '10:32' },
-    ]},
-  ],
-  activeSessionId: '1',
+  // 会话列表由 ChatPage 从后端拉取（原 mock 数据已清理，T4.4）
+  chatSessions: [],
+  activeSessionId: null,
   projects: [],
   pendingAgentId: null,
 };

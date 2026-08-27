@@ -61,6 +61,7 @@ export default function ChatPage() {
   const [agentId, setAgentId] = useState<string | null>(null);
   const [agentOptions, setAgentOptions] = useState<{ value: string; label: string }[]>([]);
   const pendingAgentId = useSelector((s: RootState) => s.app.pendingAgentId);
+  const currentUser = useSelector((s: RootState) => s.app.user);
   // 会话记录
   const [sessions, setSessions] = useState<SessionDTO[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
@@ -69,6 +70,7 @@ export default function ChatPage() {
   const [filterProjectId, setFilterProjectId] = useState<string | null>(null);
   const [projectSessions, setProjectSessions] = useState<SessionDTO[]>([]);
   const [filteredSessions, setFilteredSessions] = useState<SessionDTO[]>([]);
+  const [searchQuery, setSearchQuery] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const dispatch = useDispatch();
   const toast = useToast();
@@ -149,8 +151,13 @@ export default function ChatPage() {
     }
     // 'all' 显示所有会话
 
+    // 搜索框过滤（T4.4 接线）：按标题关键字
+    const q = searchQuery.trim().toLowerCase();
+    if (q) {
+      filtered = filtered.filter(s => s.title.toLowerCase().includes(q));
+    }
     setFilteredSessions(filtered);
-  }, [activeTab, sessions]);
+  }, [activeTab, sessions, searchQuery]);
 
   // 从 URL hash 解析项目 ID 和会话 ID
   useEffect(() => {
@@ -358,7 +365,7 @@ export default function ChatPage() {
             </div>
             <div className="flex items-center gap-2 px-3 py-2 rounded-lg border search-bg">
               <svg className="w-4 h-4 text-ink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-              <input type="text" placeholder="搜索会话..." className="bg-transparent text-sm text-ink-200 placeholder-ink-500 outline-none flex-1" />
+              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="搜索会话..." className="bg-transparent text-sm text-ink-200 placeholder-ink-500 outline-none flex-1" />
             </div>
           </div>
           <div className="px-3 pt-3 pb-1"><div className="flex gap-1 rounded-lg p-1 tab-bar-bg">
@@ -397,8 +404,8 @@ export default function ChatPage() {
           </div>
           <div className="p-3 border-t" style={{ borderColor: 'rgba(0,184,148,0.08)' }}>
             <div className="flex items-center gap-3 px-2 py-1.5">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center text-white font-semibold text-xs">张</div>
-              <div className="flex-1 min-w-0"><p className="text-xs text-ink-100 truncate font-medium">张明远</p></div>
+              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center text-white font-semibold text-xs">{(currentUser?.name || '用').charAt(0)}</div>
+              <div className="flex-1 min-w-0"><p className="text-xs text-ink-100 truncate font-medium">{currentUser?.name || '当前用户'}</p></div>
               <button onClick={backToHome} className="p-1.5 text-ink-500 hover:text-tech-400 rounded-md transition-all" title="返回主页"><ArrowLeft className="w-4 h-4" /></button>
             </div>
           </div>
@@ -419,7 +426,7 @@ export default function ChatPage() {
           </div>
           <div className="flex items-center gap-2 px-3 py-2 rounded-lg border search-bg">
             <svg className="w-4 h-4 text-ink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-            <input type="text" placeholder="搜索会话..." className="bg-transparent text-sm text-ink-200 placeholder-ink-500 outline-none flex-1" />
+            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="搜索会话..." className="bg-transparent text-sm text-ink-200 placeholder-ink-500 outline-none flex-1" />
           </div>
         </div>
         <div className="px-3 pt-3 pb-1"><div className="flex gap-1 rounded-lg p-1 tab-bar-bg">
@@ -456,8 +463,8 @@ export default function ChatPage() {
         </div>
         <div className="p-3 border-t" style={{ borderColor: 'rgba(0,184,148,0.08)' }}>
           <div className="flex items-center gap-3 px-2 py-1.5">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center text-white font-semibold text-xs">张</div>
-            <div className="flex-1 min-w-0"><p className="text-xs text-ink-100 truncate font-medium">张明远</p></div>
+            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center text-white font-semibold text-xs">{(currentUser?.name || '用').charAt(0)}</div>
+            <div className="flex-1 min-w-0"><p className="text-xs text-ink-100 truncate font-medium">{currentUser?.name || '当前用户'}</p></div>
             <button onClick={backToHome} className="p-1.5 text-ink-500 hover:text-tech-400 rounded-md transition-all" title="返回主页"><ArrowLeft className="w-4 h-4" /></button>
           </div>
         </div>
