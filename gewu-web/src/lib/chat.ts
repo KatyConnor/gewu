@@ -184,6 +184,10 @@ export async function chatStream(
     onWebVerifying?: (status: string) => void;
     onWebVerdict?: (verdict: VerifyInfo) => void;
     onFile?: (file: FileInfo) => void;
+    /** 执行经验沉淀通知（完成后写入长期记忆） */
+    onExperienceSaved?: (note: string) => void;
+    /** 失败已记录通知（进入失败案例库） */
+    onFailureRecorded?: (reason: string) => void;
     onError?: (error: string) => void;
     onComplete?: () => void;
   }
@@ -315,6 +319,10 @@ function handleStreamEvent(
     onWebVerifying?: (status: string) => void;
     onWebVerdict?: (verdict: VerifyInfo) => void;
     onFile?: (file: FileInfo) => void;
+    /** 执行经验沉淀通知（完成后写入长期记忆） */
+    onExperienceSaved?: (note: string) => void;
+    /** 失败已记录通知（进入失败案例库） */
+    onFailureRecorded?: (reason: string) => void;
     onError?: (error: string) => void;
     onComplete?: () => void;
   }
@@ -370,9 +378,17 @@ function handleStreamEvent(
         callbacks.onWebVerdict(event.verify);
       }
       break;
+    case 'experience_saved':
+      if (callbacks.onExperienceSaved) {
+        callbacks.onExperienceSaved(event.content || '执行经验已沉淀至长期记忆');
+      }
+      break;
+    case 'failure_recorded':
+      if (callbacks.onFailureRecorded) {
+        callbacks.onFailureRecorded(event.content || '失败已记录');
+      }
+      break;
     case 'file':
-      if (event.file && callbacks.onFile) {
-        callbacks.onFile(event.file);
       }
       break;
   }

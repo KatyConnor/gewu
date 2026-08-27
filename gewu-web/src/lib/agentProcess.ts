@@ -242,6 +242,9 @@ export function createProcessStreamHandler(onUpdate: (snapshot: ProcessSnapshot)
       onWebVerifying: (status: string) => { tracker.searchVerifying(status); notify(); },
       onWebVerdict: (verdict: VerifyInfo) => { tracker.searchVerdict(verdict); notify(); },
       onContentStarted: () => { tracker.contentStarted(); notify(); },
+      // T4.5 新事件：以阶段状态提示呈现（通知型，无需过程条目）
+      onExperienceSaved: (note: string) => { tracker.setStatus(note); notify(); },
+      onFailureRecorded: (reason: string) => { tracker.setStatus(reason); notify(); },
     },
   };
 }

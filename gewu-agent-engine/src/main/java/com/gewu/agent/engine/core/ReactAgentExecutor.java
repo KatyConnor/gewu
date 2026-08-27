@@ -255,11 +255,17 @@ public class ReactAgentExecutor implements AgentExecutor {
                 })
                 .onErrorResume(e -> {
                     log.error("Agent 流式执行异常: agentId={}", task.getAgentId(), e);
-                    recordFailure(task, e.getMessage() != null ? e.getMessage() : "stream_error");
-                    return Flux.just(AgentEvent.builder()
-                            .type(AgentEvent.ERROR)
-                            .errorMessage(e.getMessage() != null ? e.getMessage() : "AI 处理失败")
-                            .build());
+                    String reason = e.getMessage() != null ? e.getMessage() : "stream_error";
+                    recordFailure(task, reason);
+                    return Flux.just(
+                            AgentEvent.builder()
+                                    .type(AgentEvent.FAILURE_RECORDED)
+                                    .content("失败已记录：" + reason)
+                                    .build(),
+                            AgentEvent.builder()
+                                    .type(AgentEvent.ERROR)
+                                    .errorMessage(e.getMessage() != null ? e.getMessage() : "AI 处理失败")
+                                    .build());
                 });
     }
 
@@ -367,7 +373,13 @@ public class ReactAgentExecutor implements AgentExecutor {
                                             "请增大 max_tokens 或简化问题后重试。")
                                     .build());
                         }
-                        return Flux.just(AgentEvent.builder().type(AgentEvent.DONE).build());
+                        // 经验沉淀通知 + 完成事件（T4.5：实际写入在流终止回调，
+                        // 此事件告知前端本次交互将沉淀为长期记忆）
+                        return Flux.just(
+                                AgentEvent.builder().type(AgentEvent.EXPERIENCE_SAVED)
+                                        .content("执行经验已沉淀至长期记忆")
+                                        .build(),
+                                AgentEvent.builder().type(AgentEvent.DONE).build());
                     }
 
                     List<AgentEvent> toolCallEvents = new ArrayList<>();

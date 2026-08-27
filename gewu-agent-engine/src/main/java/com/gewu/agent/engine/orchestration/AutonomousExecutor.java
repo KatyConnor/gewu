@@ -150,7 +150,7 @@ public class AutonomousExecutor {
                 "iteration=" + iteration);
 
         // 验收：使用双闭环验证 + 置信度门控
-        boolean accepted = verifyGoal(goal, result, ctx);
+        boolean accepted = verifyGoal(goal, result, ctx, sink);
 
         if (accepted) {
             instance.setTokenConsumed(budget.getTokenConsumed());
@@ -178,10 +178,12 @@ public class AutonomousExecutor {
     /**
      * 验收校验 - 使用双闭环验证 + 置信度门控。
      * <p>优先使用 DualLoopVerifier 进行内环（≤5 轮）+ 外环（≤2 轮）验证，
-     * 再由 ConfidenceGate 做置信度门控决策。
+     * 再由 ConfidenceGate 做置信度门控决策。验证与门控结果通过事件流
+     * （verification_result / confidence_check）对外可见（T4.5）。
      */
     protected boolean verifyGoal(AutonomousGoal goal, OrchestrationResult result,
-                                 OrchestrationContext ctx) {
+                                 OrchestrationContext ctx,
+                                 reactor.core.publisher.FluxSink<AgentEvent> sink) {
         if (!"SUCCESS".equals(result.getStatus())) {
             return false;
         }
@@ -200,6 +202,24 @@ public class AutonomousExecutor {
             GateDecision gate = confidenceGate.evaluate(verification.getScore());
             log.debug("verifyGoal: verificationLayer={}, score={}, gateAction={}",
                     verification.getLayer(), verification.getScore(), gate.getAction());
+
+            // 事件流透出验证与门控结果（T4.5 事件协议完善）
+            if (sink != null) {
+                sink.next(AgentEvent.builder()
+                        .type(com.gewu.agent.engine.core.event.AgentEvent.VERIFICATION_RESULT)
+                        .metadata(Map.of(
+                                "layer", verification.getLayer() != null ? verification.getLayer() : "unknown",
+                                "score", verification.getScore(),
+                                "passed", verification.isPassed()))
+                        .build());
+                sink.next(AgentEvent.builder()
+                        .type(com.gewu.agent.engine.core.event.AgentEvent.CONFIDENCE_CHECK)
+                        .metadata(Map.of(
+                                "score", gate.getScore(),
+                                "action", gate.getAction().name(),
+                                "reason", gate.getReason() != null ? gate.getReason() : ""))
+                        .build());
+            }
 
             if (gate.getAction() == GateDecision.Action.ESCALATE_HITL) {
                 evolutionHook.onGoalFailure(
