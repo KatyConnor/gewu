@@ -34,11 +34,15 @@ public class DbHitlGatewayAdapter implements HitlGateway {
 
     private final ObjectProvider<OrchestrationService> orchestrationServiceProvider;
     private final SseEventManager sseEventManager;
+    /** 分布式决策回传（gewu.sse.distributed=true 时注入；单实例为 null） */
+    private final ObjectProvider<com.gewu.application.sse.SseBroadcastService> broadcastProvider;
 
     public DbHitlGatewayAdapter(ObjectProvider<OrchestrationService> orchestrationServiceProvider,
-                                 SseEventManager sseEventManager) {
+                                 SseEventManager sseEventManager,
+                                 ObjectProvider<com.gewu.application.sse.SseBroadcastService> broadcastProvider) {
         this.orchestrationServiceProvider = orchestrationServiceProvider;
         this.sseEventManager = sseEventManager;
+        this.broadcastProvider = broadcastProvider;
     }
 
     /** 待审批 Mono Sink 注册表（approvalId -> Sink），用于异步恢复阻塞的 Mono */
@@ -99,6 +103,7 @@ public class DbHitlGatewayAdapter implements HitlGateway {
      * 提交人工决策 - 恢复阻塞的 Mono。
      * <p>由 {@link com.gewu.interfaceapi.controller.ApprovalController} 的 approve/reject 调用，
      * 经 {@link OrchestrationService} 转发到此处。
+     * <p>多副本：本实例不持有挂起审批时经 Redis 频道回传给持有实例（T5.1）。
      */
     @Override
     public void submitDecision(String approvalId, HumanDecision decision) {
@@ -107,8 +112,27 @@ public class DbHitlGatewayAdapter implements HitlGateway {
         if (sink != null) {
             sink.tryEmitValue(decision);
             log.info("HITL 决策提交: approvalId={}, decision={}", approvalId, decision.getDecision());
+            return;
+        }
+        com.gewu.application.sse.SseBroadcastService broadcaster = broadcastProvider.getIfAvailable();
+        if (broadcaster != null) {
+            // 决策在另一实例提交：经频道回传给持有挂起审批的实例
+            broadcaster.relayDecision(approvalId, decision);
+            log.info("HITL 决策跨实例回传: approvalId={}, decision={}", approvalId, decision.getDecision());
+            return;
+        }
+        log.warn("HITL 决策提交但无待审批记录: approvalId={}", approvalId);
+    }
+
+    /** 本地决策回传（多副本订阅器路由命中时调用），不产生跨实例广播 */
+    public void completeLocal(String approvalId, HumanDecision decision) {
+        Sinks.One<HumanDecision> sink = pendingApprovals.remove(approvalId);
+        approvalToSession.remove(approvalId);
+        if (sink != null) {
+            sink.tryEmitValue(decision);
+            log.info("HITL 决策回传恢复: approvalId={}, decision={}", approvalId, decision.getDecision());
         } else {
-            log.warn("HITL 决策提交但无待审批记录: approvalId={}", approvalId);
+            log.warn("HITL 决策回传但本实例无挂起审批: approvalId={}", approvalId);
         }
     }
 
