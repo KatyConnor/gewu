@@ -1,36 +1,25 @@
 // MCP Server 管理 API - 对接后端 McpServerController
-import { getAccessToken } from './token';
+// T4.3 收敛：统一走 request.ts（axios 拦截器：token 注入/401 跳转）
+import { request } from './request';
 import { API_ENDPOINTS } from './api';
 
-function getBaseUrl(): string {
-  if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_API_BASE) {
-    return process.env.NEXT_PUBLIC_API_BASE;
-  }
-  return 'http://localhost:8081/api';
-}
-
-const BASE = getBaseUrl();
-
-async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const token = getAccessToken();
-  return fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
-}
-
-async function handleResponse<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(`请求失败: ${res.status}`);
-  const json = await res.json();
-  if (!json || json.code !== 10000) throw new Error(json?.message || '请求失败');
-  return json.data;
-}
-
 // ==================== 类型定义 ====================
+
+/** 后端统一响应信封 */
+interface ApiResponse<T> {
+  code: number;
+  message: string;
+  data: T;
+  timestamp: number;
+  success: boolean;
+}
+
+/** 信封解包（session.ts 试点范式） */
+async function unwrap<T>(p: Promise<ApiResponse<T>>): Promise<T> {
+  const res = await p;
+  if (!res || res.code !== 10000) throw new Error(res?.message || '请求失败');
+  return res.data;
+}
 
 export interface McpServerDTO {
   id: string;
@@ -83,28 +72,23 @@ function toMcpServerDTO(dto: McpServerApiDTO): McpServerDTO {
 
 /** 获取 MCP Server 列表（后端返回分页对象，需解包 records） */
 export async function listMcpServers(): Promise<McpServerDTO[]> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.MCP_SERVER}`);
-  const page = await handleResponse<PageResult<McpServerApiDTO>>(res);
+  const page = await unwrap(request.get<ApiResponse<PageResult<McpServerApiDTO>>>(
+    API_ENDPOINTS.MCP_SERVER));
   return (page?.records ?? []).map(toMcpServerDTO);
 }
 
 /** 创建 MCP Server */
 export async function createMcpServer(data: Partial<McpServerDTO>): Promise<McpServerDTO> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.MCP_SERVER}`, {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-  return toMcpServerDTO(await handleResponse<McpServerApiDTO>(res));
+  return toMcpServerDTO(await unwrap(
+    request.post<ApiResponse<McpServerApiDTO>>(API_ENDPOINTS.MCP_SERVER, data)));
 }
 
 /** 删除 MCP Server */
 export async function deleteMcpServer(id: string): Promise<void> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.MCP_SERVER}/${id}`, { method: 'DELETE' });
-  return handleResponse<void>(res);
+  return unwrap(request.delete<ApiResponse<void>>(`${API_ENDPOINTS.MCP_SERVER}/${id}`));
 }
 
 /** 激活 MCP Server（重新连接） */
 export async function activateMcpServer(id: string): Promise<void> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.MCP_SERVER}/${id}/activate`, { method: 'POST' });
-  return handleResponse<void>(res);
+  return unwrap(request.post<ApiResponse<void>>(`${API_ENDPOINTS.MCP_SERVER}/${id}/activate`));
 }

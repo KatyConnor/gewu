@@ -1,37 +1,27 @@
 // Agent 管理 API - 对接后端 AgentController
-import { getAccessToken } from './token';
+// T4.3 收敛：统一走 request.ts（axios 拦截器：token 注入/401 跳转），
+// 原 authFetch/handleResponse 双轨封装已移除。
+import { request } from './request';
 import { API_ENDPOINTS } from './api';
 import type { SkillDTO } from './skill';
 
-function getBaseUrl(): string {
-  if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_API_BASE) {
-    return process.env.NEXT_PUBLIC_API_BASE;
-  }
-  return 'http://localhost:8081/api';
-}
-
-const BASE = getBaseUrl();
-
-async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const token = getAccessToken();
-  return fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
-}
-
-async function handleResponse<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(`请求失败: ${res.status}`);
-  const json = await res.json();
-  if (!json || json.code !== 10000) throw new Error(json?.message || '请求失败');
-  return json.data;
-}
-
 // ==================== 类型定义 ====================
+
+/** 后端统一响应信封 */
+interface ApiResponse<T> {
+  code: number;
+  message: string;
+  data: T;
+  timestamp: number;
+  success: boolean;
+}
+
+/** 信封解包（session.ts 试点范式） */
+async function unwrap<T>(p: Promise<ApiResponse<T>>): Promise<T> {
+  const res = await p;
+  if (!res || res.code !== 10000) throw new Error(res?.message || '请求失败');
+  return res.data;
+}
 
 /** 分页查询结果（与后端 PageResult 对齐，同 project.ts 范式） */
 export interface PageResult<T> {
@@ -116,75 +106,56 @@ export interface PublishAgentCommand {
 
 /** 获取 Agent 列表（分页） */
 export async function listAgents(page = 1, size = 20): Promise<PageResult<AgentDTO>> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.AGENTS}?page=${page}&size=${size}`);
-  return handleResponse<PageResult<AgentDTO>>(res);
+  return unwrap(request.get<ApiResponse<PageResult<AgentDTO>>>(
+    `${API_ENDPOINTS.AGENTS}?page=${page}&size=${size}`));
 }
 
 /** 创建 Agent */
 export async function createAgent(data: CreateAgentCommand): Promise<AgentDTO> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.AGENTS}`, {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-  return handleResponse<AgentDTO>(res);
+  return unwrap(request.post<ApiResponse<AgentDTO>>(API_ENDPOINTS.AGENTS, data));
 }
 
 /** 获取 Agent 详情 */
 export async function getAgent(agentId: string): Promise<AgentDTO> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.AGENTS}/${agentId}`);
-  return handleResponse<AgentDTO>(res);
+  return unwrap(request.get<ApiResponse<AgentDTO>>(`${API_ENDPOINTS.AGENTS}/${agentId}`));
 }
 
 /** 更新 Agent */
 export async function updateAgent(agentId: string, data: UpdateAgentCommand): Promise<AgentDTO> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.AGENTS}/${agentId}`, {
-    method: 'PUT',
-    body: JSON.stringify(data),
-  });
-  return handleResponse<AgentDTO>(res);
+  return unwrap(request.put<ApiResponse<AgentDTO>>(`${API_ENDPOINTS.AGENTS}/${agentId}`, data));
 }
 
 /** 删除 Agent */
 export async function deleteAgent(id: string): Promise<void> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.AGENTS}/${id}`, { method: 'DELETE' });
-  return handleResponse<void>(res);
+  return unwrap(request.delete<ApiResponse<void>>(`${API_ENDPOINTS.AGENTS}/${id}`));
 }
 
 /** 获取广场 Agent 列表 */
 export async function listMarketAgents(): Promise<AgentMarketDTO[]> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.AGENT_MARKET}`);
-  return handleResponse<AgentMarketDTO[]>(res);
+  return unwrap(request.get<ApiResponse<AgentMarketDTO[]>>(API_ENDPOINTS.AGENT_MARKET));
 }
 
 /** 安装广场 Agent */
 export async function installAgent(id: string): Promise<void> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.AGENT_MARKET}/${id}/install`, { method: 'POST' });
-  return handleResponse<void>(res);
+  return unwrap(request.post<ApiResponse<void>>(`${API_ENDPOINTS.AGENT_MARKET}/${id}/install`));
 }
 
 /** 发布 Agent 到广场 */
 export async function publishAgent(data: PublishAgentCommand): Promise<AgentMarketDTO> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.AGENT_MARKET}`, {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-  return handleResponse<AgentMarketDTO>(res);
+  return unwrap(request.post<ApiResponse<AgentMarketDTO>>(API_ENDPOINTS.AGENT_MARKET, data));
 }
 
 /** 获取智能体已挂载的技能列表 */
 export async function listAgentSkills(agentId: string): Promise<SkillDTO[]> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.AGENTS}/${agentId}/skills`);
-  return handleResponse<SkillDTO[]>(res);
+  return unwrap(request.get<ApiResponse<SkillDTO[]>>(`${API_ENDPOINTS.AGENTS}/${agentId}/skills`));
 }
 
 /** 挂载技能到智能体 */
 export async function mountSkill(agentId: string, skillId: string): Promise<void> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.AGENTS}/${agentId}/skills/${skillId}`, { method: 'POST' });
-  return handleResponse<void>(res);
+  return unwrap(request.post<ApiResponse<void>>(`${API_ENDPOINTS.AGENTS}/${agentId}/skills/${skillId}`));
 }
 
 /** 卸载智能体技能 */
 export async function unmountSkill(agentId: string, skillId: string): Promise<void> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.AGENTS}/${agentId}/skills/${skillId}`, { method: 'DELETE' });
-  return handleResponse<void>(res);
+  return unwrap(request.delete<ApiResponse<void>>(`${API_ENDPOINTS.AGENTS}/${agentId}/skills/${skillId}`));
 }

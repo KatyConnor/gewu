@@ -1,36 +1,25 @@
 // 用户管理 API - 对接后端 UserController（管理员功能）
-import { getAccessToken } from './token';
+// T4.3 收敛：统一走 request.ts（axios 拦截器：token 注入/401 跳转）
+import { request } from './request';
 import { API_ENDPOINTS } from './api';
 
-function getBaseUrl(): string {
-  if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_API_BASE) {
-    return process.env.NEXT_PUBLIC_API_BASE;
-  }
-  return 'http://localhost:8081/api';
-}
-
-const BASE = getBaseUrl();
-
-async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const token = getAccessToken();
-  return fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
-}
-
-async function handleResponse<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(`请求失败: ${res.status}`);
-  const json = await res.json();
-  if (!json || json.code !== 10000) throw new Error(json?.message || '请求失败');
-  return json.data;
-}
-
 // ==================== 类型定义 ====================
+
+/** 后端统一响应信封 */
+interface ApiResponse<T> {
+  code: number;
+  message: string;
+  data: T;
+  timestamp: number;
+  success: boolean;
+}
+
+/** 信封解包（session.ts 试点范式） */
+async function unwrap<T>(p: Promise<ApiResponse<T>>): Promise<T> {
+  const res = await p;
+  if (!res || res.code !== 10000) throw new Error(res?.message || '请求失败');
+  return res.data;
+}
 
 export interface PageResult<T> {
   records: T[];
@@ -71,45 +60,29 @@ export const ROLE_OPTIONS = [
 
 /** 用户列表（管理员，支持搜索与机构过滤） */
 export async function listUsers(page = 1, size = 20, keyword?: string, orgId?: string): Promise<PageResult<UserDTO>> {
-  let url = `${BASE}${API_ENDPOINTS.USERS}?page=${page}&size=${size}`;
+  let url = `${API_ENDPOINTS.USERS}?page=${page}&size=${size}`;
   if (keyword) url += `&keyword=${encodeURIComponent(keyword)}`;
   if (orgId) url += `&orgId=${encodeURIComponent(orgId)}`;
-  const res = await authFetch(url);
-  return handleResponse<PageResult<UserDTO>>(res);
+  return unwrap(request.get<ApiResponse<PageResult<UserDTO>>>(url));
 }
 
 /** 更新用户状态（1=启用 2=禁用 3=锁定） */
 export async function updateUserStatus(userId: string, status: number): Promise<void> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.USERS}/${userId}/status`, {
-    method: 'PUT',
-    body: JSON.stringify({ status }),
-  });
-  return handleResponse<void>(res);
+  return unwrap(request.put<ApiResponse<void>>(`${API_ENDPOINTS.USERS}/${userId}/status`, { status }));
 }
 
 /** 重置用户密码 */
 export async function resetPassword(userId: string, newPassword: string): Promise<void> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.USERS}/${userId}/reset-password`, {
-    method: 'POST',
-    body: JSON.stringify({ newPassword }),
-  });
-  return handleResponse<void>(res);
+  return unwrap(request.post<ApiResponse<void>>(`${API_ENDPOINTS.USERS}/${userId}/reset-password`,
+    { newPassword }));
 }
 
 /** 分配角色 */
 export async function assignRoles(userId: string, roleCodes: string[]): Promise<void> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.USERS}/${userId}/roles`, {
-    method: 'PUT',
-    body: JSON.stringify({ roleCodes }),
-  });
-  return handleResponse<void>(res);
+  return unwrap(request.put<ApiResponse<void>>(`${API_ENDPOINTS.USERS}/${userId}/roles`, { roleCodes }));
 }
 
 /** 分配机构 */
 export async function assignOrg(userId: string, orgId: string | null): Promise<void> {
-  const res = await authFetch(`${BASE}${API_ENDPOINTS.USERS}/${userId}/org`, {
-    method: 'PUT',
-    body: JSON.stringify({ orgId }),
-  });
-  return handleResponse<void>(res);
+  return unwrap(request.put<ApiResponse<void>>(`${API_ENDPOINTS.USERS}/${userId}/org`, { orgId }));
 }

@@ -1,35 +1,24 @@
 // 沙箱 API - 对接后端 SandboxController（沙箱服务）
-import { getAccessToken } from './token';
-
-function getBaseUrl(): string {
-  if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_API_BASE) {
-    return process.env.NEXT_PUBLIC_API_BASE;
-  }
-  return 'http://localhost:8081/api';
-}
-
-const BASE = getBaseUrl();
-
-async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const token = getAccessToken();
-  return fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
-}
-
-async function handleResponse<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(`请求失败: ${res.status}`);
-  const json = await res.json();
-  if (!json || json.code !== 10000) throw new Error(json?.message || '请求失败');
-  return json.data;
-}
+// T4.3 收敛：统一走 request.ts（axios 拦截器：token 注入/401 跳转）
+import { request } from './request';
 
 // ==================== 类型定义 ====================
+
+/** 后端统一响应信封 */
+interface ApiResponse<T> {
+  code: number;
+  message: string;
+  data: T;
+  timestamp: number;
+  success: boolean;
+}
+
+/** 信封解包（session.ts 试点范式） */
+async function unwrap<T>(p: Promise<ApiResponse<T>>): Promise<T> {
+  const res = await p;
+  if (!res || res.code !== 10000) throw new Error(res?.message || '请求失败');
+  return res.data;
+}
 
 export interface SandboxDTO {
   sandboxId: string;
@@ -53,13 +42,11 @@ export interface SandboxDTO {
 // ==================== API ====================
 
 export async function listSandboxes(): Promise<SandboxDTO[]> {
-  const res = await authFetch(`${BASE}/v1/sandboxes`);
-  return handleResponse(res);
+  return unwrap(request.get<ApiResponse<SandboxDTO[]>>('/v1/sandboxes'));
 }
 
 export async function getSandbox(id: string): Promise<SandboxDTO> {
-  const res = await authFetch(`${BASE}/v1/sandboxes/${id}`);
-  return handleResponse(res);
+  return unwrap(request.get<ApiResponse<SandboxDTO>>(`/v1/sandboxes/${id}`));
 }
 
 export async function createSandbox(command: {
@@ -71,32 +58,21 @@ export async function createSandbox(command: {
   networkEnabled?: boolean;
   timeout?: number;
 }): Promise<SandboxDTO> {
-  const res = await authFetch(`${BASE}/v1/sandboxes`, {
-    method: 'POST',
-    body: JSON.stringify(command),
-  });
-  return handleResponse(res);
+  return unwrap(request.post<ApiResponse<SandboxDTO>>('/v1/sandboxes', command));
 }
 
 export async function startSandbox(id: string): Promise<SandboxDTO> {
-  const res = await authFetch(`${BASE}/v1/sandboxes/${id}/start`, { method: 'POST' });
-  return handleResponse(res);
+  return unwrap(request.post<ApiResponse<SandboxDTO>>(`/v1/sandboxes/${id}/start`));
 }
 
 export async function stopSandbox(id: string): Promise<SandboxDTO> {
-  const res = await authFetch(`${BASE}/v1/sandboxes/${id}/stop`, { method: 'POST' });
-  return handleResponse(res);
+  return unwrap(request.post<ApiResponse<SandboxDTO>>(`/v1/sandboxes/${id}/stop`));
 }
 
 export async function deleteSandbox(id: string): Promise<void> {
-  const res = await authFetch(`${BASE}/v1/sandboxes/${id}`, { method: 'DELETE' });
-  await handleResponse(res);
+  return unwrap(request.delete<ApiResponse<void>>(`/v1/sandboxes/${id}`));
 }
 
 export async function renewSandboxExpire(id: string, expireSeconds: number): Promise<void> {
-  const res = await authFetch(`${BASE}/v1/sandboxes/${id}/expire`, {
-    method: 'PUT',
-    body: JSON.stringify({ expireSeconds }),
-  });
-  await handleResponse(res);
+  return unwrap(request.put<ApiResponse<void>>(`/v1/sandboxes/${id}/expire`, { expireSeconds }));
 }

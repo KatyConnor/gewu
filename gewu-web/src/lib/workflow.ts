@@ -1,35 +1,24 @@
 // 工作流 API - 对接后端 WorkflowController / WorkflowInstanceController
-import { getAccessToken } from './token';
-
-function getBaseUrl(): string {
-  if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_API_BASE) {
-    return process.env.NEXT_PUBLIC_API_BASE;
-  }
-  return 'http://localhost:8081/api';
-}
-
-const BASE = getBaseUrl();
-
-async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const token = getAccessToken();
-  return fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
-}
-
-async function handleResponse<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(`请求失败: ${res.status}`);
-  const json = await res.json();
-  if (!json || json.code !== 10000) throw new Error(json?.message || '请求失败');
-  return json.data;
-}
+// T4.3 收敛：统一走 request.ts（axios 拦截器：token 注入/401 跳转）
+import { request } from './request';
 
 // ==================== 类型定义 ====================
+
+/** 后端统一响应信封 */
+interface ApiResponse<T> {
+  code: number;
+  message: string;
+  data: T;
+  timestamp: number;
+  success: boolean;
+}
+
+/** 信封解包（session.ts 试点范式） */
+async function unwrap<T>(p: Promise<ApiResponse<T>>): Promise<T> {
+  const res = await p;
+  if (!res || res.code !== 10000) throw new Error(res?.message || '请求失败');
+  return res.data;
+}
 
 /** 工作流定义 */
 export interface WorkflowDTO {
@@ -85,13 +74,11 @@ export interface WorkflowNodeDTO {
 // ==================== 工作流定义 API ====================
 
 export async function listWorkflows(page = 1, size = 50): Promise<PageResult<WorkflowDTO>> {
-  const res = await authFetch(`${BASE}/v1/workflows?page=${page}&size=${size}`);
-  return handleResponse(res);
+  return unwrap(request.get<ApiResponse<PageResult<WorkflowDTO>>>(`/v1/workflows?page=${page}&size=${size}`));
 }
 
 export async function getWorkflow(workflowId: string): Promise<WorkflowDTO> {
-  const res = await authFetch(`${BASE}/v1/workflows/${workflowId}`);
-  return handleResponse(res);
+  return unwrap(request.get<ApiResponse<WorkflowDTO>>(`/v1/workflows/${workflowId}`));
 }
 
 export async function createWorkflow(command: {
@@ -100,42 +87,30 @@ export async function createWorkflow(command: {
   category?: string;
   config?: string;
 }): Promise<WorkflowDTO> {
-  const res = await authFetch(`${BASE}/v1/workflows`, {
-    method: 'POST',
-    body: JSON.stringify(command),
-  });
-  return handleResponse(res);
+  return unwrap(request.post<ApiResponse<WorkflowDTO>>('/v1/workflows', command));
 }
 
 export async function updateWorkflow(
   workflowId: string,
   command: { workflowName?: string; description?: string; category?: string; config?: string }
 ): Promise<WorkflowDTO> {
-  const res = await authFetch(`${BASE}/v1/workflows/${workflowId}`, {
-    method: 'PUT',
-    body: JSON.stringify(command),
-  });
-  return handleResponse(res);
+  return unwrap(request.put<ApiResponse<WorkflowDTO>>(`/v1/workflows/${workflowId}`, command));
 }
 
 export async function deleteWorkflow(workflowId: string): Promise<void> {
-  const res = await authFetch(`${BASE}/v1/workflows/${workflowId}`, { method: 'DELETE' });
-  await handleResponse(res);
+  return unwrap(request.delete<ApiResponse<void>>(`/v1/workflows/${workflowId}`));
 }
 
 export async function publishWorkflow(workflowId: string): Promise<WorkflowDTO> {
-  const res = await authFetch(`${BASE}/v1/workflows/${workflowId}/publish`, { method: 'POST' });
-  return handleResponse(res);
+  return unwrap(request.post<ApiResponse<WorkflowDTO>>(`/v1/workflows/${workflowId}/publish`));
 }
 
 export async function archiveWorkflow(workflowId: string): Promise<WorkflowDTO> {
-  const res = await authFetch(`${BASE}/v1/workflows/${workflowId}/archive`, { method: 'POST' });
-  return handleResponse(res);
+  return unwrap(request.post<ApiResponse<WorkflowDTO>>(`/v1/workflows/${workflowId}/archive`));
 }
 
 export async function getWorkflowNodes(workflowId: string): Promise<WorkflowNodeDTO[]> {
-  const res = await authFetch(`${BASE}/v1/workflows/${workflowId}/nodes`);
-  return handleResponse(res);
+  return unwrap(request.get<ApiResponse<WorkflowNodeDTO[]>>(`/v1/workflows/${workflowId}/nodes`));
 }
 
 // ==================== 工作流实例 API ====================
@@ -144,16 +119,13 @@ export async function startInstance(
   workflowId: string,
   command: { title?: string; variables?: string }
 ): Promise<WorkflowInstanceDTO> {
-  const res = await authFetch(`${BASE}/v1/workflows/instances/${workflowId}/start`, {
-    method: 'POST',
-    body: JSON.stringify(command),
-  });
-  return handleResponse(res);
+  return unwrap(request.post<ApiResponse<WorkflowInstanceDTO>>(
+    `/v1/workflows/instances/${workflowId}/start`, command));
 }
 
 export async function listMyInstances(page = 1, size = 20): Promise<PageResult<WorkflowInstanceDTO>> {
-  const res = await authFetch(`${BASE}/v1/workflows/instances/my?page=${page}&size=${size}`);
-  return handleResponse(res);
+  return unwrap(request.get<ApiResponse<PageResult<WorkflowInstanceDTO>>>(
+    `/v1/workflows/instances/my?page=${page}&size=${size}`));
 }
 
 export async function listInstances(
@@ -162,32 +134,26 @@ export async function listInstances(
   size = 20
 ): Promise<PageResult<WorkflowInstanceDTO>> {
   const wfParam = workflowId ? `&workflowId=${encodeURIComponent(workflowId)}` : '';
-  const res = await authFetch(`${BASE}/v1/workflows/instances?page=${page}&size=${size}${wfParam}`);
-  return handleResponse(res);
+  return unwrap(request.get<ApiResponse<PageResult<WorkflowInstanceDTO>>>(
+    `/v1/workflows/instances?page=${page}&size=${size}${wfParam}`));
 }
 
 export async function completeInstanceNode(
   instanceId: string,
   command: { comment?: string; variables?: string; approved?: boolean }
 ): Promise<void> {
-  const res = await authFetch(`${BASE}/v1/workflows/instances/${instanceId}/complete`, {
-    method: 'PUT',
-    body: JSON.stringify(command),
-  });
-  await handleResponse(res);
+  return unwrap(request.put<ApiResponse<void>>(
+    `/v1/workflows/instances/${instanceId}/complete`, command));
 }
 
 export async function suspendInstance(instanceId: string): Promise<void> {
-  const res = await authFetch(`${BASE}/v1/workflows/instances/${instanceId}/suspend`, { method: 'PUT' });
-  await handleResponse(res);
+  return unwrap(request.put<ApiResponse<void>>(`/v1/workflows/instances/${instanceId}/suspend`));
 }
 
 export async function resumeInstance(instanceId: string): Promise<void> {
-  const res = await authFetch(`${BASE}/v1/workflows/instances/${instanceId}/resume`, { method: 'PUT' });
-  await handleResponse(res);
+  return unwrap(request.put<ApiResponse<void>>(`/v1/workflows/instances/${instanceId}/resume`));
 }
 
 export async function terminateInstance(instanceId: string): Promise<void> {
-  const res = await authFetch(`${BASE}/v1/workflows/instances/${instanceId}/terminate`, { method: 'PUT' });
-  await handleResponse(res);
+  return unwrap(request.put<ApiResponse<void>>(`/v1/workflows/instances/${instanceId}/terminate`));
 }
