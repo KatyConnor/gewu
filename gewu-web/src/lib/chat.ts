@@ -389,6 +389,8 @@ function handleStreamEvent(
       }
       break;
     case 'file':
+      if (event.file && callbacks.onFile) {
+        callbacks.onFile(event.file);
       }
       break;
   }
