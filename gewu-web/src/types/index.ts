@@ -30,6 +30,8 @@ export interface Message {
   role: 'user' | 'ai';
   content: string;
   timestamp: string;
+  /** 是否来自后端持久化（历史消息为 true，流式新消息为本地伪 id；重发按钮仅对后端消息可用） */
+  fromBackend?: boolean;
   /** AI 处理过程时间线（思考/工具/搜索，实时累积） */
   process?: ProcessItem[];
   /** 处理过程总耗时（毫秒） */

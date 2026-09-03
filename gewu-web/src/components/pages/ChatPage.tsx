@@ -1,14 +1,14 @@
 'use client';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Send, Plus, Settings, Share2, Clock, ArrowLeft } from 'lucide-react';
+import { Send, Plus, Settings, Share2, Clock, ArrowLeft, RefreshCw, Pin, PinOff, Link2, Link2Off } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import { setPage, setPendingAgentId, type RootState } from '@/store';
 import CustomSelect from '@/components/ui/Select';
 import { Message } from '@/types';
 import AIProcessTimeline from './AIProcessTimeline';
 import ChatHomeView from './ChatHomeView';
-import { chatStream } from '@/lib/chat';
+import { chatStream, regenerateMessageStream } from '@/lib/chat';
 import { createProcessStreamHandler, type ProcessSnapshot, type ProcessItem } from '@/lib/agentProcess';
 import { listActiveModels, type ModelConfig } from '@/lib/model-config';
 import { listAgents } from '@/lib/agent';
@@ -16,8 +16,9 @@ import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import FileCard from '@/components/ui/FileCard';
 import type { FileInfo } from '@/types';
 import {
-  listMySessions, createSession, updateSession, deleteSession,
-  listMessages, type SessionDTO,
+  listMySessions, createSession, updateSession,
+  listMessages, pinSession, shareSession, unshareSession,
+  type SessionDTO,
 } from '@/lib/session';
 
 const chatTabs = [
@@ -65,6 +66,8 @@ export default function ChatPage() {
   // 会话记录
   const [sessions, setSessions] = useState<SessionDTO[]>([]);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
+  const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
+  const [sharedSessionId, setSharedSessionId] = useState<string | null>(null);
   const [loadingSessions, setLoadingSessions] = useState(false);
   // 项目筛选
   const [filterProjectId, setFilterProjectId] = useState<string | null>(null);
@@ -210,6 +213,7 @@ export default function ChatPage() {
         const parsed = parseFilesFromContent(m.content || '');
         return {
           id: m.messageId,
+          fromBackend: true,
           role: m.messageType === 'assistant' ? 'ai' as const : 'user' as const,
           content: parsed.content,
           files: parsed.files,
@@ -221,6 +225,102 @@ export default function ChatPage() {
       setMessages([]);
     }
   };
+
+  /** 重新生成：删除目标 AI 消息及之后的本地消息，SSE 重跑，完成后重载会话回填真实 messageId */
+  async function regenerateMessage(messageId: string) {
+    if (!currentSessionId || isStreaming || regeneratingId) return;
+    const idx = messages.findIndex(m => m.id === messageId);
+    if (idx >= 0) {
+      setMessages(messages.slice(0, idx));
+    }
+    setRegeneratingId(messageId);
+    setIsStreaming(true);
+    setStreamText('');
+    setStreamingFiles([]);
+    const proc = createProcessStreamHandler(setProcess);
+    setProcess(proc.tracker.snapshot());
+    try {
+      await regenerateMessageStream(currentSessionId, messageId, {
+        ...proc.handlers,
+        onContent: (text) => { setStreamText(prev => prev + text); },
+        onFile: (file) => { setStreamingFiles(prev => [...prev, file]); },
+        onError: (msg) => {
+          toast(msg, 'error');
+        },
+        onComplete: () => {
+          // 回填真实 messageId：从后端重载会话消息
+          loadConversationById(currentSessionId);
+        },
+      });
+    } catch (e) {
+      console.error('重新生成失败:', e);
+      toast((e as Error).message, 'error');
+    } finally {
+      setRegeneratingId(null);
+      setIsStreaming(false);
+      setStreamText('');
+      setStreamingFiles([]);
+    }
+  }
+
+  /** 按 sessionId 加载消息（重发完成后回填真实 messageId 用） */
+  async function loadConversationById(sessionId: string) {
+    const session = sessions.find(s => s.sessionId === sessionId);
+    if (session) {
+      await loadConversation(session);
+    } else {
+      try {
+        const result = await listMessages(sessionId, 1, 100);
+        const msgs: Message[] = (result.records || []).map(m => {
+          const parsed = parseFilesFromContent(m.content || '');
+          return {
+            id: m.messageId,
+            fromBackend: true,
+            role: m.messageType === 'assistant' ? 'ai' as const : 'user' as const,
+            content: parsed.content,
+            files: parsed.files,
+            timestamp: m.createdAt ? new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '',
+          };
+        });
+        setMessages(msgs);
+      } catch {
+        /* 保留现状 */
+      }
+    }
+  }
+
+  /** 置顶/取消置顶（后端已按 pinned desc 排序，刷新列表即生效） */
+  async function togglePin(sessionId: string, pinned: boolean) {
+    try {
+      await pinSession(sessionId, pinned);
+      await loadSessions();
+      toast(pinned ? '会话已置顶' : '已取消置顶', 'success');
+    } catch (e) {
+      console.error('置顶操作失败:', e);
+    }
+  }
+
+  /** 分享 toggle：开启生成 slug 并复制链接；已分享则取消 */
+  async function toggleShare() {
+    if (!currentSessionId) return;
+    try {
+      if (sharedSessionId === currentSessionId) {
+        await unshareSession(currentSessionId);
+        setSharedSessionId(null);
+        toast('已取消分享', 'success');
+      } else {
+        const dto = await shareSession(currentSessionId);
+        setSharedSessionId(currentSessionId);
+        if (dto.shareUrl) {
+          const link = `${window.location.origin}${dto.shareUrl}`;
+          await navigator.clipboard.writeText(link).catch(() => {});
+        toast('分享链接已复制', 'success');
+        }
+      }
+    } catch (e) {
+      console.error('分享操作失败:', e);
+    }
+  }
 
   /** 从 content 末尾解析 <!--FILES:[...]--> 标记，分离正文和文件元信息 */
   function parseFilesFromContent(content: string): { content: string; files?: FileInfo[] } {
@@ -388,11 +488,20 @@ export default function ChatPage() {
                 {filteredSessions.map(session => (
                   <div key={session.sessionId}
                     onClick={() => loadConversation(session)}
-                    className={`p-3 rounded-lg cursor-pointer transition-all border ${
+                    className={`group/item p-3 rounded-lg cursor-pointer transition-all border ${
                       currentSessionId === session.sessionId ? 'bg-tech-500/10 border-tech-500/20' : 'border-transparent hover:bg-tech-500/5 hover:border-tech-500/10'
                     }`}
                   >
-                    <p className="text-sm text-ink-200 truncate">{session.title}</p>
+                    <div className="flex items-center gap-1.5">
+                      {session.pinned === 1 && <Pin className="w-3 h-3 text-tech-400 flex-shrink-0" aria-label="已置顶" />}
+                      <p className="text-sm text-ink-200 truncate flex-1">{session.title}</p>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); togglePin(session.sessionId, session.pinned !== 1); }}
+                        className="p-1 text-ink-500 hover:text-tech-400 rounded transition-all opacity-0 group-hover/item:opacity-100"
+                        aria-label={session.pinned === 1 ? '取消置顶' : '置顶'}
+                        title={session.pinned === 1 ? '取消置顶' : '置顶'}
+                      >{session.pinned === 1 ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}</button>
+                    </div>
                     <p className="text-xs text-ink-500 mt-1">
                       {session.lastMessageAt ? new Date(session.lastMessageAt).toLocaleDateString('zh-CN') : '刚刚'}
                       {session.messageCount > 0 && ` · ${session.messageCount}条消息`}
@@ -448,10 +557,19 @@ export default function ChatPage() {
               </div>
               {filteredSessions.map(session => (
                 <div key={session.sessionId} onClick={() => loadConversation(session)}
-                  className={`p-3 rounded-lg cursor-pointer transition-all border ${
+                  className={`group/item p-3 rounded-lg cursor-pointer transition-all border ${
                     currentSessionId === session.sessionId ? 'bg-tech-500/10 border-tech-500/20' : 'border-transparent hover:bg-tech-500/5 hover:border-tech-500/10'
                   }`}>
-                  <p className="text-sm text-ink-200 truncate">{session.title}</p>
+                  <div className="flex items-center gap-1.5">
+                    {session.pinned === 1 && <Pin className="w-3 h-3 text-tech-400 flex-shrink-0" aria-label="已置顶" />}
+                    <p className="text-sm text-ink-200 truncate flex-1">{session.title}</p>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); togglePin(session.sessionId, session.pinned !== 1); }}
+                      className="p-1 text-ink-500 hover:text-tech-400 rounded transition-all opacity-0 group-hover/item:opacity-100"
+                      aria-label={session.pinned === 1 ? '取消置顶' : '置顶'}
+                      title={session.pinned === 1 ? '取消置顶' : '置顶'}
+                    >{session.pinned === 1 ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}</button>
+                  </div>
                   <p className="text-xs text-ink-500 mt-1">
                     {session.lastMessageAt ? new Date(session.lastMessageAt).toLocaleDateString('zh-CN') : '刚刚'}
                     {session.messageCount > 0 && ` · ${session.messageCount}条消息`}
@@ -481,14 +599,29 @@ export default function ChatPage() {
         </div>
         <div className="flex items-center gap-2">
           <button className="p-2 text-ink-400 hover:text-tech-400 rounded-lg transition-all" aria-label="设置"><Settings className="w-4 h-4" /></button>
-          <button className="p-2 text-ink-400 hover:text-tech-400 rounded-lg transition-all" aria-label="分享"><Share2 className="w-4 h-4" /></button>
+          <button
+            onClick={() => toggleShare()}
+            disabled={!currentSessionId || isStreaming}
+            className={`p-2 rounded-lg transition-all ${sharedSessionId === currentSessionId ? 'text-tech-400 bg-tech-500/10' : 'text-ink-400 hover:text-tech-400'} disabled:opacity-40`}
+            aria-label={sharedSessionId === currentSessionId ? '取消分享' : '分享会话'}
+            title={sharedSessionId === currentSessionId ? '取消分享' : '分享会话（复制链接）'}
+          ><Share2 className="w-4 h-4" /></button>
           <button className="p-2 text-ink-400 hover:text-tech-400 rounded-lg transition-all" aria-label="历史"><Clock className="w-4 h-4" /></button>
         </div>
       </header>
       <div className="flex-1 overflow-y-auto scrollbar-thin px-6 py-6 space-y-5">
         {messages.map(msg => (
-          <div key={msg.id} className={`flex gap-4 ${msg.role === 'user' ? 'justify-end' : ''} animate-fade-up`}>
+          <div key={msg.id} className={`group flex gap-4 ${msg.role === 'user' ? 'justify-end' : ''} animate-fade-up`}>
             {msg.role === 'ai' && <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-xs font-bold text-white">AI</span></div>}
+            {msg.role === 'ai' && msg.fromBackend && (
+              <button
+                onClick={() => regenerateMessage(msg.id)}
+                disabled={isStreaming || regeneratingId !== null}
+                className="self-start mt-1 p-1.5 text-ink-500 hover:text-tech-400 hover:bg-tech-500/10 rounded-md transition-all opacity-0 group-hover:opacity-100 disabled:opacity-30"
+                aria-label="重新生成"
+                title="以原始输入重新生成此回复"
+              ><RefreshCw className={`w-3.5 h-3.5 ${regeneratingId === msg.id ? 'animate-spin' : ''}`} /></button>
+            )}
             <div className={`flex-1 max-w-3xl ${msg.role === 'user' ? 'flex flex-col items-end' : ''}`}>
               {msg.role === 'ai' && msg.process && msg.process.length > 0 && <AIProcessTimeline items={msg.process} streaming={false} totalMs={msg.processMs} expanded={msg.processExpanded ?? false} onToggle={() => toggleProcess(msg.id)} />}
               <div className={`rounded-xl p-4 ${msg.role === 'ai' ? 'chat-bubble-ai rounded-tl-sm' : 'chat-bubble-user rounded-tr-sm'}`}>

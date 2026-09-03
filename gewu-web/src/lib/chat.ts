@@ -169,28 +169,36 @@ export async function chat(data: ChatRequest): Promise<ChatResponse> {
  * @param data 聊天请求
  * @param callbacks 回调函数
  */
+/** SSE 流式回调集合（chatStream / regenerateMessageStream 共用） */
+export interface ChatStreamCallbacks {
+  onContent: (text: string) => void;
+  onThinking?: (text: string) => void;
+  onStatus?: (status: string) => void;
+  onToolCall?: (toolCall: { id: string; name: string; arguments: string }) => void;
+  onToolExecuting?: (toolCall: { id: string; name: string; arguments: string }) => void;
+  onToolResult?: (result: { toolCallId: string; output: string }) => void;
+  // 网络搜索推理增强回调
+  onWebSearchStart?: (status: string) => void;
+  onWebSearchResult?: (info: WebSearchInfo) => void;
+  onWebVerifying?: (status: string) => void;
+  onWebVerdict?: (verdict: VerifyInfo) => void;
+  onFile?: (file: FileInfo) => void;
+  /** 执行经验沉淀通知（完成后写入长期记忆） */
+  onExperienceSaved?: (note: string) => void;
+  /** 失败已记录通知（进入失败案例库） */
+  onFailureRecorded?: (reason: string) => void;
+  onError?: (error: string) => void;
+  onComplete?: () => void;
+}
+
+/**
+ * 流式聊天 — 使用 fetch + ReadableStream 接收 SSE 流
+ * @param data 聊天请求
+ * @param callbacks 回调函数
+ */
 export async function chatStream(
   data: ChatRequest,
-  callbacks: {
-    onContent: (text: string) => void;
-    onThinking?: (text: string) => void;
-    onStatus?: (status: string) => void;
-    onToolCall?: (toolCall: { id: string; name: string; arguments: string }) => void;
-    onToolExecuting?: (toolCall: { id: string; name: string; arguments: string }) => void;
-    onToolResult?: (result: { toolCallId: string; output: string }) => void;
-    // 网络搜索推理增强回调
-    onWebSearchStart?: (status: string) => void;
-    onWebSearchResult?: (info: WebSearchInfo) => void;
-    onWebVerifying?: (status: string) => void;
-    onWebVerdict?: (verdict: VerifyInfo) => void;
-    onFile?: (file: FileInfo) => void;
-    /** 执行经验沉淀通知（完成后写入长期记忆） */
-    onExperienceSaved?: (note: string) => void;
-    /** 失败已记录通知（进入失败案例库） */
-    onFailureRecorded?: (reason: string) => void;
-    onError?: (error: string) => void;
-    onComplete?: () => void;
-  }
+  callbacks: ChatStreamCallbacks
 ): Promise<void> {
   const token = getAccessToken();
   // 流式请求直连后端，避免 Next.js 代理缓冲响应
@@ -209,6 +217,45 @@ export async function chatStream(
     throw new Error(`流式聊天请求失败: ${res.status}`);
   }
 
+  return consumeChatSse(res, callbacks);
+}
+
+/**
+ * 消息重新生成 — 以历史 AI 消息的原始输入重跑流式对话（T3.3 后端契约）。
+ * 后端逻辑删除该 AI 消息前最近一条 user 消息（含）起的历史，再重走 chatStream。
+ * @param sessionId 会话 ID
+ * @param messageId 目标 AI 消息的后端 message_id
+ */
+export async function regenerateMessageStream(
+  sessionId: string,
+  messageId: string,
+  callbacks: ChatStreamCallbacks
+): Promise<void> {
+  const token = getAccessToken();
+  const streamBaseUrl = getStreamBaseUrl();
+  const res = await fetch(
+    `${streamBaseUrl}/v1/ai/sessions/${sessionId}/messages/${messageId}/regenerate`,
+    {
+      method: 'POST',
+      headers: {
+        Accept: 'text/event-stream',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    }
+  );
+
+  if (!res.ok) {
+    throw new Error(`重新生成请求失败: ${res.status}`);
+  }
+
+  return consumeChatSse(res, callbacks);
+}
+
+/** 读取并消费 SSE 响应流（chatStream / regenerateMessageStream 共用实现） */
+async function consumeChatSse(
+  res: Response,
+  callbacks: ChatStreamCallbacks
+): Promise<void> {
   const reader = res.body?.getReader();
   if (!reader) {
     throw new Error('无法读取响应流');
