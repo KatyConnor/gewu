@@ -26,8 +26,17 @@ public class SemanticCache {
     private final ObjectProvider<EmbeddingAdapter> embeddingAdapterProvider;
     private final ObjectProvider<VectorStoreAdapter> vectorStoreAdapterProvider;
 
-    /** 缓存命中相似度阈值 */
-    private static final double SIMILARITY_THRESHOLD = 0.95;
+    /** 缓存命中相似度阈值（T5.4 可配置：qa 场景 0.95，代码生成建议关闭） */
+    @org.springframework.beans.factory.annotation.Value("${gewu.semantic-cache.threshold:0.95}")
+    private double similarityThreshold;
+
+    /** 全局开关（T5.4：代码生成等确定性低场景建议 false） */
+    @org.springframework.beans.factory.annotation.Value("${gewu.semantic-cache.enabled:true}")
+    private boolean enabled;
+
+    /** 禁用缓存的 agentId 列表（逗号分隔，按 agent 粒度关闭） */
+    @org.springframework.beans.factory.annotation.Value("${gewu.semantic-cache.disabled-agents:}")
+    private String disabledAgents;
 
     /** 缓存命名空间（在 wenshi_semantic_fragment 中用 source 隔离） */
     private static final String CACHE_SOURCE = "SEMANTIC_CACHE";
@@ -36,6 +45,16 @@ public class SemanticCache {
                          ObjectProvider<VectorStoreAdapter> vectorStoreAdapterProvider) {
         this.embeddingAdapterProvider = embeddingAdapterProvider;
         this.vectorStoreAdapterProvider = vectorStoreAdapterProvider;
+    }
+
+    /** agent 粒度开关（tenantId 在引擎链路即 agentId 或 default，见 SemanticResponseCacheAdapter） */
+    private boolean agentEnabled(String tenantId) {
+        if (!enabled) return false;
+        if (disabledAgents == null || disabledAgents.isBlank()) return true;
+        for (String id : disabledAgents.split(",")) {
+            if (tenantId != null && tenantId.equals(id.trim())) return false;
+        }
+        return true;
     }
 
     /**
@@ -47,6 +66,7 @@ public class SemanticCache {
      * @return 缓存命中则返回响应内容，未命中返回 null
      */
     public String get(String prompt, Map<String, Object> context, String tenantId) {
+        if (!agentEnabled(tenantId)) return null;
         VectorStoreAdapter store = vectorStoreAdapterProvider.getIfAvailable();
         EmbeddingAdapter embedder = embeddingAdapterProvider.getIfAvailable();
         if (store == null || embedder == null || prompt == null || prompt.isBlank()) return null;
@@ -59,7 +79,7 @@ public class SemanticCache {
             List<VectorFragment> candidates = store.search(queryVector, 3, filters);
             for (VectorFragment candidate : candidates) {
                 double similarity = cosineSimilarity(queryVector, embedder.embed(candidate.getContent()));
-                if (similarity >= SIMILARITY_THRESHOLD) {
+                if (similarity >= similarityThreshold) {
                     // 缓存内容的后半部分是响应（以特殊分隔符存储）
                     String content = candidate.getContent();
                     int sep = content.indexOf("\n===CACHE_RESPONSE===\n");
@@ -84,6 +104,7 @@ public class SemanticCache {
      * @param tenantId  租户 ID
      */
     public void put(String prompt, String response, String tenantId) {
+        if (!agentEnabled(tenantId)) return;
         VectorStoreAdapter store = vectorStoreAdapterProvider.getIfAvailable();
         EmbeddingAdapter embedder = embeddingAdapterProvider.getIfAvailable();
         if (store == null || embedder == null

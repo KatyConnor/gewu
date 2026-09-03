@@ -11,7 +11,12 @@
     {
       "title": "请求速率",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 0 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 0
+      },
       "targets": [
         {
           "expr": "sum(rate(http_server_requests_seconds_count{app=\"gewu-platform\"}[5m])) by (method, uri_template)",
@@ -31,7 +36,12 @@
     {
       "title": "延迟分布",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 0 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 0
+      },
       "targets": [
         {
           "expr": "histogram_quantile(0.50, sum(rate(http_server_requests_seconds_bucket{app=\"gewu-platform\"}[5m])) by (le))",
@@ -59,7 +69,12 @@
     {
       "title": "JVM 堆内存",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 8 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 8
+      },
       "targets": [
         {
           "expr": "jvm_memory_used_bytes{app=\"gewu-platform\", area=\"heap\"}",
@@ -83,7 +98,12 @@
     {
       "title": "GC 暂停时间",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 8 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 8
+      },
       "targets": [
         {
           "expr": "rate(jvm_gc_pause_seconds_sum{app=\"gewu-platform\"}[5m])",
@@ -103,7 +123,12 @@
     {
       "title": "数据库连接池",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 16 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 16
+      },
       "targets": [
         {
           "expr": "hikaricp_connections_active{app=\"gewu-platform\"}",
@@ -130,7 +155,12 @@
     {
       "title": "Redis 缓存",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 16 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 16
+      },
       "targets": [
         {
           "expr": "redis_memory_used_bytes{app=\"redis\"}",
@@ -153,7 +183,12 @@
     {
       "title": "错误率",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 0, "y": 24 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 24
+      },
       "targets": [
         {
           "expr": "sum(rate(http_server_requests_seconds_count{app=\"gewu-platform\", status=~\"5..\"}[5m])) / sum(rate(http_server_requests_seconds_count{app=\"gewu-platform\"}[5m]))",
@@ -173,7 +208,12 @@
     {
       "title": "线程数",
       "type": "timeseries",
-      "gridPos": { "h": 8, "w": 12, "x": 12, "y": 24 },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 24
+      },
       "targets": [
         {
           "expr": "jvm_threads_live_threads{app=\"gewu-platform\"}",
@@ -192,11 +232,58 @@
           }
         }
       }
+    },
+    {
+      "title": "Agent 任务吞吐（T4.2/T5.4）",
+      "type": "timeseries",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 32
+      },
+      "targets": [
+        {
+          "expr": "sum(rate(agent_task_success_total[$__rate_interval]))",
+          "legendFormat": "成功/s"
+        },
+        {
+          "expr": "sum(rate(agent_task_failure_total[$__rate_interval]))",
+          "legendFormat": "失败/s"
+        }
+      ]
+    },
+    {
+      "title": "会话 token 消耗速率（对话执行账本）",
+      "type": "stat",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 32
+      },
+      "targets": [
+        {
+          "expr": "sum(increase(agent_task_duration_seconds_count[24h]))",
+          "legendFormat": "24h 执行数"
+        }
+      ]
     }
   ],
   "schemaVersion": 38,
   "style": "dark",
-  "tags": ["gewu", "production"],
+  "tags": [
+    "gewu",
+    "production"
+  ],
   "templating": {
     "list": []
   },

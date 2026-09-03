@@ -106,6 +106,13 @@ gewu:
     name: 格物平台
     version: 1.0.0-SNAPSHOT
 
+  # 语义缓存分场景配置（T5.4）：QA/知识问答场景建议开启（阈值 0.95），
+  # 代码生成等确定性低场景按 agentId 加入 disabled-agents 或全局关闭
+  semantic-cache:
+    enabled: ${GEWU_SEMANTIC_CACHE_ENABLED:true}
+    threshold: ${GEWU_SEMANTIC_CACHE_THRESHOLD:0.95}
+    disabled-agents: ${GEWU_SEMANTIC_CACHE_DISABLED_AGENTS:}
+
   # SSE 多副本分布式广播（T5.1）：K8s 多副本部署时置 true（Redis Pub/Sub），
   # 单副本保持 false（零依赖，本地直发）
   sse:
