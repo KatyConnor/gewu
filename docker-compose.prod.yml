@@ -98,56 +98,6 @@ services:
     networks:
       - gewu-network
 
-  rocketmq-nameserver:
-    image: apache/rocketmq:5.3.1
-    container_name: gewu-rocketmq-nameserver-prod
-    restart: unless-stopped
-    command: ["sh", "mqnamesrv"]
-    ports:
-      - "9876:9876"
-    environment:
-      JAVA_OPT_EXT: "-server -Xms512m -Xmx512m -Xmn256m"
-    deploy:
-      resources:
-        limits:
-          cpus: '1.0'
-          memory: 1G
-        reservations:
-          cpus: '0.25'
-          memory: 256M
-    healthcheck:
-      test: ["CMD-SHELL", "netstat -an | grep 9876 || exit 1"]
-      interval: 15s
-      timeout: 5s
-      retries: 6
-      start_period: 30s
-    networks:
-      - gewu-network
-
-  rocketmq-broker:
-    image: apache/rocketmq:5.3.1
-    container_name: gewu-rocketmq-broker-prod
-    restart: unless-stopped
-    command: ["sh", "mqbroker", "-n", "rocketmq-nameserver:9876", "--enable-controller-mode", "true"]
-    ports:
-      - "10909:10909"
-      - "10911:10911"
-    environment:
-      JAVA_OPT_EXT: "-server -Xms1g -Xmx1g -Xmn512m"
-    deploy:
-      resources:
-        limits:
-          cpus: '2.0'
-          memory: 2G
-        reservations:
-          cpus: '0.5'
-          memory: 512M
-    depends_on:
-      rocketmq-nameserver:
-        condition: service_healthy
-    networks:
-      - gewu-network
-
   gewu-platform:
     build:
       context: .
@@ -163,7 +113,6 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${MYSQL_PASSWORD:-gewu123456}
       SPRING_DATA_REDIS_HOST: dragonfly
       SPRING_DATA_REDIS_PORT: "6379"
-      ROCKETMQ_NAME_SERVER: rocketmq-nameserver:9876
       # Wenshi 知识增强数据库配置
       WENSHI_DB_URL: jdbc:postgresql://pgvector:5432/wenshi
       WENSHI_DB_USERNAME: wenshi
@@ -186,7 +135,6 @@ services:
         condition: service_healthy
       dragonfly:
         condition: service_healthy
-      rocketmq-broker:
         condition: service_started
     networks:
       - gewu-network

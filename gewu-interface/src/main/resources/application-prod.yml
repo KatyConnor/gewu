@@ -67,16 +67,6 @@ spring:
     serialization:
       write-dates-as-timestamps: false
 
-rocketmq:
-  name-server: ${ROCKETMQ_NAMESERVER:localhost:9876}
-  producer:
-    group: gewu-producer
-    send-message-timeout: 5000
-    retry-times-when-send-failed: 3
-    retry-times-when-send-async-failed: 2
-    max-message-size: 4194304
-    compress-message-body-threshold: 4096
-
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
   type-aliases-package: com.gewu.domain

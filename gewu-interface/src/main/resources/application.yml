@@ -51,14 +51,6 @@ spring:
     time-zone: Asia/Shanghai
     default-property-inclusion: non_null
 
-# RocketMQ 配置
-rocketmq:
-  name-server: localhost:9876
-  producer:
-    group: gewu-producer
-    send-message-timeout: 5000
-    retry-times-when-send-failed: 3
-
 # MyBatis-Plus 配置
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml

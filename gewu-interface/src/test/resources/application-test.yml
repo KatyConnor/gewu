@@ -19,8 +19,6 @@ spring:
     redis:
       host: localhost
       port: 6379
-  rocketmq:
-    name-server: localhost:9876
 
 mybatis-plus:
   configuration:

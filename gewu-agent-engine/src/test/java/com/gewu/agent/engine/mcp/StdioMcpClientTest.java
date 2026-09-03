@@ -110,8 +110,9 @@ class StdioMcpClientTest {
     void serverImmediateExitFails() {
         StdioMcpClient client = new StdioMcpClient("bash", List.of("-c", "exit 0"), null);
 
+        // 两种合法失败模式（时序竞争）：readLine 读到 EOF 返回
+        // "MCP server closed connection"，或写入已关闭的 stdin 抛 "Stream closed"
         assertThatThrownBy(client::connect)
-                .isInstanceOf(Exception.class)
-                .hasMessageContaining("MCP server closed connection");
+                .isInstanceOf(java.io.IOException.class);
     }
 }

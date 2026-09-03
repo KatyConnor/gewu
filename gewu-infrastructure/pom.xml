@@ -72,12 +72,6 @@
             <artifactId>redisson-spring-boot-starter</artifactId>
         </dependency>
 
-        <!-- RocketMQ -->
-        <dependency>
-            <groupId>org.apache.rocketmq</groupId>
-            <artifactId>rocketmq-spring-boot-starter</artifactId>
-        </dependency>
-
         <!-- OceanBase -->
         <dependency>
             <groupId>com.oceanbase</groupId>
@@ -138,6 +132,18 @@
         <dependency>
             <groupId>org.apache.poi</groupId>
             <artifactId>poi-ooxml</artifactId>
+        </dependency>
+
+        <!-- 测试（S6：事件发布器等基础设施组件单测） -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.mockito</groupId>
+            <artifactId>mockito-core</artifactId>
+            <scope>test</scope>
         </dependency>
     </dependencies>
 
