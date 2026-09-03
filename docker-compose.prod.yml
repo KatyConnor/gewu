@@ -168,7 +168,9 @@ services:
       WENSHI_DB_URL: jdbc:postgresql://pgvector:5432/wenshi
       WENSHI_DB_USERNAME: wenshi
       WENSHI_DB_PASSWORD: ${POSTGRES_PASSWORD:-wenshi123456}
-       GEWU_CRYPTO_API_KEY_SECRET: ${GEWU_CRYPTO_API_KEY_SECRET:13b4a0eab2f1f1093f87d0552fddca1f}
+      # 单容器部署：SSE 分布式广播关闭；扩多副本时置 true（T5.1）
+      GEWU_SSE_DISTRIBUTED: "false"
+      GEWU_CRYPTO_API_KEY_SECRET: ${GEWU_CRYPTO_API_KEY_SECRET:13b4a0eab2f1f1093f87d0552fddca1f}
     deploy:
       resources:
         limits:

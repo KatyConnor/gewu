@@ -1,0 +1,12 @@
+apiVersion: v2
+name: gewu-platform
+description: 格物平台 - AI 驱动的智能开发协作平台（主服务/网关/沙箱/前端四件套）
+type: application
+version: 0.1.0
+appVersion: "1.0.0-SNAPSHOT"
+maintainers:
+  - name: gewu-team
+keywords:
+  - ai-agent
+  - orchestration
+  - sdlc

@@ -1,0 +1,68 @@
+# 沙箱（Docker 代码执行隔离，需节点 docker.sock）
+{{- if .Values.sandbox.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gewu.name" . }}-sandbox
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "gewu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sandbox
+spec:
+  replicas: {{ .Values.sandbox.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gewu-platform
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: sandbox
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gewu-platform
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: sandbox
+    spec:
+      containers:
+        - name: sandbox
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.sandbox.image.repository }}:{{ .Values.sandbox.image.tag }}"
+          imagePullPolicy: {{ .Values.sandbox.image.pullPolicy }}
+          ports:
+            - containerPort: 8082
+          envFrom:
+            - configMapRef:
+                name: {{ include "gewu.name" . }}-config
+          resources:
+            requests: {{ toYaml .Values.sandbox.resources.requests | nindent 14 }}
+            limits: {{ toYaml .Values.sandbox.resources.limits | nindent 14 }}
+          volumeMounts:
+            - name: docker-sock
+              mountPath: {{ .Values.sandbox.dockerSocket }}
+          readinessProbe:
+            tcpSocket: { port: 8082 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+      volumes:
+        - name: docker-sock
+          hostPath:
+            path: {{ .Values.sandbox.dockerSocket }}
+            type: Socket
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "gewu.name" . }}-sandbox
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "gewu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: sandbox
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: gewu-platform
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: sandbox
+  ports:
+    - port: {{ .Values.sandbox.service.port }}
+      targetPort: 8082
+      name: http
+{{- end }}

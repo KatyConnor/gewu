@@ -1,0 +1,70 @@
+# 网关（JWT 鉴权/限流/熔断，集群流量入口）
+{{- if .Values.gateway.enabled }}
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gewu.name" . }}-gateway
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "gewu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  replicas: {{ .Values.gateway.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gewu-platform
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: gateway
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gewu-platform
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: gateway
+    spec:
+      containers:
+        - name: gateway
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.gateway.image.repository }}:{{ .Values.gateway.image.tag }}"
+          imagePullPolicy: {{ .Values.gateway.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: {{ include "gewu.name" . }}-config
+            - secretRef:
+                name: {{ include "gewu.name" . }}-secret
+          env:
+            # 网关下游：集群内主服务
+            - name: INTERFACE_SERVICE_URL
+              value: http://{{ include "gewu.name" . }}-interface:{{ .Values.interface.service.port }}
+          resources:
+            requests: {{ toYaml .Values.gateway.resources.requests | nindent 14 }}
+            limits: {{ toYaml .Values.gateway.resources.limits | nindent 14 }}
+          readinessProbe:
+            tcpSocket: { port: 8080 }
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: 8080 }
+            initialDelaySeconds: 40
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "gewu.name" . }}-gateway
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "gewu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: gateway
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: gewu-platform
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: gateway
+  ports:
+    - port: {{ .Values.gateway.service.port }}
+      targetPort: 8080
+      name: http
+{{- end }}

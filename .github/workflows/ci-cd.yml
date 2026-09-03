@@ -103,11 +103,26 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment: staging
     steps:
-      - name: Deploy to staging
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure kubeconfig
         run: |
-          echo "Deploying to staging environment..."
-          # kubectl apply -f deploy/k8s/ --namespace=staging
-          # kubectl rollout restart deployment/gewu-platform --namespace=staging
+          mkdir -p ~/.kube
+          echo "${{ secrets.STAGING_KUBECONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Deploy to staging (Helm)
+        run: |
+          helm upgrade --install gewu deploy/helm/gewu-platform \
+            --namespace gewu --create-namespace \
+            --set global.imageRegistry=${{ env.REGISTRY }}/${{ github.repository_owner }} \
+            --set interface.image.tag=${{ github.sha }} \
+            --set gateway.image.tag=${{ github.sha }} \
+            --set sandbox.image.tag=${{ github.sha }} \
+            --set frontend.image.tag=${{ github.sha }} \
+            --wait --timeout 5m
+          kubectl rollout status deployment/gewu-gewu-interface --namespace=gewu --timeout=300s
 
   deploy-production:
     needs: deploy-staging
@@ -115,8 +130,23 @@ jobs:
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     environment: production
     steps:
-      - name: Deploy to production
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Configure kubeconfig
         run: |
-          echo "Deploying to production environment..."
-          # kubectl apply -f deploy/k8s/ --namespace=production
-          # kubectl rollout restart deployment/gewu-platform --namespace=production
+          mkdir -p ~/.kube
+          echo "${{ secrets.PRODUCTION_KUBECONFIG }}" | base64 -d > ~/.kube/config
+          chmod 600 ~/.kube/config
+
+      - name: Deploy to production (Helm, 手动审批经 environment protection)
+        run: |
+          helm upgrade --install gewu deploy/helm/gewu-platform \
+            --namespace gewu --create-namespace \
+            --set global.imageRegistry=${{ env.REGISTRY }}/${{ github.repository_owner }} \
+            --set interface.image.tag=${{ github.sha }} \
+            --set gateway.image.tag=${{ github.sha }} \
+            --set sandbox.image.tag=${{ github.sha }} \
+            --set frontend.image.tag=${{ github.sha }} \
+            --wait --timeout 8m
+          kubectl rollout status deployment/gewu-gewu-interface --namespace=gewu --timeout=300s

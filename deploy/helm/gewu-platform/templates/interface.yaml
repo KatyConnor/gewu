@@ -1,0 +1,68 @@
+# 主服务（gewu-interface）
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "gewu.name" . }}-interface
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "gewu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: interface
+spec:
+  replicas: {{ .Values.interface.replicas }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: gewu-platform
+      app.kubernetes.io/instance: {{ .Release.Name }}
+      app.kubernetes.io/component: interface
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: gewu-platform
+        app.kubernetes.io/instance: {{ .Release.Name }}
+        app.kubernetes.io/component: interface
+    spec:
+      containers:
+        - name: interface
+          image: "{{ .Values.global.imageRegistry }}/{{ .Values.interface.image.repository }}:{{ .Values.interface.image.tag }}"
+          imagePullPolicy: {{ .Values.interface.image.pullPolicy }}
+          ports:
+            - containerPort: 8080
+          envFrom:
+            - configMapRef:
+                name: {{ include "gewu.name" . }}-config
+            - secretRef:
+                name: {{ include "gewu.name" . }}-secret
+          env:
+            # 主服务容器内直接监听 8080（jar 内 server.port=8081 由 SPRING 配置覆盖）
+            - name: SERVER_PORT
+              value: "8080"
+          resources:
+            requests: {{ toYaml .Values.interface.resources.requests | nindent 14 }}
+            limits: {{ toYaml .Values.interface.resources.limits | nindent 14 }}
+          readinessProbe:
+            httpGet: { path: /actuator/health/readiness, port: 8080 }
+            initialDelaySeconds: 40
+            periodSeconds: 10
+          livenessProbe:
+            httpGet: { path: /actuator/health/liveness, port: 8080 }
+            initialDelaySeconds: 90
+            periodSeconds: 20
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: {{ include "gewu.name" . }}-interface
+  namespace: {{ .Values.global.namespace }}
+  labels:
+    {{- include "gewu.labels" . | nindent 4 }}
+    app.kubernetes.io/component: interface
+spec:
+  type: ClusterIP
+  selector:
+    app.kubernetes.io/name: gewu-platform
+    app.kubernetes.io/instance: {{ .Release.Name }}
+    app.kubernetes.io/component: interface
+  ports:
+    - port: {{ .Values.interface.service.port }}
+      targetPort: 8080
+      name: http

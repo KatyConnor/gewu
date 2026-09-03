@@ -1,0 +1,93 @@
+# 格物平台 Helm 值文件（T5.2）
+# 镜像由 CI（.github/workflows/ci-cd.yml build-image）推送至 ghcr.io，
+# 部署时覆盖 image.registry/repository/tag。
+
+global:
+  namespace: gewu
+  imageRegistry: ghcr.io
+
+# 主服务（gewu-interface，全部业务 Controller + agent-engine 装配）
+interface:
+  image:
+    repository: gewu/gewu-platform
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 2
+  resources:
+    requests: { cpu: 500m, memory: 512Mi }
+    limits: { cpu: "1", memory: 1Gi }
+  service:
+    port: 8080
+
+# 网关（JWT 鉴权/限流/熔断）
+gateway:
+  enabled: true
+  image:
+    repository: gewu/gewu-gateway
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests: { cpu: 200m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  service:
+    port: 8080
+
+# 沙箱（Docker 代码执行隔离；需节点挂载 docker.sock）
+sandbox:
+  enabled: true
+  image:
+    repository: gewu/gewu-sandbox
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests: { cpu: 200m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  service:
+    port: 8082
+  dockerSocket: /var/run/docker.sock
+
+# 前端（Next.js，端口 3000 容器内）
+frontend:
+  enabled: true
+  image:
+    repository: gewu/gewu-web
+    tag: latest
+    pullPolicy: IfNotPresent
+  replicas: 1
+  resources:
+    requests: { cpu: 200m, memory: 256Mi }
+    limits: { cpu: 500m, memory: 512Mi }
+  service:
+    port: 3000
+
+# 中间件地址（集群内服务名；中间件本身由运维侧部署或外部托管）
+config:
+  dbHost: mysql.gewu.svc.cluster.local
+  dbPort: "3306"
+  dbName: gewu_dev
+  redisHost: dragonfly.gewu.svc.cluster.local
+  redisPort: "6379"
+  # SSE 多副本分布式广播（T5.1）：副本数 >1 时必须开启
+  sseDistributed: "true"
+  otel:
+    enabled: "true"
+    endpoint: http://jaeger.gewu.svc.cluster.local:4318
+
+secret:
+  mysqlPassword: change-me-prod
+  jwtSecret: change-me-prod-jwt-secret-must-be-at-least-256-bits-long
+  sm4Key: change-me-32-hex-chars-sm4-key-00000
+  aiApiKey: ""
+
+ingress:
+  enabled: true
+  host: gewu.local
+  className: nginx
+  # SSE 专项：禁缓冲 + 长超时（流式对话）
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-request-buffering: "off"
+    nginx.ingress.kubernetes.io/proxy-read-timeout: "3600"
+    nginx.ingress.kubernetes.io/proxy-send-timeout: "3600"

@@ -16,3 +16,5 @@ data:
   OTEL_TRACING_ENABLED: "true"
   OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger.gewu.svc.cluster.local:4318
   OTEL_TRACING_SAMPLING_PROBABILITY: "1.0"
+  # 多副本部署：SSE 跨实例广播与 HITL 决策回传（T5.1）
+  GEWU_SSE_DISTRIBUTED: "true"
