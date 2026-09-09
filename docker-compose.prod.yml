@@ -98,6 +98,52 @@ services:
     networks:
       - gewu-network
 
+  # ==================== 对象存储（T4.1 成本/文档，bucket: gewu-documents） ====================
+  minio:
+    image: minio/minio:latest
+    container_name: gewu-minio-prod
+    restart: unless-stopped
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      - MINIO_ROOT_USER=${MINIO_ROOT_USER:-minioadmin}
+      - MINIO_ROOT_PASSWORD=${MINIO_ROOT_PASSWORD:-minioadmin123}
+    volumes:
+      - gewu-minio-data:/data
+    command: server /data --console-address ":9001"
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+    deploy:
+      resources:
+        limits:
+          cpus: '0.5'
+          memory: 512M
+    networks:
+      - gewu-network
+
+  # ==================== 联合搜索（Wenshi 推理联网检索） ====================
+  searxng:
+    image: searxng/searxng:latest
+    container_name: gewu-searxng-prod
+    restart: unless-stopped
+    volumes:
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    environment:
+      - SEARXNG_BASE_URL=http://searxng:8080/
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+    networks:
+      - gewu-network
+
   gewu-platform:
     build:
       context: .
@@ -120,6 +166,13 @@ services:
       # 单容器部署：SSE 分布式广播关闭；扩多副本时置 true（T5.1）
       GEWU_SSE_DISTRIBUTED: "false"
       GEWU_CRYPTO_API_KEY_SECRET: ${GEWU_CRYPTO_API_KEY_SECRET:13b4a0eab2f1f1093f87d0552fddca1f}
+      # 对象存储与联合搜索（容器网络内地址，覆盖 localhost 默认值）
+      MINIO_ENDPOINT: http://minio:9000
+      MINIO_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
+      MINIO_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin123}
+      SEARXNG_BASE_URL: http://searxng:8080
+      # 安全密钥（生产必须替换为强随机值）
+      GEWU_SECURITY_JWT_SECRET: ${JWT_SECRET:gewu-platform-jwt-secret-key-must-be-at-least-256-bits-long-for-hs256}
     deploy:
       resources:
         limits:
@@ -135,7 +188,6 @@ services:
         condition: service_healthy
       dragonfly:
         condition: service_healthy
-        condition: service_started
     networks:
       - gewu-network
 
@@ -143,6 +195,7 @@ volumes:
   gewu-mysql-data:
   gewu-pgvector-data:
   gewu-dragonfly-data:
+  gewu-minio-data:
 
 networks:
   gewu-network:
