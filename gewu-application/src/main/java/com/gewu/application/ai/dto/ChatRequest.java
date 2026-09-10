@@ -26,6 +26,10 @@ public class ChatRequest {
     private String requirementId;
     /** 客户端幂等 ID：流式接口重放/网络重试时避免重复落库，前端每次发送生成并复用 */
     private String clientId;
+    /** 引擎覆盖（基准评测用）：legacy / wenshi，空=按 gewu.wenshi.routing 全局配置 */
+    private String engineOverride;
+    /** 模型路由开关（基准评测用）：true 时引擎按复杂度/预算动态改选模型，忽略显式 model */
+    private Boolean modelRouteEnabled;
     @Builder.Default
     private boolean stream = false;
 }

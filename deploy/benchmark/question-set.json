@@ -1,0 +1,127 @@
+{
+  "version": "v1",
+  "description": "格物平台基准评测固定题集（20 题：知识问答 6 / 代码生成 6 / 分析 4 / 任务规划 4）",
+  "usage": "配合 deploy/benchmark/run-benchmark.py 使用；acceptanceCriteria 供 LLM-as-Judge 评分",
+  "questions": [
+    {
+      "id": "qa-01",
+      "category": "knowledge_qa",
+      "question": "什么是 CAP 定理？请说明一致性、可用性、分区容忍性三者为什么只能同时满足两个。",
+      "acceptanceCriteria": "正确说出 CAP 三个含义；说明网络分区在分布式系统中不可避免因此实际是在 C 与 A 之间权衡；举一个 CP 或 AP 系统的例子"
+    },
+    {
+      "id": "qa-02",
+      "category": "knowledge_qa",
+      "question": "JWT 的结构由哪三部分组成？与 Session 方案相比各有什么优缺点？",
+      "acceptanceCriteria": "说出 Header.Payload.Signature 三段；说明无状态/跨服务优势；说明无法主动吊销、需配合黑名单或短有效期等缺点"
+    },
+    {
+      "id": "qa-03",
+      "category": "knowledge_qa",
+      "question": "解释数据库索引的 B+ 树结构为什么比 B 树更适合数据库范围查询。",
+      "acceptanceCriteria": "说出叶子节点链表支持范围扫描；非叶子节点不存数据使扇出更大树更矮；磁盘 IO 次数对比"
+    },
+    {
+      "id": "qa-04",
+      "category": "knowledge_qa",
+      "question": "什么是幂等性？支付回调场景如何保证幂等？",
+      "acceptanceCriteria": "给出幂等定义；至少两种实现方案（唯一键/状态机/分布式锁/去重表）；说明回调重试场景下的应用"
+    },
+    {
+      "id": "qa-05",
+      "category": "knowledge_qa",
+      "question": "简述 OAuth2 的四种授权模式，并说明为什么推荐使用授权码模式而不是隐式模式。",
+      "acceptanceCriteria": "列出授权码/隐式/密码/客户端凭证四种；说明隐式模式 token 暴露在 URL 前端的风险；说明授权码交换的安全优势"
+    },
+    {
+      "id": "qa-06",
+      "category": "knowledge_qa",
+      "question": "HTTP/2 相对 HTTP/1.1 的主要改进有哪些？",
+      "acceptanceCriteria": "至少说出多路复用、头部压缩 HPACK、服务器推送、二进制分帧中的三项"
+    },
+    {
+      "id": "code-01",
+      "category": "code_gen",
+      "question": "用 Java 21 编写一个线程安全的 LRU 缓存类，要求 get/put 均为 O(1)，容量超限时淘汰最久未使用项，给出完整可编译代码。",
+      "acceptanceCriteria": "使用 LinkedHashMap(accessOrder=true) 或双向链表+哈希表；get/put 加锁或用 synchronized；有淘汰逻辑；代码结构完整"
+    },
+    {
+      "id": "code-02",
+      "category": "code_gen",
+      "question": "编写一个 SQL：从 orders 表（字段 id, user_id, amount, created_at）统计 2024 年每个月的订单数与总金额，只保留总金额超过 10000 的月份，按月份升序输出。",
+      "acceptanceCriteria": "使用 GROUP BY 月份（DATE_FORMAT 或 EXTRACT）；有 WHERE 时间过滤；有 HAVING 金额过滤；按月份排序"
+    },
+    {
+      "id": "code-03",
+      "category": "code_gen",
+      "question": "用 Python 编写一个函数，输入一个字符串，返回其中最长无重复字符子串的长度，并说明时间复杂度。",
+      "acceptanceCriteria": "滑动窗口实现；正确处理空串；说明 O(n) 时间复杂度；代码可运行"
+    },
+    {
+      "id": "code-04",
+      "category": "code_gen",
+      "question": "编写一个 Spring Boot 的全局异常处理器（@RestControllerAdvice），统一捕获 BusinessException 和未知异常并返回统一 JSON 结构。",
+      "acceptanceCriteria": "使用 @RestControllerAdvice；分别处理业务异常与 Exception 兜底；返回统一结构（code/message）；日志记录"
+    },
+    {
+      "id": "code-05",
+      "category": "code_gen",
+      "question": "用 JavaScript 编写一个防抖（debounce）函数，支持立即执行选项（leading），并说明使用场景。",
+      "acceptanceCriteria": "定时器实现；leading 选项在起始沿触发；说明输入搜索/按钮防重复点击场景；返回可取消或正确清理定时器"
+    },
+    {
+      "id": "code-06",
+      "category": "code_gen",
+      "question": "编写一个 MySQL 建表语句：用户表 user 与订单表 orders，要求外键关联、合理索引（按用户查订单、按时间范围查订单），并说明索引设计理由。",
+      "acceptanceCriteria": "两表主键与外键；orders 上有 (user_id, created_at) 组合索引；说明最左前缀或范围查询理由；字符集声明"
+    },
+    {
+      "id": "analysis-01",
+      "category": "analysis",
+      "question": "一个电商系统大促期间订单接口 P99 从 200ms 涨到 2s，数据库 CPU 100%。请给出系统的排查思路与至少 5 个可能原因。",
+      "acceptanceCriteria": "排查思路有序（监控定位→慢查询→连接池→锁→应用层）；至少 5 个合理假设；给出验证手段"
+    },
+    {
+      "id": "analysis-02",
+      "category": "analysis",
+      "question": "对比单体架构与微服务架构的优缺点，并说明什么样的团队和业务阶段适合微服务。",
+      "acceptanceCriteria": "两边优缺点均衡；给出团队规模/部署频率/业务复杂度等判断维度；不绝对化"
+    },
+    {
+      "id": "analysis-03",
+      "category": "analysis",
+      "question": "分析以下需求的合理性并提出改进：'给系统加一个 AI 助手功能，要求能回答任何问题'。请从范围、可行性、风险三方面展开。",
+      "acceptanceCriteria": "指出范围过于宽泛需收窄；指出可行性依赖（模型能力/知识库/成本）；指出幻觉与合规风险；给出可落地的收窄建议"
+    },
+    {
+      "id": "analysis-04",
+      "category": "analysis",
+      "question": "一个团队决定把 Redis 当作主数据库使用（关闭持久化），你如何看待这个方案？请给出风险评估与替代设计。",
+      "acceptanceCriteria": "指出数据丢失风险（关闭持久化重启即失）；说明 Redis 定位应为缓存而非主存储；给出 MySQL+Redis 缓存架构替代"
+    },
+    {
+      "id": "plan-01",
+      "category": "task_planning",
+      "question": "你要在两周内交付一个'团队任务看板'功能（支持任务的创建/拖拽/指派/截止提醒）。请列出开发计划：拆解任务、估算工作量、标注依赖与风险。",
+      "acceptanceCriteria": "任务拆解合理（前端/后端/联调）；有工作量估算；识别至少 2 个风险（如提醒的定时任务、拖拽兼容性）；有里程碑"
+    },
+    {
+      "id": "plan-02",
+      "category": "task_planning",
+      "question": "为公司内部设计一个技术文档管理方案：要求支持版本管理、权限控制、全文搜索。请给出技术选型与实施步骤。",
+      "acceptanceCriteria": "给出存储与搜索引擎选型及理由；覆盖版本与权限设计；实施步骤分阶段"
+    },
+    {
+      "id": "plan-03",
+      "category": "task_planning",
+      "question": "线上发现一个偶发的空指针异常，堆栈指向某个服务调用返回值的解引用。请给出从定位到修复再到预防的完整处理计划。",
+      "acceptanceCriteria": "定位手段（日志/堆栈/复现条件）；修复方案（判空/Optional/契约约束）；预防措施（单测/静态检查/ code review）"
+    },
+    {
+      "id": "plan-04",
+      "category": "task_planning",
+      "question": "你要将一个每日 10 万次调用的第三方 HTTP 接口接入系统，第三方 SLA 为 99%，偶发超时。请设计接入方案：超时重试、降级、缓存与监控。",
+      "acceptanceCriteria": "超时与重试策略（指数退避/上限）；降级方案（缓存兜底/默认值）；监控与告警；不绝对依赖第三方"
+    }
+  ]
+}

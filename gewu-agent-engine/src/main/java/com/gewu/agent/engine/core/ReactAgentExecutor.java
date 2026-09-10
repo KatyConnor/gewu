@@ -495,7 +495,10 @@ public class ReactAgentExecutor implements AgentExecutor {
     private String[] routeModelIfApplicable(AgentTask task, String[] pm,
                                             ComplexityRouter.ComplexityResult complexity,
                                             BudgetContext budget) {
-        if (task.getModelProvider() != null && task.getModelName() != null) {
+        // 显式模型时默认尊重调用方；modelRouteEnabled=true（基准评测/按需）除外——
+        // 仍咨询 ModelSelector，命中更优模型则改选
+        boolean routingRequested = Boolean.TRUE.equals(task.getModelRouteEnabled());
+        if (!routingRequested && task.getModelProvider() != null && task.getModelName() != null) {
             return pm;
         }
         try {

@@ -89,6 +89,39 @@ public class AgentExecutionEngine {
 
     // ==================== 执行账本（T3.4/T4.1） ====================
 
+    /**
+     * 执行账本记录入口（Wenshi 路径专用，S7 基准评测补盲区）：
+     * 解析会话级 Agent 绑定与实验分组，创建 running 记录；失败返回 null 不阻断。
+     */
+    public String beginExecutionRecord(AgentExecutionRequest request) {
+        try {
+            String agentId = resolveAgentId(request.getAgentId(), request.getSessionId());
+            if (agentId == null || agentId.isBlank()) {
+                return null;
+            }
+            return agentExecutionService.createExecution(
+                    agentId, request.getSessionId(), request.getMessage(),
+                    resolveExperimentGroup(agentId)).getExecutionId();
+        } catch (Exception e) {
+            log.warn("执行记录创建失败（忽略）: cause={}", e.getMessage());
+            return null;
+        }
+    }
+
+    /** 结束执行账本记录：error 为空记完成，否则记失败（失败静默） */
+    public void endExecutionRecord(String executionId, String content, Integer tokens, String error) {
+        if (executionId == null) return;
+        try {
+            if (error != null) {
+                agentExecutionService.failExecution(executionId, error);
+            } else {
+                agentExecutionService.completeExecution(executionId, content, tokens);
+            }
+        } catch (Exception e) {
+            log.warn("执行记录结束回写失败（忽略）: executionId={}, cause={}", executionId, e.getMessage());
+        }
+    }
+
     /** 创建执行记录并返回 executionId（账本失败不阻断对话主链路） */
     private String recordStart(AgentTask task) {
         if (task.getAgentId() == null || task.getAgentId().isBlank()) {
@@ -181,6 +214,7 @@ public class AgentExecutionEngine {
                 .modelName(pm[1])
                 .agentMode(request.getAgentMode())
                 .thinkingStyle(request.getThinkingStyle())
+                .modelRouteEnabled(request.getModelRouteEnabled())
                 .build();
     }
 

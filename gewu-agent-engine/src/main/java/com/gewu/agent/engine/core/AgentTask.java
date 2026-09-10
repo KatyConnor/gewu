@@ -43,6 +43,8 @@ public class AgentTask {
     private Double temperature;
     /** 最大 token 数（覆盖默认值） */
     private Integer maxTokens;
+    /** 模型路由开关（基准评测/按需启用）：true 时忽略显式模型咨询 ModelSelector 动态改选 */
+    private Boolean modelRouteEnabled;
     /** 感知引擎产出的结构化意图（运行时填充，调用方一般不设） */
     private PerceptionEngine.Intent intent;
 }

@@ -58,12 +58,13 @@ class ExperimentServiceTest {
         assertEquals(0.9, groups.get("full_stack").getSuccessRate(), 0.001);
         assertEquals(0.85, groups.get("baseline").getAvgJudgeScore());
 
-        // 预置对照组说明存在
+        // 预置对照组说明存在（T5.5 修订：legacy/wenshi/route_on 三组可实测变量）
         @SuppressWarnings("unchecked")
         Map<String, String> presets = (Map<String, String>) report.get("presetGroups");
-        assertEquals(4, presets.size());
-        assertTrue(presets.containsKey("baseline"));
-        assertTrue(presets.containsKey("full_stack"));
+        assertEquals(3, presets.size());
+        assertTrue(presets.containsKey("legacy"));
+        assertTrue(presets.containsKey("wenshi"));
+        assertTrue(presets.containsKey("route_on"));
         // 统计建议存在
         assertTrue(report.containsKey("sampleAdvice"));
     }

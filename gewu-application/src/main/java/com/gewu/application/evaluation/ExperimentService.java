@@ -27,13 +27,15 @@ public class ExperimentService {
     private final AgentExecutionMapper agentExecutionMapper;
 
     /**
-     * 预置对照组（四组配置样例，写入 Agent modelConfig JSON 即生效）。
+     * 预置对照组（T5.5 修订：对齐基准评测的可实测变量）。
+     * <p>变量说明：legacy/wenshi 经请求级 engineOverride 切换；
+     * route_on 经请求级 modelRouteEnabled=true 启用模型路由；
+     * 语义缓存为环境级变量（gewu.semantic-cache.enabled），整批开关对照。
      */
     public static final Map<String, String> PRESET_GROUPS = Map.of(
-            "baseline", "纯 ReAct 基线：仅 maxToolRounds 循环，无复杂度路由/模型路由/认知增强",
-            "complexity", "+复杂度路由：L1-L3 预算分级生效（budget.* 配置）",
-            "model_route", "+模型路由：ModelSelector 按复杂度/预算动态选模型",
-            "full_stack", "全开：复杂度路由 + 模型路由 + 记忆注入 + 语义缓存 + 双闭环验证"
+            "legacy", "legacy 引擎基线：AgentExecutionEngine -> ReactAgentExecutor（显式模型直通）",
+            "wenshi", "wenshi 引擎：WenshiReasoningEngine（Planner/Solver/Critic + 记忆注入）",
+            "route_on", "legacy + 模型路由：请求 modelRouteEnabled=true，按复杂度/预算动态改选模型（需配置 gewu.llm.routing.models 模型特征）"
     );
 
     /**

@@ -98,9 +98,12 @@ public class AiChatController {
     @PostMapping("/chat")
     @Operation(summary = "同步对话", description = "发送消息并获取完整 AI 响应")
     public Result<ChatResponse> chat(@Valid @RequestBody ChatRequest request) {
-        log.info("同步对话: agentId={}, sessionId={}, routing={}", request.getAgentId(), request.getSessionId(), chatRouting);
+        // 引擎选择：请求级覆盖（基准评测）优先，否则按全局路由配置
+        String engine = request.getEngineOverride() != null && !request.getEngineOverride().isBlank()
+                ? request.getEngineOverride() : chatRouting;
+        log.info("同步对话: agentId={}, sessionId={}, routing={}", request.getAgentId(), request.getSessionId(), engine);
 
-        if ("wenshi".equals(chatRouting) && wenshiReasoningEngine != null) {
+        if ("wenshi".equals(engine) && wenshiReasoningEngine != null) {
             return Result.success(chatViaWenshi(request));
         }
 
@@ -127,9 +130,31 @@ public class AiChatController {
         java.util.List<ChatStreamEvent.FileEventInfo> fileEvents = new java.util.ArrayList<>();
 
         // 构建事件 Flux（不在此处保存会话，保存逻辑移到 StreamingResponseBody 完成后）
+        // 引擎选择：请求级覆盖（基准评测）优先，否则按全局路由配置
+        String engine = request.getEngineOverride() != null && !request.getEngineOverride().isBlank()
+                ? request.getEngineOverride() : streamRouting;
+
         Flux<ChatStreamEvent> baseFlux;
-        if ("wenshi".equals(streamRouting) && wenshiReasoningEngine != null) {
+        if ("wenshi".equals(engine) && wenshiReasoningEngine != null) {
             baseFlux = chatStreamViaWenshi(request);
+            // Wenshi 路径执行账本（S7 补盲区：此前不经 AgentExecutionEngine 无记录）
+            String wenshiExecId = agentExecutionEngine.beginExecutionRecord(toAgentExecutionRequest(request));
+            if (wenshiExecId != null) {
+                StringBuilder wenshiContent = new StringBuilder();
+                java.util.concurrent.atomic.AtomicReference<Throwable> wenshiError = new java.util.concurrent.atomic.AtomicReference<>();
+                baseFlux = baseFlux
+                        .doOnNext(e -> {
+                            if ("content".equals(e.getType()) && e.getContent() != null) {
+                                wenshiContent.append(e.getContent());
+                            }
+                        })
+                        .doOnError(wenshiError::set)
+                        .doOnTerminate(() -> agentExecutionEngine.endExecutionRecord(
+                                wenshiExecId,
+                                wenshiError.get() == null ? wenshiContent.toString() : null,
+                                null,
+                                wenshiError.get() != null ? String.valueOf(wenshiError.get().getMessage()) : null));
+            }
         } else {
             baseFlux = chatStreamViaLegacy(request);
         }
@@ -346,6 +371,19 @@ public class AiChatController {
                 .build();
     }
 
+    /** ChatRequest -> AgentExecutionRequest（Wenshi 路径账本记录用，字段对齐 legacy 链路） */
+    private AgentExecutionRequest toAgentExecutionRequest(ChatRequest request) {
+        return AgentExecutionRequest.builder()
+                .agentId(request.getAgentId())
+                .sessionId(request.getSessionId())
+                .message(request.getMessage())
+                .model(request.getModel())
+                .agentMode(request.getAgentMode())
+                .thinkingStyle(request.getThinkingStyle())
+                .modelRouteEnabled(request.getModelRouteEnabled())
+                .build();
+    }
+
     private ChatResponse chatViaWenshi(ChatRequest request) {
         String userId = UserContext.currentUserId();
         WenshiReasoningRequest wenshiRequest = WenshiReasoningRequest.builder()
@@ -360,12 +398,14 @@ public class AiChatController {
                 .constraints(WenshiReasoningRequest.ReasoningConstraints.defaults())
                 .build();
 
+        String wenshiExecId = agentExecutionEngine.beginExecutionRecord(toAgentExecutionRequest(request));
         WenshiReasoningResult result = wenshiReasoningEngine.reason(wenshiRequest);
 
         if (request.getSessionId() != null) {
             sessionContextService.appendChatInteraction(
                     request.getSessionId(), userId, request.getMessage(), result.getAnswer(), request.getClientId());
         }
+        agentExecutionEngine.endExecutionRecord(wenshiExecId, result.getAnswer(), null, null);
 
         return ChatResponse.builder()
                 .messageId(java.util.UUID.randomUUID().toString())

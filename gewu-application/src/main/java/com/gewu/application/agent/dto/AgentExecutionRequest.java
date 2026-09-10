@@ -25,4 +25,6 @@ public class AgentExecutionRequest {
     private String agentMode;
     /** 思维模式: chain-of-thought/tree-of-thought/react/step-by-step/socratic */
     private String thinkingStyle;
+    /** 模型路由开关（基准评测用）：true 时引擎按复杂度/预算动态改选模型 */
+    private Boolean modelRouteEnabled;
 }
