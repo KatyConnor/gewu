@@ -238,7 +238,8 @@ management:
       probability: ${OTEL_TRACING_SAMPLING_PROBABILITY:1.0}
   otlp:
     tracing:
-      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}
+      # Spring Boot 的 OTLP 导出器要求完整 URL（含 /v1/traces 路径），缺路径会 404
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318/v1/traces}
       export:
         enabled: ${OTEL_TRACING_ENABLED:false}
 

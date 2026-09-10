@@ -48,11 +48,24 @@ public class OpenAiCompatibleClient implements LlmClient {
         return providerCode;
     }
 
+    /**
+     * 解析聊天补全端点 URL：兼容两种 base_url 配置——
+     * 完整端点（以 /chat/completions 结尾）直接使用；
+     * 裸 Base URL（如 https://api.openai.com/v1）自动补全请求路径。
+     */
+    private String endpointUrl() {
+        String base = baseUrl.trim();
+        while (base.endsWith("/")) {
+            base = base.substring(0, base.length() - 1);
+        }
+        return base.endsWith("/chat/completions") ? base : base + "/chat/completions";
+    }
+
     @Override
     public LlmResponse chat(LlmRequest request) {
         String body = bodyBuilder.buildBody(request, false, providerCode);
         HttpRequest httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create(baseUrl))
+                .uri(URI.create(endpointUrl()))
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(body))
@@ -82,7 +95,7 @@ public class OpenAiCompatibleClient implements LlmClient {
     public Flux<LlmChunk> chatStream(LlmRequest request) {
         String body = bodyBuilder.buildBody(request, true, providerCode);
         HttpRequest httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create(baseUrl))
+                .uri(URI.create(endpointUrl()))
                 .header("Authorization", "Bearer " + apiKey)
                 .header("Content-Type", "application/json")
                 .header("Accept", "text/event-stream")
@@ -97,7 +110,7 @@ public class OpenAiCompatibleClient implements LlmClient {
                 .build();
 
         log.info("{} chatStream 请求: url={}, model={}, apiKey={}, bodyLen={}, httpVersion=HTTP_1_1",
-                providerCode, baseUrl, request.getModel(),
+                providerCode, endpointUrl(), request.getModel(),
                 (apiKey == null || apiKey.isBlank()) ? "未配置" : "已配置",
                 body.length());
 

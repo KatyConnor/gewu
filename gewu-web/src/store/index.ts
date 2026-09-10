@@ -12,7 +12,7 @@ interface AppState {
   sidebarOpen: boolean;
   messages: Message[];
   chatSessions: ChatSession[];
-  activeSessionId: string;
+  activeSessionId: string | null;
   projects: PrototypeVersion[];
   /** 跨页传递"要对话的智能体 ID"，ChatPage 读取后自动选中并清空 */
   pendingAgentId?: string | null;

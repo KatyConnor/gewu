@@ -58,6 +58,9 @@ public class WenshiReasoningEngine {
     /** 任务规划器，负责将复杂任务分解为可执行的子目标序列 */
     private final Planner planner;
 
+    /** 会话上下文服务：加载多轮对话历史（S6 缺陷修复——wenshi 流式路由此前每轮无状态） */
+    private final com.gewu.application.session.SessionContextService sessionContextService;
+
     /** 策略路由器，根据子目标特征选择最优求解策略 */
     private final SolverRouter solverRouter;
 
@@ -408,7 +411,7 @@ public class WenshiReasoningEngine {
                 }
                 systemPrompt = llmPrompt.toString();
                 // 流式调用 LLM
-                planFlux = planFlux.concatWith(streamLlmCall(systemPrompt, subgoal.getDescription(), accumulated, request.getModel()));
+                planFlux = planFlux.concatWith(streamLlmCall(systemPrompt, subgoal.getDescription(), accumulated, request.getModel(), request.getSessionId()));
             }
         }
 
@@ -483,13 +486,35 @@ public class WenshiReasoningEngine {
      * @return 包含流式内容块的 Flux
      * @since 1.0.0
      */
-    private Flux<WenshiReasoningChunk> streamLlmCall(String systemPrompt, String userMessage, StringBuilder accumulated, String model) {
+    /**
+     * 加载会话对话历史（最近 N 条，含超 4000 token 自动压缩），供多轮上下文衔接。
+     *
+     * @return 历史消息列表；sessionId 为空或加载失败返回空列表（首轮流式/容错）
+     */
+    private List<Message> loadConversationHistory(String sessionId) {
+        if (sessionId == null || sessionId.isBlank()) {
+            return List.of();
+        }
+        try {
+            return sessionContextService.buildContextMessages(sessionId, 20);
+        } catch (Exception e) {
+            log.warn("wenshi 会话历史加载失败（本次按无历史推理）: sessionId={}, cause={}", sessionId, e.getMessage());
+            return List.of();
+        }
+    }
+
+    private Flux<WenshiReasoningChunk> streamLlmCall(String systemPrompt, String userMessage, StringBuilder accumulated, String model, String sessionId) {
         try {
             String[] pm = resolveProviderAndModel(model);
             LlmClient client = llmClientFactory.getClient(pm[0]);
 
             List<Message> messages = new ArrayList<>();
             messages.add(Message.builder().role("system").content(systemPrompt).build());
+            // 会话历史注入（S6 缺陷修复）：多轮对话上下文衔接，历史含压缩逻辑（SessionContextService 统一管理）
+            List<Message> history = loadConversationHistory(sessionId);
+            if (history != null && !history.isEmpty()) {
+                messages.addAll(history);
+            }
             messages.add(Message.builder().role("user").content(userMessage).build());
 
             LlmRequest llmRequest = LlmRequest.builder()

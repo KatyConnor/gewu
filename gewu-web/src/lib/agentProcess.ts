@@ -37,7 +37,14 @@ export interface SearchProcessItem {
   endedAt?: number;
 }
 
-export type ProcessItem = ThinkingProcessItem | ToolProcessItem | SearchProcessItem;
+/** 正文内容段：AI 回复文本按"被过程事件打断的位置"切段，与操作行交错渲染 */
+export interface ContentProcessItem {
+  kind: 'content';
+  id: string;
+  text: string;
+}
+
+export type ProcessItem = ThinkingProcessItem | ToolProcessItem | SearchProcessItem | ContentProcessItem;
 
 /** 一次 AI 回复处理过程的可渲染快照 */
 export interface ProcessSnapshot {
@@ -126,6 +133,24 @@ export class ProcessTracker {
       text,
       status: 'active',
       startedAt: Date.now(),
+    });
+  }
+
+  /**
+   * 正文内容段：与上一条内容段同连续续写（中间未插入过程事件），
+   * 否则开启新段——实现"正文 ↔ 操作行"按真实顺序交错。
+   */
+  addContent(text: string) {
+    this.closeActiveThinking();
+    const last = this.items[this.items.length - 1];
+    if (last && last.kind === 'content') {
+      last.text += text;
+      return;
+    }
+    this.items.push({
+      kind: 'content',
+      id: `content-${this.items.length}`,
+      text,
     });
   }
 
@@ -256,4 +281,19 @@ export function formatDuration(ms: number): string {
   const m = Math.floor(seconds / 60);
   const s = Math.round(seconds % 60);
   return `${m}m${s.toString().padStart(2, '0')}s`;
+}
+
+/** 毫秒 -> 中文口语时长："几秒" / "38 秒" / "8 分 27 秒"（对标 zcode 文案） */
+export function humanizeDuration(ms: number): string {
+  const seconds = Math.max(1, Math.round(ms / 1000));
+  if (seconds < 3) return '几秒';
+  if (seconds < 60) return `${seconds} 秒`;
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return s > 0 ? `${m} 分 ${s} 秒` : `${m} 分`;
+}
+
+/** 时间线里是否存在"过程"条目（纯正文段不算）——决定用交错时间线还是常规气泡 */
+export function hasProcessActivity(items: ProcessItem[]): boolean {
+  return items.some(i => i.kind !== 'content');
 }

@@ -73,7 +73,7 @@ config:
   sseDistributed: "true"
   otel:
     enabled: "true"
-    endpoint: http://jaeger.gewu.svc.cluster.local:4318
+    endpoint: http://jaeger.gewu.svc.cluster.local:4318/v1/traces
 
 secret:
   mysqlPassword: change-me-prod

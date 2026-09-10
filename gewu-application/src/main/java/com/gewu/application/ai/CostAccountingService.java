@@ -17,7 +17,7 @@ import java.util.List;
  * 会话成本核算服务（T4.1）。
  * <p>执行完成后按模型单价将 token 用量累计到会话维度
  * （session.tokens_input/output/reasoning + cost），原子 UPDATE 消除并发覆盖。
- * 单价来自 model_config.price_per_1k_input/output（0 或未配置 = 不计费）。
+ * 单价来自 model_config.price_per1k_input/output（0 或未配置 = 不计费）。
  * 流式路径无 usage 时按字符数 /4 估算（结果偏差记录在日志）。
  *
  * @since 1.0.0

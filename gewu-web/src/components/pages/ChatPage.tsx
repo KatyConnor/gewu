@@ -1,7 +1,7 @@
 'use client';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Send, Plus, Settings, Share2, Clock, ArrowLeft, RefreshCw, Pin, PinOff, Link2, Link2Off } from 'lucide-react';
+import { Send, Plus, Settings, Share2, Clock, ArrowLeft, RefreshCw, Pin, PinOff, Link2, Link2Off, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import { setPage, setPendingAgentId, type RootState } from '@/store';
 import CustomSelect from '@/components/ui/Select';
@@ -9,11 +9,13 @@ import { Message } from '@/types';
 import AIProcessTimeline from './AIProcessTimeline';
 import ChatHomeView from './ChatHomeView';
 import { chatStream, regenerateMessageStream } from '@/lib/chat';
-import { createProcessStreamHandler, type ProcessSnapshot, type ProcessItem } from '@/lib/agentProcess';
+import { createProcessStreamHandler, hasProcessActivity, type ProcessSnapshot, type ProcessItem } from '@/lib/agentProcess';
 import { listActiveModels, type ModelConfig } from '@/lib/model-config';
 import { listAgents } from '@/lib/agent';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import FileCard from '@/components/ui/FileCard';
+import ChatErrorBanner from '@/components/ui/ChatErrorBanner';
+import { classifyChatError, type ChatErrorInfo } from '@/lib/chatErrors';
 import type { FileInfo } from '@/types';
 import {
   listMySessions, createSession, updateSession,
@@ -22,11 +24,16 @@ import {
 } from '@/lib/session';
 
 const chatTabs = [
-  { id: 'all', label: '会话' },
   { id: 'project', label: '项目' },
   { id: 'requirement', label: '需求' },
-  { id: 'test', label: '测试' },
+  { id: 'task', label: '任务' },
 ];
+
+const tabGroupLabels: Record<string, string> = {
+  project: '项目会话',
+  requirement: '需求会话',
+  task: '任务会话',
+};
 
 const agentModeOptions = [
   { value: 'assistant', label: '助手模式' },
@@ -44,7 +51,7 @@ const thinkingStyleOptions = [
 ];
 
 export default function ChatPage() {
-  const [activeTab, setActiveTab] = useState('all');
+  const [activeTab, setActiveTab] = useState('project');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isStreaming, setIsStreaming] = useState(false);
@@ -54,6 +61,8 @@ export default function ChatPage() {
   const [streamingFiles, setStreamingFiles] = useState<FileInfo[]>([]);
   // AI 处理过程时间线快照（思考/工具/搜索交错，流式期间实时更新）
   const [process, setProcess] = useState<ProcessSnapshot | null>(null);
+  // 对话流式错误（持久提示框，替代一闪而过的 toast）
+  const [chatError, setChatError] = useState<ChatErrorInfo | null>(null);
   const [modelOptions, setModelOptions] = useState<{ value: string; label: string }[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
   const [agentMode, setAgentMode] = useState('assistant');
@@ -73,7 +82,6 @@ export default function ChatPage() {
   const [filterProjectId, setFilterProjectId] = useState<string | null>(null);
   const [projectSessions, setProjectSessions] = useState<SessionDTO[]>([]);
   const [filteredSessions, setFilteredSessions] = useState<SessionDTO[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
   const bottomRef = useRef<HTMLDivElement>(null);
   const dispatch = useDispatch();
   const toast = useToast();
@@ -146,21 +154,14 @@ export default function ChatPage() {
       filtered = sessions.filter(s =>
         s.title.includes('需求') || s.title.includes('PRD') || s.title.includes('需求文档')
       );
-    } else if (activeTab === 'test') {
-      // 测试会话：标题包含"测试"
+    } else if (activeTab === 'task') {
+      // 任务会话：标题包含"任务"
       filtered = sessions.filter(s =>
-        s.title.includes('测试') || s.title.includes('Test') || s.title.includes('SIT') || s.title.includes('UAT')
+        s.title.includes('任务') || s.title.includes('Task')
       );
     }
-    // 'all' 显示所有会话
-
-    // 搜索框过滤（T4.4 接线）：按标题关键字
-    const q = searchQuery.trim().toLowerCase();
-    if (q) {
-      filtered = filtered.filter(s => s.title.toLowerCase().includes(q));
-    }
     setFilteredSessions(filtered);
-  }, [activeTab, sessions, searchQuery]);
+  }, [activeTab, sessions]);
 
   // 从 URL hash 解析项目 ID 和会话 ID
   useEffect(() => {
@@ -195,7 +196,7 @@ export default function ChatPage() {
       process: processItems.length > 0 ? processItems : undefined,
       processMs: processItems.length > 0 ? processMs : undefined,
       files: files && files.length > 0 ? files : undefined,
-      processExpanded: false,
+      processExpanded: true,
     }]);
     setStreamingFiles([]);
   };
@@ -242,19 +243,22 @@ export default function ChatPage() {
     try {
       await regenerateMessageStream(currentSessionId, messageId, {
         ...proc.handlers,
-        onContent: (text) => { setStreamText(prev => prev + text); },
+        onContent: (text) => {
+          proc.tracker.addContent(text);
+          setStreamText(prev => prev + text);
+        },
         onFile: (file) => { setStreamingFiles(prev => [...prev, file]); },
         onError: (msg) => {
-          toast(msg, 'error');
+          setChatError(classifyChatError(msg));
         },
         onComplete: () => {
           // 回填真实 messageId：从后端重载会话消息
           loadConversationById(currentSessionId);
         },
       });
-    } catch (e) {
+      } catch (e) {
       console.error('重新生成失败:', e);
-      toast((e as Error).message, 'error');
+      setChatError(classifyChatError((e as Error).message));
     } finally {
       setRegeneratingId(null);
       setIsStreaming(false);
@@ -340,6 +344,22 @@ export default function ChatPage() {
 
   const sendMessage = async () => {
     if (!input.trim() || isStreaming) return;
+    // 无会话时自动创建（缺陷修复：此前 sessionId 为空会导致后端不落库、
+    // 引擎不加载历史——界面看似连续对话，实际每轮都是无上下文的独立推理）
+    let sessionIdForTurn = currentSessionId;
+    if (!sessionIdForTurn) {
+      try {
+        const session = await createSession({
+          title: input.trim().slice(0, 20) || '新对话', type: 1, agent: agentId || undefined,
+        });
+        sessionIdForTurn = session.sessionId;
+        setCurrentSessionId(session.sessionId);
+        setCurrentTitle(session.title);
+      } catch {
+        toast('会话创建失败，请稍后重试', 'error');
+        return;
+      }
+    }
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: input, timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) };
     setMessages(prev => [...prev, userMsg]);
     const userMessage = input;
@@ -348,6 +368,7 @@ export default function ChatPage() {
     setStreamText('');
     setStreamingFiles([]);
     setProcess(null);
+    setChatError(null); // 新消息开始时清除上一次的错误提示
 
     // 处理过程时间线：思考/工具/搜索事件按发生顺序实时累积渲染
     const proc = createProcessStreamHandler(setProcess);
@@ -359,7 +380,7 @@ export default function ChatPage() {
       let completed = false;
 
       await chatStream(
-        { message: userMessage, model: selectedModel, agentMode, thinkingStyle, sessionId: currentSessionId || undefined, agentId: agentId || undefined },
+        { message: userMessage, model: selectedModel, agentMode, thinkingStyle, sessionId: sessionIdForTurn, agentId: agentId || undefined },
         {
           ...proc.handlers,
           onContent: (text) => {
@@ -368,6 +389,8 @@ export default function ChatPage() {
               // 首段正文输出：闭合当前思考片段（后续 thinking 事件开启新片段）
               proc.handlers.onContentStarted();
             }
+            // 正文纳入过程时间线，实现"正文 ↔ 操作行"交错展示
+            proc.tracker.addContent(text);
             accumulatedText += text;
             setStreamText(accumulatedText);
           },
@@ -378,7 +401,7 @@ export default function ChatPage() {
           onError: (error) => {
             if (completed) return;
             completed = true;
-            toast(error, 'error');
+            setChatError(classifyChatError(error));
             proc.tracker.finish();
             // 始终显示回复消息：有内容则显示内容，否则显示错误信息（而非静默丢弃）
             handleMessageComplete(
@@ -413,11 +436,11 @@ export default function ChatPage() {
               setProcess(null);
             }
             // 会话标题更新
-            if (accumulatedText && currentSessionId && currentTitle === '新对话') {
+            if (accumulatedText && sessionIdForTurn && currentTitle === '新对话') {
               const newTitle = accumulatedText.length > 12
                 ? accumulatedText.substring(0, 12).replace(/[\n\r]/g, '') + '...'
                 : accumulatedText.replace(/[\n\r]/g, '');
-              updateSession(currentSessionId, { title: newTitle }).then(() => {
+              updateSession(sessionIdForTurn, { title: newTitle }).then(() => {
                 setCurrentTitle(newTitle);
                 loadSessions();
               }).catch(() => {});
@@ -427,7 +450,7 @@ export default function ChatPage() {
       );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '发送消息失败';
-      toast(message, 'error');
+      setChatError(classifyChatError(message));
       setIsStreaming(false);
       setStreamText('');
       setStreamingFiles([]);
@@ -445,34 +468,25 @@ export default function ChatPage() {
       setMessages([]);
       loadSessions();
     } catch {
-      setCurrentTitle('新对话');
-      setCurrentSessionId(null);
-      setShowChatView(true);
-      setMessages([]);
+      // 创建失败不再静默降级为无会话模式（否则整段对话不落库、无上下文）
+      toast('会话创建失败，请检查网络后重试', 'error');
     }
   };
   const backToHome = () => { setShowChatView(false); setMessages([]); dispatch(setPage('dashboard')); };
-  const toggleProcess = (msgId: string) => { setMessages(prev => prev.map(m => m.id === msgId ? { ...m, processExpanded: !(m.processExpanded ?? false) } : m)); };
+  const toggleProcess = (msgId: string) => { setMessages(prev => prev.map(m => m.id === msgId ? { ...m, processExpanded: !(m.processExpanded ?? true) } : m)); };
 
   if (!showChatView) {
     return (
       <div className="flex h-screen w-full main-bg">
         <aside className="w-72 border-r flex flex-col h-full flex-shrink0 sidebar-bg">
-          <div className="p-4 border-b" style={{ borderColor: 'rgba(0,184,148,0.08)' }}>
-            <div className="flex items-center justify-between mb-3">
-              <h2 className="font-semibold text-ink-100">会话记录</h2>
-              <button onClick={() => startNewChat()} className="p-1.5 text-ink-400 hover:text-tech-400 hover:bg-tech-500/10 rounded-md transition-all"><Plus className="w-4 h-4" /></button>
-            </div>
-            <div className="flex items-center gap-2 px-3 py-2 rounded-lg border search-bg">
-              <svg className="w-4 h-4 text-ink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-              <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="搜索会话..." className="bg-transparent text-sm text-ink-200 placeholder-ink-500 outline-none flex-1" />
-            </div>
-          </div>
           <div className="px-3 pt-3 pb-1"><div className="flex gap-1 rounded-lg p-1 tab-bar-bg">
             {chatTabs.map(tab => (
               <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-1 py-1.5 px-2 text-xs rounded-md font-medium transition-all ${activeTab === tab.id ? 'text-ink-100 tab-active-bg' : 'text-ink-400 hover:text-ink-200'}`}>{tab.label}</button>
             ))}
           </div></div>
+          <div className="px-3 pb-2">
+            <button onClick={() => startNewChat()} className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-tech-500/20 text-xs font-medium text-tech-400 hover:bg-tech-500/10 hover:border-tech-500/30 transition-all"><Plus className="w-3.5 h-3.5" />新增会话</button>
+          </div>
           <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-1">
             {loadingSessions ? (
               <div className="flex items-center justify-center py-8"><div className="w-4 h-4 border-2 border-tech-400 border-t-transparent rounded-full animate-spin" /></div>
@@ -481,9 +495,7 @@ export default function ChatPage() {
             ) : (
               <>
                 <div className="px-3 py-2 text-[10px] font-medium text-ink-500 uppercase">
-                  {activeTab === 'all' ? '最近会话' :
-                   activeTab === 'project' ? '项目会话' :
-                   activeTab === 'requirement' ? '需求会话' : '测试会话'}
+                  {tabGroupLabels[activeTab] || '会话'}
                 </div>
                 {filteredSessions.map(session => (
                   <div key={session.sessionId}
@@ -528,21 +540,14 @@ export default function ChatPage() {
     <div className="flex h-screen w-full chat-bg">
       {/* 左侧会话列表 - 始终显示 */}
       <aside className="w-72 border-r flex flex-col h-full flex-shrink-0 sidebar-bg">
-        <div className="p-4 border-b" style={{ borderColor: 'rgba(0,184,148,0.08)' }}>
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="font-semibold text-ink-100">会话记录</h2>
-            <button onClick={() => startNewChat()} className="p-1.5 text-ink-400 hover:text-tech-400 hover:bg-tech-500/10 rounded-md transition-all"><Plus className="w-4 h-4" /></button>
-          </div>
-          <div className="flex items-center gap-2 px-3 py-2 rounded-lg border search-bg">
-            <svg className="w-4 h-4 text-ink-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
-            <input type="text" value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} placeholder="搜索会话..." className="bg-transparent text-sm text-ink-200 placeholder-ink-500 outline-none flex-1" />
-          </div>
-        </div>
         <div className="px-3 pt-3 pb-1"><div className="flex gap-1 rounded-lg p-1 tab-bar-bg">
           {chatTabs.map(tab => (
             <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-1 py-1.5 px-2 text-xs rounded-md font-medium transition-all ${activeTab === tab.id ? 'text-ink-100 tab-active-bg' : 'text-ink-400 hover:text-ink-200'}`}>{tab.label}</button>
           ))}
         </div></div>
+        <div className="px-3 pb-2">
+          <button onClick={() => startNewChat()} className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-tech-500/20 text-xs font-medium text-tech-400 hover:bg-tech-500/10 hover:border-tech-500/30 transition-all"><Plus className="w-3.5 h-3.5" />新增会话</button>
+        </div>
         <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-1">
           {loadingSessions ? (
             <div className="flex items-center justify-center py-8"><div className="w-4 h-4 border-2 border-tech-400 border-t-transparent rounded-full animate-spin" /></div>
@@ -551,9 +556,7 @@ export default function ChatPage() {
           ) : (
             <>
               <div className="px-3 py-2 text-[10px] font-medium text-ink-500 uppercase">
-                {activeTab === 'all' ? '最近会话' :
-                 activeTab === 'project' ? '项目会话' :
-                 activeTab === 'requirement' ? '需求会话' : '测试会话'}
+                {tabGroupLabels[activeTab] || '会话'}
               </div>
               {filteredSessions.map(session => (
                 <div key={session.sessionId} onClick={() => loadConversation(session)}
@@ -623,22 +626,47 @@ export default function ChatPage() {
               ><RefreshCw className={`w-3.5 h-3.5 ${regeneratingId === msg.id ? 'animate-spin' : ''}`} /></button>
             )}
             <div className={`flex-1 max-w-3xl ${msg.role === 'user' ? 'flex flex-col items-end' : ''}`}>
-              {msg.role === 'ai' && msg.process && msg.process.length > 0 && <AIProcessTimeline items={msg.process} streaming={false} totalMs={msg.processMs} expanded={msg.processExpanded ?? false} onToggle={() => toggleProcess(msg.id)} />}
-              <div className={`rounded-xl p-4 ${msg.role === 'ai' ? 'chat-bubble-ai rounded-tl-sm' : 'chat-bubble-user rounded-tr-sm'}`}>
-                <MarkdownRenderer content={msg.content} />
-                {msg.role === 'ai' && msg.files && msg.files.length > 0 && (
-                  <div className="mt-3 space-y-2">
-                    {msg.files.map((f, i) => <FileCard key={i} file={f} />)}
+              {msg.role === 'ai' && msg.process && hasProcessActivity(msg.process) ? (
+                <>
+                  {/* 有过程事件：正文与操作行交错的时间线（zcode 风格），不再套气泡 */}
+                  <AIProcessTimeline items={msg.process} streaming={false} totalMs={msg.processMs} expanded={msg.processExpanded ?? true} onToggle={() => toggleProcess(msg.id)} />
+                  {msg.files && msg.files.length > 0 && (
+                    <div className="mt-2 space-y-2">
+                      {msg.files.map((f, i) => <FileCard key={i} file={f} />)}
+                    </div>
+                  )}
+                </>
+              ) : (
+                <>
+                  <div className={`rounded-xl p-4 ${msg.role === 'ai' ? 'chat-bubble-ai rounded-tl-sm' : 'chat-bubble-user rounded-tr-sm'}`}>
+                    <MarkdownRenderer content={msg.content} />
+                    {msg.role === 'ai' && msg.files && msg.files.length > 0 && (
+                      <div className="mt-3 space-y-2">
+                        {msg.files.map((f, i) => <FileCard key={i} file={f} />)}
+                      </div>
+                    )}
                   </div>
-                )}
-              </div>
+                </>
+              )}
               <span className="text-[11px] text-ink-500 mt-1.5 block">{msg.timestamp}</span>
             </div>
             {msg.role === 'user' && <div className="w-8 h-8 rounded-full bg-gradient-to-br from-tech-400 to-cyber-500 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-xs font-semibold text-white">张</span></div>}
           </div>
         ))}
-        {isStreaming && process && process.items.length > 0 && <AIProcessTimeline items={process.items} status={process.status} streaming startAt={process.startedAt} expanded onToggle={() => {}} />}
-        {isStreaming && (
+        {isStreaming && process && hasProcessActivity(process.items) && (
+          <div className="flex gap-4 animate-fade-up">
+            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-xs font-bold text-white">AI</span></div>
+            <div className="flex-1 max-w-3xl">
+              <AIProcessTimeline items={process.items} status={process.status} streaming startAt={process.startedAt} expanded onToggle={() => {}} />
+              {streamingFiles.length > 0 && (
+                <div className="mt-2 space-y-2">
+                  {streamingFiles.map((f, i) => <FileCard key={i} file={f} />)}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+        {isStreaming && (!process || !hasProcessActivity(process.items)) && (
           <div className="flex gap-4 animate-fade-up">
             <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-xs font-bold text-white">AI</span></div>
             <div className="flex-1 max-w-3xl"><div className="chat-bubble-ai rounded-xl rounded-tl-sm p-4">
@@ -649,6 +677,16 @@ export default function ChatPage() {
                 </div>
               )}
             </div></div>
+          </div>
+        )}
+        {chatError && (
+          <div className="flex gap-4 animate-fade-up">
+            <div className="w-8 h-8 rounded-md bg-red-500/10 border border-red-500/20 flex items-center justify-center flex-shrink-0 mt-1">
+              <AlertTriangle className="w-4 h-4 text-red-400" />
+            </div>
+            <div className="flex-1 max-w-3xl">
+              <ChatErrorBanner info={chatError} onClose={() => setChatError(null)} />
+            </div>
           </div>
         )}
         <div ref={bottomRef} />

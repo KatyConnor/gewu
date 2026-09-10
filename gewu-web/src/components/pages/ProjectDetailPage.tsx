@@ -327,6 +327,7 @@ export default function ProjectDetailPage({ projectId, onBack }: { projectId: st
               // 首段正文输出：闭合当前思考片段
               proc.handlers.onContentStarted();
             }
+            proc.tracker.addContent(t);
             acc += t;
             setChatPanel(p => ({ ...p, streamText: acc }));
           },

@@ -77,6 +77,8 @@ out/
 .env.*.local
 
 # ==================== Project Specific ====================
+# 本机启停脚本（scripts/gewu-ctl.sh）的 PID 文件
+run/
 # 本地配置文件
 application-local.yml
 application-local.properties

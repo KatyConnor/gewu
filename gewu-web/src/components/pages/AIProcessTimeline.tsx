@@ -2,17 +2,59 @@
 import { useEffect, useRef, useState } from 'react';
 import {
   Brain, Search, Loader2, ChevronDown, ChevronRight,
-  CheckCircle2, XCircle, ShieldCheck, ExternalLink, Sparkles,
+  XCircle, ShieldCheck, Sparkles, Terminal, FileText, Pencil, Wrench,
 } from 'lucide-react';
 import type { ProcessItem } from '@/lib/agentProcess';
-import { toolHeadline, formatDuration } from '@/lib/agentProcess';
+import { toolHeadline, humanizeDuration, hasProcessActivity } from '@/lib/agentProcess';
+import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 
 /**
  * AI 处理过程时间线（zcode 风格）。
- * 思考片段 / 工具调用 / 网络搜索按真实发生顺序交错实时展示：
- * - 流式期间整体展开，最新条目自动展开、历史条目收起为摘要行；
- * - 完成后折叠为"已完成思考"摘要，点击可回看全过程。
+ * 正文内容段与 思考 / 工具调用 / 网络搜索 按真实发生顺序交错展示：
+ * - 无卡片容器，扁平暗色操作行直接落在消息列里，AI 正文以正常排版穿插其间；
+ * - 头部为"已工作 X 分 X 秒"，点击可折叠/展开整个过程；
+ * - 操作行动词化：思考（持续时长）/ 终端 / 读取 / 编辑 / 查阅，长内容截断，点击展开详情。
  */
+
+/** 工具调用 -> 动词行信息：根据工具名与参数推断 中文动词 + 展示对象 */
+function toolRowInfo(name: string, args?: string): { icon: 'terminal' | 'read' | 'edit' | 'search' | 'tool'; verb: string; detail: string; mono: boolean } {
+  let parsed: Record<string, unknown> = {};
+  if (args) {
+    try {
+      const p: unknown = JSON.parse(args);
+      if (p && typeof p === 'object') parsed = p as Record<string, unknown>;
+    } catch { /* 保留空对象 */ }
+  }
+  const pick = (...keys: string[]): string => {
+    for (const k of keys) {
+      const v = parsed[k];
+      if (typeof v === 'string' && v.trim()) return v;
+    }
+    return '';
+  };
+  const command = pick('command', 'cmd', 'script');
+  const file = pick('file_path', 'path', 'file', 'filename', 'file_name');
+  // 文件路径 -> "文件名 目录/" 两段式（zcode 样式）
+  const fileLabel = (p: string): string => {
+    const idx = p.lastIndexOf('/');
+    return idx >= 0 ? `${p.slice(idx + 1)} ${p.slice(0, idx + 1)}` : p;
+  };
+
+  if (command || /bash|shell|exec|terminal/i.test(name)) {
+    return { icon: 'terminal', verb: '终端', detail: command || toolHeadline(name, args), mono: true };
+  }
+  if (/write|edit|create|save|patch|replace/i.test(name)) {
+    return { icon: 'edit', verb: '编辑', detail: file ? fileLabel(file) : toolHeadline(name, args), mono: false };
+  }
+  if (/read|cat|view|open/i.test(name)) {
+    return { icon: 'read', verb: '读取', detail: file ? fileLabel(file) : toolHeadline(name, args), mono: false };
+  }
+  if (/glob|grep|find|search|list|ls/i.test(name)) {
+    return { icon: 'search', verb: '查阅', detail: pick('pattern', 'query', 'keyword') || file || toolHeadline(name, args), mono: true };
+  }
+  return { icon: 'tool', verb: name, detail: toolHeadline(name, args), mono: true };
+}
+
 export default function AIProcessTimeline({
   items, status, streaming, totalMs, startAt, expanded, onToggle,
 }: {
@@ -40,17 +82,10 @@ export default function AIProcessTimeline({
   }, [streaming]);
 
   useEffect(() => {
-    if (streaming && bodyRef.current) {
+    if (streaming && expanded && bodyRef.current) {
       bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
     }
-  }, [items, status, streaming]);
-
-  const toolCount = items.filter(i => i.kind === 'tool').length;
-  const searchCount = items.filter(i => i.kind === 'search').length;
-  const thinkCount = items.filter(i => i.kind === 'thinking').length;
-  const elapsed = streaming
-    ? (startAt ? Math.max(0, now - startAt) : 0)
-    : (totalMs ?? 0);
+  }, [items, status, streaming, expanded]);
 
   const toggleItem = (id: string, current: boolean) => {
     setManual(prev => ({ ...prev, [id]: !current }));
@@ -61,178 +96,192 @@ export default function AIProcessTimeline({
     if (item.id in manual) return manual[item.id];
     if (item.kind === 'thinking') return item.status === 'active';
     if (item.kind === 'tool') return item.status === 'executing' || item.status === 'pending';
-    return item.status === 'executing' || item.status === 'verifying';
+    if (item.kind === 'search') return item.status === 'executing' || item.status === 'verifying';
+    return false;
   };
 
-  if (items.length === 0) return null;
+  // 纯正文（无任何过程事件）不渲染时间线，交给常规气泡
+  if (items.length === 0 || !hasProcessActivity(items)) return null;
+
+  const elapsed = streaming
+    ? (startAt ? Math.max(0, now - startAt) : 0)
+    : (totalMs ?? 0);
+  const lastContentIdx = items.map(i => i.kind).lastIndexOf('content');
 
   return (
-    <div className="mb-3 rounded-lg border border-tech-500/10 overflow-hidden" style={{ background: 'rgba(14,28,27,0.6)' }}>
-      {/* 摘要头：流式期间显示实时计时，完成后显示总耗时 */}
-      <button onClick={onToggle} className="w-full flex items-center gap-2 px-3 py-2 text-xs text-ink-400 hover:text-tech-400 transition-colors">
-        {streaming
-          ? <Loader2 className="w-3.5 h-3.5 text-tech-400 animate-spin" />
-          : <Brain className="w-3.5 h-3.5 text-tech-400" />}
-        <span className={streaming ? 'text-tech-400' : 'text-ink-300'}>
-          {streaming ? 'AI 正在处理' : '已完成思考'}
-        </span>
-        <span className="text-[10px] text-ink-600">{formatDuration(elapsed)}</span>
-        {toolCount > 0 && <span className="px-1.5 py-0.5 text-[10px] bg-tech-500/10 text-tech-400 rounded">{toolCount} 次工具调用</span>}
-        {searchCount > 0 && <span className="px-1.5 py-0.5 text-[10px] bg-tech-500/10 text-tech-400 rounded">{searchCount} 次搜索</span>}
-        {thinkCount > 1 && <span className="px-1.5 py-0.5 text-[10px] bg-tech-500/10 text-tech-400 rounded">{thinkCount} 轮推理</span>}
-        <span className="ml-auto text-ink-600">{expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</span>
+    <div className="mb-1">
+      {/* 头部：已工作时长，点击折叠/展开整个过程 */}
+      <button onClick={onToggle} className="flex items-center gap-1.5 py-1 text-xs text-ink-400 hover:text-ink-200 transition-colors">
+        {streaming && <Loader2 className="w-3.5 h-3.5 text-tech-400 animate-spin" />}
+        <span>已工作 {humanizeDuration(elapsed)}</span>
+        <ChevronDown className={`w-3.5 h-3.5 text-ink-600 transition-transform ${expanded ? '' : '-rotate-90'}`} />
       </button>
 
-      <div className={`thinking-collapse ${expanded ? 'expanded' : 'collapsed'}`}>
-        <div ref={bodyRef} className="px-3 pb-3 max-h-80 overflow-y-auto scrollbar-thin">
-          <div className="relative pl-4 space-y-1 before:absolute before:left-[7px] before:top-1 before:bottom-1 before:w-px before:bg-tech-500/15">
-            {items.map(item => {
-              if (item.kind === 'thinking') {
-                return <ThinkingItem key={item.id} item={item} expanded={isItemExpanded(item)} onToggle={() => toggleItem(item.id, isItemExpanded(item))} />;
-              }
-              if (item.kind === 'tool') {
-                return <ToolItem key={item.id} item={item} expanded={isItemExpanded(item)} onToggle={() => toggleItem(item.id, isItemExpanded(item))} />;
-              }
-              return <SearchItemView key={item.id} item={item} expanded={isItemExpanded(item)} onToggle={() => toggleItem(item.id, isItemExpanded(item))} />;
-            })}
-          </div>
+      {expanded && (
+        <div ref={bodyRef} className="mt-0.5">
+          {items.map((item, idx) => {
+            if (item.kind === 'content') {
+              return (
+                <div key={item.id} className="my-2">
+                  <MarkdownRenderer content={item.text} isStreaming={streaming && idx === lastContentIdx} />
+                </div>
+              );
+            }
+            if (item.kind === 'thinking') {
+              return <ThinkingRow key={item.id} item={item} now={now} streaming={streaming} expanded={isItemExpanded(item)} onToggle={() => toggleItem(item.id, isItemExpanded(item))} />;
+            }
+            if (item.kind === 'tool') {
+              return <ToolRow key={item.id} item={item} expanded={isItemExpanded(item)} onToggle={() => toggleItem(item.id, isItemExpanded(item))} />;
+            }
+            return <SearchRow key={item.id} item={item} expanded={isItemExpanded(item)} onToggle={() => toggleItem(item.id, isItemExpanded(item))} />;
+          })}
 
           {/* 实时阶段提示 */}
           {streaming && status && (
-            <div className="mt-2 pt-2 border-t border-tech-500/10 text-[11px] text-tech-400/80 flex items-center gap-1.5">
-              <Sparkles className="w-3 h-3 animate-pulse" />
+            <div className="py-1 text-xs text-ink-500 flex items-center gap-1.5">
+              <Sparkles className="w-3.5 h-3.5 text-tech-400/70 animate-pulse flex-shrink-0" />
               <span>{status}</span>
               <span className="inline-block w-1 h-3 bg-tech-400/70 animate-pulse ml-0.5" />
             </div>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
-/** 思考片段：流式文本实时输出，完成后折叠为摘要行 */
-function ThinkingItem({ item, expanded, onToggle }: { item: Extract<ProcessItem, { kind: 'thinking' }>; expanded: boolean; onToggle: () => void }) {
+/** 思考行：🧠 思考 · 持续了N秒，点击展开原文（暗色等宽块） */
+function ThinkingRow({ item, now, streaming, expanded, onToggle }: {
+  item: Extract<ProcessItem, { kind: 'thinking' }>;
+  now: number;
+  streaming: boolean;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   const active = item.status === 'active';
-  const duration = item.endedAt ? formatDuration(item.endedAt - item.startedAt) : '';
+  const duration = active
+    ? humanizeDuration(now - item.startedAt)
+    : humanizeDuration((item.endedAt ?? item.startedAt) - item.startedAt);
   return (
-    <div className="relative">
-      <span className={`absolute -left-4 top-1.5 w-[7px] h-[7px] rounded-full ${active ? 'bg-tech-400 thinking-dot' : 'bg-tech-500/40'}`} />
-      <button onClick={onToggle} className="w-full flex items-center gap-1.5 text-[11px] py-0.5 text-ink-400 hover:text-tech-400 transition-colors">
-        <Brain className={`w-3 h-3 ${active ? 'text-tech-400' : 'text-ink-500'}`} />
-        <span className={active ? 'text-tech-400' : ''}>思考中</span>
-        {!active && duration && <span className="text-[10px] text-ink-600">{duration} · {item.text.length} 字</span>}
-        <span className="text-ink-600">{expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</span>
+    <div>
+      <button onClick={onToggle} className="w-full flex items-center gap-2 py-1 text-left text-xs text-ink-500 hover:text-ink-300 transition-colors">
+        <Brain className={`w-3.5 h-3.5 flex-shrink-0 ${active && streaming ? 'text-tech-400/90' : ''}`} />
+        <span>思考</span>
+        <span className="text-ink-600">· 持续了{duration}{active && '…'}</span>
+        <span className="ml-auto text-ink-600">{expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</span>
       </button>
-      <div className={`thinking-collapse ${expanded ? 'expanded' : 'collapsed'}`}>
-        <div className="mt-1 mb-1.5 bg-ink-900/50 rounded-lg p-2.5">
-          <pre className="text-[11px] text-ink-300 whitespace-pre-wrap break-words font-mono leading-relaxed">
+      {expanded && (
+        <div className="mb-1.5 rounded-md bg-ink-900/40 px-3 py-2">
+          <pre className="text-[11px] text-ink-500 whitespace-pre-wrap break-words font-mono leading-relaxed">
             {item.text}
             {active && <span className="inline-block w-1.5 h-3 bg-tech-400 animate-pulse ml-0.5 align-middle" />}
           </pre>
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
-/** 工具调用条目：名称+参数摘要，执行中转圈，完成后显示耗时，展开可看参数与结果 */
-function ToolItem({ item, expanded, onToggle }: { item: Extract<ProcessItem, { kind: 'tool' }>; expanded: boolean; onToggle: () => void }) {
-  const duration = item.endedAt ? formatDuration(item.endedAt - (item.startedAt ?? item.endedAt)) : '';
+/** 工具行：动词化展示（终端/读取/编辑/查阅/工具名），点击展开参数与结果 */
+function ToolRow({ item, expanded, onToggle }: {
+  item: Extract<ProcessItem, { kind: 'tool' }>;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   const running = item.status === 'executing' || item.status === 'pending';
+  const info = toolRowInfo(item.name, item.args);
   return (
-    <div className="relative">
-      <span className={`absolute -left-4 top-1.5 w-[7px] h-[7px] rounded-full ${running ? 'bg-tech-400 animate-pulse' : 'bg-green-500/50'}`} />
-      <button onClick={onToggle} className="w-full flex items-start gap-1.5 text-[11px] py-0.5 text-left text-ink-300 hover:text-tech-400 transition-colors">
+    <div>
+      <button onClick={onToggle} className="w-full flex items-center gap-2 py-1 text-left text-xs text-ink-500 hover:text-ink-300 transition-colors">
         {running
-          ? <Loader2 className="w-3 h-3 mt-0.5 text-tech-400 animate-spin flex-shrink-0" />
+          ? <Loader2 className="w-3.5 h-3.5 flex-shrink-0 text-tech-400 animate-spin" />
           : item.status === 'error'
-            ? <XCircle className="w-3 h-3 mt-0.5 text-red-400 flex-shrink-0" />
-            : <CheckCircle2 className="w-3 h-3 mt-0.5 text-green-500/80 flex-shrink-0" />}
-        <span className="font-mono break-all min-w-0 flex-1">{toolHeadline(item.name, item.args)}</span>
-        {running && <span className="text-[10px] text-tech-400/70 flex-shrink-0">执行中</span>}
-        {!running && duration && <span className="text-[10px] text-ink-600 flex-shrink-0">{duration}</span>}
-        <span className="text-ink-600 flex-shrink-0">{expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</span>
+            ? <XCircle className="w-3.5 h-3.5 flex-shrink-0 text-red-400/80" />
+            : info.icon === 'terminal' ? <Terminal className="w-3.5 h-3.5 flex-shrink-0" />
+              : info.icon === 'edit' ? <Pencil className="w-3.5 h-3.5 flex-shrink-0" />
+                : info.icon === 'read' ? <FileText className="w-3.5 h-3.5 flex-shrink-0" />
+                  : info.icon === 'search' ? <Search className="w-3.5 h-3.5 flex-shrink-0" />
+                    : <Wrench className="w-3.5 h-3.5 flex-shrink-0" />}
+        <span className="flex-shrink-0">{info.verb}</span>
+        <span className={`min-w-0 flex-1 truncate ${info.mono ? 'font-mono text-[11px]' : ''}`}>{info.detail}</span>
+        <span className="ml-auto flex-shrink-0 text-ink-600">{expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</span>
       </button>
-      <div className={`thinking-collapse ${expanded ? 'expanded' : 'collapsed'}`}>
-        <div className="mt-1 mb-1.5 bg-ink-900/50 rounded-lg p-2.5 space-y-1.5">
+      {expanded && (
+        <div className="mb-1.5 rounded-md bg-ink-900/40 px-3 py-2 space-y-1.5">
           {item.args && (
             <div>
-              <div className="text-[10px] text-ink-500 mb-0.5">调用参数</div>
-              <pre className="text-[10px] text-ink-400 whitespace-pre-wrap break-words font-mono leading-relaxed">{prettyJson(item.args)}</pre>
+              <div className="text-[10px] text-ink-600 mb-0.5">调用参数</div>
+              <pre className="text-[10px] text-ink-500 whitespace-pre-wrap break-words font-mono leading-relaxed">{prettyJson(item.args)}</pre>
             </div>
           )}
           {item.result && (
             <div>
-              <div className="text-[10px] text-ink-500 mb-0.5">执行结果</div>
-              <pre className="text-[10px] text-ink-400 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-40 overflow-y-auto scrollbar-thin">{item.result}</pre>
+              <div className="text-[10px] text-ink-600 mb-0.5">执行结果</div>
+              <pre className="text-[10px] text-ink-500 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-40 overflow-y-auto scrollbar-thin">{item.result}</pre>
             </div>
           )}
         </div>
-      </div>
+      )}
     </div>
   );
 }
 
-/** 网络搜索条目：执行 -> 验证 -> 采纳/丢弃，展开可看结果来源列表 */
-function SearchItemView({ item, expanded, onToggle }: { item: Extract<ProcessItem, { kind: 'search' }>; expanded: boolean; onToggle: () => void }) {
-  const duration = item.endedAt ? formatDuration(item.endedAt - item.startedAt) : '';
+/** 网络搜索行：查阅 · N 条结果（含采纳/丢弃），点击展开来源列表 */
+function SearchRow({ item, expanded, onToggle }: {
+  item: Extract<ProcessItem, { kind: 'search' }>;
+  expanded: boolean;
+  onToggle: () => void;
+}) {
   const running = item.status === 'executing' || item.status === 'verifying';
   const adopted = item.results?.filter(r => r.adopted).length ?? 0;
   const discarded = item.results?.filter(r => r.discarded).length ?? 0;
   return (
-    <div className="relative">
-      <span className={`absolute -left-4 top-1.5 w-[7px] h-[7px] rounded-full ${running ? 'bg-tech-400 animate-pulse' : item.status === 'adopted' ? 'bg-green-500/60' : 'bg-red-500/50'}`} />
-      <button onClick={onToggle} className="w-full flex items-center gap-1.5 text-[11px] py-0.5 text-left text-ink-300 hover:text-tech-400 transition-colors">
+    <div>
+      <button onClick={onToggle} className="w-full flex items-center gap-2 py-1 text-left text-xs text-ink-500 hover:text-ink-300 transition-colors">
         {running
-          ? <Loader2 className="w-3 h-3 text-tech-400 animate-spin flex-shrink-0" />
-          : item.status === 'adopted'
-            ? <ShieldCheck className="w-3 h-3 text-green-400 flex-shrink-0" />
-            : <XCircle className="w-3 h-3 text-red-400/80 flex-shrink-0" />}
+          ? <Loader2 className="w-3.5 h-3.5 flex-shrink-0 text-tech-400 animate-spin" />
+          : <Search className="w-3.5 h-3.5 flex-shrink-0" />}
+        <span className="flex-shrink-0">查阅</span>
         <span className="min-w-0 flex-1 truncate">
-          网络搜索{item.query ? `: ${item.query}` : ''}
+          {item.results?.length ? `· ${item.results.length} 条结果` : ''}
+          {item.query && <span className="text-ink-600"> · {item.query}</span>}
         </span>
-        {item.status === 'verifying' && <span className="text-[10px] text-tech-400/70 flex-shrink-0">验证中</span>}
-        {item.status === 'adopted' && <span className="text-[10px] text-green-400/80 flex-shrink-0">采纳 {adopted}</span>}
-        {item.status === 'discarded' && <span className="text-[10px] text-red-400/70 flex-shrink-0">丢弃 {discarded}</span>}
-        {!running && duration && <span className="text-[10px] text-ink-600 flex-shrink-0">{duration}</span>}
-        <span className="text-ink-600 flex-shrink-0">{expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</span>
+        {item.status === 'adopted' && adopted > 0 && <span className="flex-shrink-0 text-[10px] text-green-400/70">采纳 {adopted}</span>}
+        {item.status === 'discarded' && discarded > 0 && <span className="flex-shrink-0 text-[10px] text-red-400/60">丢弃 {discarded}</span>}
+        <span className="ml-auto flex-shrink-0 text-ink-600">{expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</span>
       </button>
-      <div className={`thinking-collapse ${expanded ? 'expanded' : 'collapsed'}`}>
-        {item.results && item.results.length > 0 && (
-          <div className="mt-1 mb-1.5 ml-1 space-y-1">
-            {item.results.map((r, idx) => (
-              <div key={idx} className={`flex items-start gap-1.5 p-1.5 rounded text-[10px] ${
-                r.adopted ? 'bg-green-500/5 border border-green-500/10' :
-                r.discarded ? 'bg-red-500/5 border border-red-500/10 opacity-60' :
-                'bg-ink-900/30'
-              }`}>
-                <div className="flex-shrink-0 mt-0.5">
-                  {r.adopted ? <ShieldCheck className="w-2.5 h-2.5 text-green-400" /> :
-                   r.discarded ? <XCircle className="w-2.5 h-2.5 text-red-400" /> :
-                   <Search className="w-2.5 h-2.5 text-ink-500" />}
-                </div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1">
-                    <span className={`font-medium ${r.discarded ? 'text-ink-600 line-through' : 'text-ink-400'}`}>{r.title || r.source}</span>
-                    <span className="text-[9px] text-ink-600">[{r.source}]</span>
-                    {r.adopted && <span className="text-[9px] text-green-400/70">{Math.round(r.confidence * 100)}%</span>}
-                    {r.discarded && r.discardReason && <span className="text-[9px] text-red-400/60">丢弃: {r.discardReason}</span>}
-                  </div>
-                  {r.snippet && <p className={`mt-0.5 ${r.discarded ? 'text-ink-700' : 'text-ink-500'} line-clamp-2`}>{r.snippet}</p>}
-                  {r.url && !r.discarded && (
-                    <a href={r.url} target="_blank" rel="noopener noreferrer"
-                       className="inline-flex items-center gap-0.5 mt-0.5 text-tech-400/70 hover:text-tech-400 transition-colors">
-                      <ExternalLink className="w-2.5 h-2.5" />
-                      <span className="truncate max-w-[200px]">{r.url}</span>
-                    </a>
-                  )}
-                </div>
+      {expanded && item.results && item.results.length > 0 && (
+        <div className="mb-1.5 ml-1 space-y-1">
+          {item.results.map((r, idx) => (
+            <div key={idx} className={`flex items-start gap-1.5 p-1.5 rounded text-[10px] ${
+              r.adopted ? 'bg-green-500/5 border border-green-500/10' :
+              r.discarded ? 'bg-red-500/5 border border-red-500/10 opacity-60' :
+              'bg-ink-900/30'
+            }`}>
+              <div className="flex-shrink-0 mt-0.5">
+                {r.adopted ? <ShieldCheck className="w-2.5 h-2.5 text-green-400" /> :
+                 r.discarded ? <XCircle className="w-2.5 h-2.5 text-red-400" /> :
+                 <Search className="w-2.5 h-2.5 text-ink-500" />}
               </div>
-            ))}
-          </div>
-        )}
-      </div>
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1">
+                  <span className={`font-medium ${r.discarded ? 'text-ink-600 line-through' : 'text-ink-400'}`}>{r.title || r.source}</span>
+                  <span className="text-[9px] text-ink-600">[{r.source}]</span>
+                  {r.adopted && <span className="text-[9px] text-green-400/70">{Math.round(r.confidence * 100)}%</span>}
+                  {r.discarded && r.discardReason && <span className="text-[9px] text-red-400/60">丢弃: {r.discardReason}</span>}
+                </div>
+                {r.snippet && <p className={`mt-0.5 ${r.discarded ? 'text-ink-700' : 'text-ink-500'} line-clamp-2`}>{r.snippet}</p>}
+                {r.url && !r.discarded && (
+                  <a href={r.url} target="_blank" rel="noopener noreferrer"
+                     className="inline-flex items-center gap-0.5 mt-0.5 text-tech-400/70 hover:text-tech-400 transition-colors">
+                    <span className="truncate max-w-[200px]">{r.url}</span>
+                  </a>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
