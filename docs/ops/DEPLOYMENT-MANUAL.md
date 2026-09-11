@@ -342,6 +342,8 @@ curl -f http://<host>:<port>/actuator/health/readiness   # UP
 | 工具 HTTP 调用全部被拒 | SSRF 白名单为空（默认拒绝全部） | `agent.engine.tool.allowed-hosts` 配置业务域名 |
 | Wenshi 检索无结果 | SearXNG 不可达或 ONNX 模型缺失 | 检查 `SEARXNG_BASE_URL` 与 `models/bge-small-zh-v1.5.onnx` 路径 |
 | 前端 401 死循环 | token 过期且 refresh 失败 | 清 localStorage 重登；检查 refresh 接口在网关 skip-paths |
+| **网关返回 17002「服务熔断中」** | Resilience4j 熔断器因下游连续失败打开（如主服务重启、接口持续 500） | 重启网关进程立即复位熔断器；或等待 `wait-duration-in-open-state`（当前 10s）自动半开恢复。注意：主服务重启后建议同步重启网关 |
+| **主服务长时间运行后所有请求挂起（Tomcat 线程空闲但不处理）** | 连接处理层异常（Tomcat NIO，偶发）——抓 jstack 可见全部 exec 线程 idle 但请求不分发 | 重启主服务立即恢复；复发时保留 jstack（`jstack <pid>`）与 `ss -tn state established '( sport = :8081 )'` 连接数用于升级排查；评估 Tomcat 版本升级 |
 
 ---
 
