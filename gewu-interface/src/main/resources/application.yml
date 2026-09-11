@@ -110,6 +110,11 @@ gewu:
   sse:
     distributed: ${GEWU_SSE_DISTRIBUTED:false}
 
+  # 质量评测 LLM-as-Judge（S7）：指向已配置有效 Key 的供应商
+  evaluation:
+    judge-provider: ${GEWU_EVALUATION_JUDGE_PROVIDER:ark-code}
+    judge-model: ${GEWU_EVALUATION_JUDGE_MODEL:glm-5.3-flash}
+
   # 机器编号（-1 表示自动通过 hostname 计算，容器部署时通过环境变量 MACHINE_ID 注入）
   machine-id: ${MACHINE_ID:-1}
 

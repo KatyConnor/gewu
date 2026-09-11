@@ -52,6 +52,14 @@ public class ExperienceExtractor {
         experience.setSourceTask(trace.getTaskId());
         experience.setScenarioHash(com.gewu.common.ulid.Ulid.next());
 
+        // 毒丸防护（S6 缺陷）：scenario 提取失败（unknown）的经验不入库——
+        // 此类经验被经验复用捷径召回后直接返回 "unknown" 占位答案，
+        // 导致 wenshi 引擎对所有问题拒答（部署实测缺陷的根源）
+        if ("unknown".equals(experience.getScenario())) {
+            log.info("ExperienceExtractor: scenario 提取失败，拒绝入库防毒丸: taskId={}", trace.getTaskId());
+            return experience;
+        }
+
         // 失败或低分经验需要生成教训，供后续反思和技能演化使用
         if ("FAIL".equals(experience.getOutcome()) || experience.getScore().compareTo(BigDecimal.valueOf(0.6)) < 0) {
             experience.setLesson(analyzeFailure(trace));

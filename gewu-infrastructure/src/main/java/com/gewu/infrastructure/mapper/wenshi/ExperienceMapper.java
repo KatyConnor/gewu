@@ -25,6 +25,7 @@ public interface ExperienceMapper extends BaseMapper<Experience> {
             "source_task, hit_count, created_at, updated_at, created_by, updated_by, deleted " +
             "FROM wenshi_experience " +
             "WHERE tenant_id = #{tenantId} AND deleted = 0 AND embedding IS NOT NULL " +
+            "AND outcome = 'SUCCESS' AND scenario <> 'unknown' AND strategy <> 'unknown' " +
             "ORDER BY embedding <=> CAST(#{queryVector} AS vector) " +
             "LIMIT #{topK}")
     List<Experience> searchByVector(@Param("queryVector") String queryVector,
