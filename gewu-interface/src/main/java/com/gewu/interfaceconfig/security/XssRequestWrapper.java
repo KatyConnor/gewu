@@ -144,7 +144,10 @@ public class XssRequestWrapper extends HttpServletRequestWrapper {
 
     private JsonNode escapeJsonNode(JsonNode node) {
         if (node.isTextual()) {
-            return new TextNode(xssEscape(node.asText()));
+            // JSON body 的字符串值仅中和标签字符（消除存储型 XSS 的标签注入面），
+            // 保留 " ' & ——字符串值本身是 JSON 的字段（agent.modelConfig、workflow 配置、
+            // 编排图定义等）经全量实体转义会破坏数据完整性（部署实测：model_config 落库解析失败）
+            return new TextNode(jsonSafeEscape(node.asText()));
         } else if (node.isArray()) {
             ArrayNode arrayNode = OBJECT_MAPPER.createArrayNode();
             for (JsonNode child : node) {
@@ -156,7 +159,7 @@ public class XssRequestWrapper extends HttpServletRequestWrapper {
             Iterator<Map.Entry<String, JsonNode>> fields = node.fields();
             while (fields.hasNext()) {
                 Map.Entry<String, JsonNode> field = fields.next();
-                objectNode.set(xssEscape(field.getKey()), escapeJsonNode(field.getValue()));
+                objectNode.set(jsonSafeEscape(field.getKey()), escapeJsonNode(field.getValue()));
             }
             return objectNode;
         }
@@ -171,5 +174,18 @@ public class XssRequestWrapper extends HttpServletRequestWrapper {
                 .replace(">", "&gt;")
                 .replace("\"", "&quot;")
                 .replace("'", "&#x27;");
+    }
+
+    /**
+     * JSON 字符串值专用转义：仅中和 < > 以消除 HTML 标签注入面。
+     * 不转义 " ' & ——否则内嵌 JSON 的字符串字段（model_config JSON 列、
+     * workflow 配置、编排图定义等）落库后无法按 JSON 解析（部署实测缺陷）。
+     * 存储型 XSS 的渲染侧防护由前端 react-markdown 默认转义与响应安全头承担。
+     */
+    private static String jsonSafeEscape(String value) {
+        if (value == null) return null;
+        return value
+                .replace("<", "&lt;")
+                .replace(">", "&gt;");
     }
 }
