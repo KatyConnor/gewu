@@ -231,6 +231,12 @@ public class OpenAiCompatibleClient implements LlmClient {
                 }
             }
 
+            if (!choices.isArray() || choices.isEmpty()) {
+                log.error("{} 响应缺少 choices 字段（供应商配置错误/协议不匹配/鉴权失败）: bodyHead={}",
+                        providerCode, responseBody != null && responseBody.length() > 200
+                                ? responseBody.substring(0, 200) : responseBody);
+            }
+
             JsonNode usage = root.path("usage");
             if (!usage.isMissingNode()) {
                 builder.usage(LlmResponse.Usage.builder()

@@ -1,0 +1,250 @@
+{
+  "rows": [
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28CBASY9ZTR865F1G9YZXZG",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28CB86HZF3KH69DAXTMPW9V",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28CB5JVANQK1P5SANJTPZKM",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28CB2XCTBVJ99G8TFMKX810",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28CB0BYE6F4RZTZQ708Z532",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28CAXT25Z0T1JERWZXVCF9C",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28CAV8M56CCEAZDZDH17A43",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28CARNC9WFC9DCWQZHABBP8",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28CAP375G6AEAFPPRNKRTP6",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28CAKGNRQ7P6S6ASHTMK8DD",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28CAGWQM1PC3D6NDM02G5WY",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28CAE81XT7N386RJC8D7MGK",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28CABP5JWBSH5HCXDBJ1TEV",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28CA94TH3E7X0QHX3WT70ZK",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28CA6J07YMY4YQQ7T0R920F",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28CA3YVF8PS04M79GWYY0AF",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28CA1AE5XYW6YSMGZC8GWVT",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C9YPXWBW6BKJPQ10A04Q0",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C9W040VQKXSTZK0FAZJY8",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C9SDAK1H0YQXY0WPJYXRN",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C9PVDFYK56CNKTTD8XCXR",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C9M9EJ7QJ6APE8AA5CKVK",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C9HQ0MQR2FK1XAFY2TQ9Z",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C9F112G6MV7VHYRDWPYY8",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C9CD2FWRM5HP8XS13H30F",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C99QPG5D7JR9H3BCTJQK7",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C976ENYCZJ9KTX7KRKMR9",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C94MXYTDN3PKE7FZKQ0Z1",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C920DZWMSHDDVM1KZ2871",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C8ZCW64P67FCKSJSF25ES",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C8WSQ36KTD9S3SD0974FR",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C8T574WXKK2K064NJ2GYA",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C8QHVCT6Y8DF65ESJ2WT3",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C8MZXD6E27ZSYN15C6S4F",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C8JASSDDGHHKNE6B4H943",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C8FNWDY0W9K22RFDNAXCY",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C8D0PTFMV5RN9HD14QRDB",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C8AD6HBCK2TGF6FVD93MZ",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C87T4EW1KQY22PXH9XWES",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    },
+    {
+      "group": "bench-wenshi",
+      "executionId": "01M28C858FWDNKQYJN9S9NHYC7",
+      "score": null,
+      "verdict": "评估失败: 不支持的 LLM 提供商: deepseek"
+    }
+  ],
+  "summary": {
+    "bench-wenshi": {
+      "n": 40,
+      "scores": []
+    }
+  }
+}

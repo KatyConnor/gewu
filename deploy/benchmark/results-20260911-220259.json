@@ -1,0 +1,727 @@
+{
+  "rows": [
+    {
+      "group": "legacy",
+      "qid": "qa-01",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-01",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-02",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-02",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-03",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-03",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-04",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-04",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-05",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-05",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-06",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-06",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-01",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-01",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-02",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-02",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-03",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-03",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-04",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-04",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-05",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-05",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-06",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-06",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "analysis-01",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "analysis-01",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "analysis-02",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "analysis-02",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "analysis-03",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "analysis-03",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "analysis-04",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "analysis-04",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "plan-01",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "plan-01",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "plan-02",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "plan-02",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "plan-03",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "plan-03",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "plan-04",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "legacy",
+      "qid": "plan-04",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-01",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-01",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-02",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-02",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-03",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-03",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-04",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-04",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-05",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-05",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-06",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-06",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-01",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-01",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-02",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-02",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-03",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-03",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-04",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-04",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-05",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-05",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-06",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-06",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "analysis-01",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "analysis-01",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "analysis-02",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "analysis-02",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "analysis-03",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "analysis-03",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "analysis-04",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "analysis-04",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "plan-01",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "plan-01",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "plan-02",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "plan-02",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "plan-03",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "plan-03",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "plan-04",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "wenshi",
+      "qid": "plan-04",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-01",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-01",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-02",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-02",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-03",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-03",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-04",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-04",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-05",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-05",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-06",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-06",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-01",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-01",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-02",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-02",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-03",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-03",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-04",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-04",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-05",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-05",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-06",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-06",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "analysis-01",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "analysis-01",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "analysis-02",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "analysis-02",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "analysis-03",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "analysis-03",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "analysis-04",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "analysis-04",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "plan-01",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "plan-01",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "plan-02",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "plan-02",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "plan-03",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "plan-03",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "plan-04",
+      "repeat": 1,
+      "error": "'Namespace' object has no attribute 'judge'"
+    },
+    {
+      "group": "route_on",
+      "qid": "plan-04",
+      "repeat": 2,
+      "error": "'Namespace' object has no attribute 'judge'"
+    }
+  ],
+  "compare": {
+    "error": "HTTP 500 GET /v1/evaluations/experiment-compare: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLException: Illegal mix of collations (utf8mb4_0900_ai_ci,IMPLICIT) and (utf8mb4_unicode_ci,IMPLICIT) for operation '='\\n### The error may exist in com/gewu/infrastructure/mapper/AgentExecutionMapper.java (best guess)\\n### Th"
+  }
+}

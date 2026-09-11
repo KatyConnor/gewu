@@ -127,14 +127,14 @@ def run_group(group, agent_id, questions, repeat):
                 # LLM-as-Judge 评分
                 score = None
                 verdict = None
-                if execution_id and ARGS.judge:
+                if execution_id and not ARGS.no_judge:
                     jr = api("POST", "/v1/evaluations/judge", {
                         "executionId": execution_id,
                         "scenario": q["category"],
                         "acceptanceCriteria": q["acceptanceCriteria"],
                         "output": answer,
                     }, timeout=300)
-                    score = jr.get("score")
+                    score = jr.get("totalScore")
                     verdict = jr.get("verdict")
 
                 rows.append({
