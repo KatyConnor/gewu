@@ -120,7 +120,7 @@ def run_group(group, agent_id, questions, repeat):
 
                 # 查最新执行记录取 executionId（同步链路返回前已落库）
                 time.sleep(ARGS.sleep)
-                page = api("GET", f"/v1/agents/executions?agentId={agent_id}&page=1&size=1")
+                page = api("GET", f"/v1/agents/executions/agent/{agent_id}?page=1&size=1")
                 records = page.get("records") or []
                 execution_id = records[0]["executionId"] if records else None
 

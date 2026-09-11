@@ -1,0 +1,727 @@
+{
+  "rows": [
+    {
+      "group": "legacy",
+      "qid": "qa-01",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-01",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-02",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-02",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-03",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-03",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-04",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-04",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-05",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-05",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-06",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "qa-06",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-01",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-01",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-02",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-02",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-03",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-03",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-04",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-04",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-05",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-05",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-06",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "code-06",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "analysis-01",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "analysis-01",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "analysis-02",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "analysis-02",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "analysis-03",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "analysis-03",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "analysis-04",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "analysis-04",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "plan-01",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "plan-01",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "plan-02",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "plan-02",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "plan-03",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "plan-03",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "plan-04",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "legacy",
+      "qid": "plan-04",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-01",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134353016, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-01",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134355715, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-02",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134358386, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-02",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134361053, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-03",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134363886, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-03",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134366724, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-04",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134369409, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-04",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134372109, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-05",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134374731, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-05",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134377328, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-06",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134380020, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "qa-06",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134382731, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-01",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134385474, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-01",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134388181, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-02",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134390933, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-02",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134393706, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-03",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134396619, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-03",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134399275, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-04",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134402020, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-04",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134404666, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-05",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134407435, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-05",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134410036, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-06",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134412733, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "code-06",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134415405, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "analysis-01",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134418248, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "analysis-01",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134421011, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "analysis-02",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134423708, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "analysis-02",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134426400, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "analysis-03",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134429018, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "analysis-03",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134431804, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "analysis-04",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134434471, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "analysis-04",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134437119, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "plan-01",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134439702, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "plan-01",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134442343, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "plan-02",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134445031, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "plan-02",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134447673, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "plan-03",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134450246, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "plan-03",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134452825, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "plan-04",
+      "repeat": 1,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134455437, 'success': False}"
+    },
+    {
+      "group": "wenshi",
+      "qid": "plan-04",
+      "repeat": 2,
+      "error": "GET /v1/agents/executions?agentId=01M28BDQYYBD3N37H0AE30582Y&page=1&size=1 失败: {'code': 14001, 'message': 'Agent 不存在', 'data': None, 'timestamp': 1789134458086, 'success': False}"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-01",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-01",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-02",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-02",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-03",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-03",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-04",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-04",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-05",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-05",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-06",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "qa-06",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-01",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-01",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-02",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-02",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-03",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-03",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-04",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-04",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-05",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-05",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-06",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "code-06",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "analysis-01",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "analysis-01",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "analysis-02",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "analysis-02",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "analysis-03",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "analysis-03",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "analysis-04",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "analysis-04",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "plan-01",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "plan-01",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "plan-02",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "plan-02",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "plan-03",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "plan-03",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "plan-04",
+      "repeat": 1,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    },
+    {
+      "group": "route_on",
+      "qid": "plan-04",
+      "repeat": 2,
+      "error": "HTTP 500 POST /v1/ai/chat: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLSyntaxErrorException: Unknown column 'created_by' in 'field list'\\n### The error may exist in com/gewu/infrastructure/mapper/AgentToolMapper.java (best guess)\\n### The error may involve defaultPara"
+    }
+  ],
+  "compare": {
+    "error": "HTTP 500 GET /v1/evaluations/experiment-compare: {\"code\":10001,\"message\":\"\\n### Error querying database.  Cause: java.sql.SQLException: Illegal mix of collations (utf8mb4_0900_ai_ci,IMPLICIT) and (utf8mb4_unicode_ci,IMPLICIT) for operation '='\\n### The error may exist in com/gewu/infrastructure/mapper/AgentExecutionMapper.java (best guess)\\n### Th"
+  }
+}
