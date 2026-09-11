@@ -4,7 +4,7 @@
 格物平台基准评测跑批器（T5.5/S7：本地部署 A/B 验证执行方案）
 
 用法:
-  python3 run-benchmark.py --base-url http://localhost:8080 \
+  python3 run-benchmark.py --base-url http://localhost:8080/api \
       --user <账号> --password <密码> --model qwen-plus \
       --engine-groups legacy,wenshi,route_on --repeat 2
 
@@ -43,8 +43,12 @@ def http(method, path, body=None, token=None, timeout=180):
     if t:
         req.add_header("Authorization", f"Bearer {t}")
     req.add_header("Accept", "application/json")
-    with urllib.request.urlopen(req, timeout=timeout) as res:
-        return json.loads(res.read().decode("utf-8"))
+    try:
+        with urllib.request.urlopen(req, timeout=timeout) as res:
+            return json.loads(res.read().decode("utf-8"))
+    except urllib.error.HTTPError as e:
+        body = e.read().decode("utf-8", errors="replace")[:300]
+        raise RuntimeError(f"HTTP {e.code} {method} {path}: {body}") from None
 
 
 def api(method, path, body=None, timeout=180):
@@ -150,7 +154,8 @@ def run_group(group, agent_id, questions, repeat):
 def main():
     global ARGS
     parser = argparse.ArgumentParser(description="格物平台基准评测跑批器")
-    parser.add_argument("--base-url", default="http://localhost:8080")
+    parser.add_argument("--base-url", default="http://localhost:8080/api",
+                        help="后端地址（需含 /api 前缀，Controller 映射为 /api/v1/**）")
     parser.add_argument("--user", required=True)
     parser.add_argument("--password", required=True)
     parser.add_argument("--model", default="qwen-plus")
