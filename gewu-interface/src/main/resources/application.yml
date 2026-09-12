@@ -135,7 +135,10 @@ gewu:
       driver-class-name: org.postgresql.Driver
     # 网络搜索推理增强配置
     routing:
-      stream: wenshi
+      # 终审裁剪（2026-09-12，docs/design/44 门 1）：本地基准评测显示 wenshi
+      # 引擎质量无增益（-0.4%）且时长 2.4x，生产流式路由回 legacy 引擎；
+      # Wenshi SPI 保留维护态，知识库填充后可按 43 号规则复评
+      stream: legacy
     web-search:
       base-url: ${SEARXNG_BASE_URL:http://searxng:8080}
       max-results: 5
