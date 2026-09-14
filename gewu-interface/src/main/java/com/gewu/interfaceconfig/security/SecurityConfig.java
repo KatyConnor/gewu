@@ -41,6 +41,9 @@ public class SecurityConfig {
     @Value("${gewu.security.cors.allowed-origins:}")
     private String allowedOrigins;
 
+    @Value("${management.server.port:9081}")
+    private int managementPort;
+
     @Bean
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         http
@@ -66,6 +69,9 @@ public class SecurityConfig {
                                 AntPathRequestMatcher.antMatcher("/swagger-ui.html")
                         ).permitAll()
                         .requestMatchers(AntPathRequestMatcher.antMatcher(HttpMethod.OPTIONS, "/**")).permitAll()
+                        // 管理口（management.server.port）仅承载 actuator 端点，放行供
+                        // K8s 探针与健康检查脚本使用；业务口上的 /actuator/** 维持拒绝
+                        .requestMatchers(request -> request.getLocalPort() == managementPort).permitAll()
                         .requestMatchers(AntPathRequestMatcher.antMatcher("/actuator/**")).denyAll()
                         // 管理员专属：模型配置与 MCP Server 的写操作
                         .requestMatchers(adminOnlyModelMatchers()).hasRole("ADMIN")

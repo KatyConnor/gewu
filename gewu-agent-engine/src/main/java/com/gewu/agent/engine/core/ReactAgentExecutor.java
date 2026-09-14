@@ -76,6 +76,11 @@ public class ReactAgentExecutor implements AgentExecutor {
     private final OutputSanitizer outputSanitizer;
     private final ModelSelector modelSelector;
 
+    /** 推理模型截断自愈：finish=length 且正文为空时的最大重试次数 */
+    private static final int MAX_TRUNCATION_RETRIES = 2;
+    /** max_tokens 硬上限（自动扩大重试的封顶值） */
+    private static final int MAX_TOKENS_HARD_CAP = 65536;
+
     // ==================== 同步执行 ====================
 
     @Override
@@ -112,6 +117,10 @@ public class ReactAgentExecutor implements AgentExecutor {
         log.info("调用 LLM(同步): provider={}, model={}, messages={}, tools={}, temperature={}",
                 plan.provider, plan.model, messages.size(), tools.size(), temperature);
 
+        // 推理模型思考耗尽预算的自动重试状态（S8：finish=length 且正文为空时加倍 max_tokens）
+        int currentMaxTokens = resolveMaxTokens(task);
+        int truncationRetries = 0;
+
         for (int round = 0; round < config.getMaxToolRounds(); round++) {
             // 预算检查：熔断则终止
             if (budgetController.shouldStop(plan.budget)) {
@@ -129,7 +138,7 @@ public class ReactAgentExecutor implements AgentExecutor {
                     .messages(messages)
                     .tools(tools.isEmpty() ? null : tools)
                     .temperature(temperature)
-                    .maxTokens(resolveMaxTokens(task))
+                    .maxTokens(currentMaxTokens)
                     .stream(false)
                     .build();
 
@@ -149,6 +158,24 @@ public class ReactAgentExecutor implements AgentExecutor {
             budgetController.consume(plan.budget, tokens, tokens * 0.00001);
 
             if (response.getToolCalls() == null || response.getToolCalls().isEmpty()) {
+                // 推理模型截断自愈（S8）：思考阶段耗尽全部 token、正文为空时，
+                // 自动加倍 max_tokens 重试（上限 65536），而非直接返回空回复。
+                // 预算熔断（shouldStop）是重试的自然上界。
+                if ("length".equals(response.getFinishReason())
+                        && (response.getContent() == null || response.getContent().isBlank())
+                        && truncationRetries < MAX_TRUNCATION_RETRIES
+                        && currentMaxTokens < MAX_TOKENS_HARD_CAP) {
+                    truncationRetries++;
+                    currentMaxTokens = Math.min(currentMaxTokens * 2, MAX_TOKENS_HARD_CAP);
+                    // 主动升级预算：token/时间预算随 max_tokens 同步放大，否则重试轮次
+                    // 会在循环头的 shouldStop 处被熔断（尤其 L1 级仅 30s 时间预算）
+                    plan.budget.setTokenBudget(plan.budget.getTokenBudget() * 2);
+                    plan.budget.setTimeBudgetMs(Math.max(plan.budget.getTimeBudgetMs() * 2,
+                            plan.budget.getElapsedMs() * 3));
+                    log.warn("推理模型思考耗尽 token 预算（finish=length），自动扩大 max_tokens 至 {} 重试（第 {}/{} 次）",
+                            currentMaxTokens, truncationRetries, MAX_TRUNCATION_RETRIES);
+                    continue;
+                }
                 // 输出安全层：PII 脱敏后再持久化/缓存/返回
                 response.setContent(outputSanitizer.checkOutput(response.getContent()));
                 storeExperience(task, response.getContent());
@@ -236,7 +263,7 @@ public class ReactAgentExecutor implements AgentExecutor {
 
         StringBuilder contentTracker = new StringBuilder();
         int maxTokens = resolveMaxTokens(task);
-        return Flux.defer(() -> streamRound(client, plan.model, messages, tools, toolConfigMap, toolContext, temperature, maxTokens, 0, plan.budget))
+        return Flux.defer(() -> streamRound(client, plan.model, messages, tools, toolConfigMap, toolContext, temperature, maxTokens, 0, 0, plan.budget))
                 .doOnNext(event -> {
                     if (AgentEvent.CONTENT.equals(event.getType()) && event.getContent() != null) {
                         contentTracker.append(event.getContent());
@@ -272,7 +299,7 @@ public class ReactAgentExecutor implements AgentExecutor {
     private Flux<AgentEvent> streamRound(LlmClient client, String model, List<Message> messages,
                                          List<ToolDefinition> tools, Map<String, ToolConfig> toolConfigMap,
                                          ToolContext toolContext, double temperature, int maxTokens, int round,
-                                         BudgetContext budget) {
+                                         int truncationRetries, BudgetContext budget) {
         if (round >= config.getMaxToolRounds()) {
             return Flux.just(AgentEvent.builder()
                     .type(AgentEvent.ERROR)
@@ -366,7 +393,29 @@ public class ReactAgentExecutor implements AgentExecutor {
 
                     if (toolCalls.isEmpty()) {
                         if ("length".equals(finishReasonHolder[0]) && content.isBlank()) {
-                            log.warn("LLM 回复被截断: finish_reason=length, model={}", model);
+                            // 推理模型思考耗尽全部 token（S8）：自动加倍 max_tokens 重试，
+                            // 重试前移除本轮的空 assistant 消息避免污染上下文
+                            if (truncationRetries < MAX_TRUNCATION_RETRIES && maxTokens < MAX_TOKENS_HARD_CAP) {
+                                int nextMaxTokens = Math.min(maxTokens * 2, MAX_TOKENS_HARD_CAP);
+                                log.warn("推理模型思考耗尽 token 预算（finish=length），自动扩大 max_tokens 至 {} 重试（第 {}/{} 次）: model={}",
+                                        nextMaxTokens, truncationRetries + 1, MAX_TRUNCATION_RETRIES, model);
+                                if (!messages.isEmpty()) {
+                                    messages.remove(messages.size() - 1);
+                                }
+                                // 主动升级预算：重试轮次的 token/时间预算随 max_tokens 同步放大，
+                                // 否则递归入口的 shouldStop 会因时间预算（L1 仅 30s）直接熔断
+                                budget.setTokenBudget(budget.getTokenBudget() * 2);
+                                budget.setTimeBudgetMs(Math.max(budget.getTimeBudgetMs() * 2,
+                                        budget.getElapsedMs() * 3));
+                                return Flux.just(AgentEvent.builder()
+                                                .type(AgentEvent.STATUS)
+                                                .content("思考超限，正在扩大预算重试...")
+                                                .build())
+                                        .concatWith(Flux.defer(() ->
+                                                streamRound(client, model, messages, tools, toolConfigMap, toolContext,
+                                                        temperature, nextMaxTokens, round, truncationRetries + 1, budget)));
+                            }
+                            log.warn("LLM 回复被截断且重试预算耗尽: finish_reason=length, model={}", model);
                             return Flux.just(AgentEvent.builder()
                                     .type(AgentEvent.ERROR)
                                     .errorMessage("AI 回复被截断：推理过程消耗了全部 token 上限，未生成正式回复。" +
@@ -429,7 +478,7 @@ public class ReactAgentExecutor implements AgentExecutor {
                                             }))
                                     .concatWith(Flux.defer(() ->
                                             streamRound(client, model, messages, tools, toolConfigMap,
-                                                    toolContext, temperature, maxTokens, round + 1, budget))));
+                                                    toolContext, temperature, maxTokens, round + 1, truncationRetries, budget))));
                 }));
     }
 
