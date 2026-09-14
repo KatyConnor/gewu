@@ -54,6 +54,8 @@ public class AgentEngineProperties {
         private Duration connectTimeout = Duration.ofSeconds(30);
         /** 同步请求超时 */
         private Duration requestTimeout = Duration.ofSeconds(120);
+        /** 流式空闲看门狗（毫秒）：SSE 流无数据超过该时长即中断，0=禁用 */
+        private long streamIdleTimeoutMs = 180_000L;
     }
 
     @Data

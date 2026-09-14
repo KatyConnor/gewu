@@ -145,6 +145,7 @@ public class AgentEngineAutoConfiguration {
         LlmClientRegistry registry = new LlmClientRegistry(clients, provider, objectMapper,
                 llmHttpClient, bodyBuilder);
         registry.setRequestTimeout(props.getLlm().getRequestTimeout());
+        registry.setStreamIdleTimeoutMs(props.getLlm().getStreamIdleTimeoutMs());
         return registry;
     }
 

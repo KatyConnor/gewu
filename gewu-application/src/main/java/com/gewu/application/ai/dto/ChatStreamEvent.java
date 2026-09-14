@@ -19,6 +19,8 @@ public class ChatStreamEvent {
     private String reasoning;
     private ToolCallInfo toolCall;
     private ToolResultInfo toolResult;
+    /** LLM 完成原因（done 事件透传：stop / length 截断标记，前端提示回复不完整） */
+    private String finishReason;
     /** 网络搜索综合信息（web_search_result 事件） */
     private WebSearchEventInfo webSearch;
     /** 正确性判断结论（web_verdict 事件） */

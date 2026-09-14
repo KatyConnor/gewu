@@ -79,6 +79,10 @@ public class AgentExecutionEngine {
                     if ("content".equals(event.getType()) && event.getContent() != null) {
                         contentTracker.append(event.getContent());
                     }
+                    // 截断重试重新生成：清空账本内容追踪，以最终重试结果为准
+                    if (AgentEvent.CONTENT_RESET.equals(event.getType())) {
+                        contentTracker.setLength(0);
+                    }
                 })
                 .map(this::toChunk)
                 .doOnComplete(() -> recordComplete(executionId,
@@ -275,6 +279,7 @@ public class AgentExecutionEngine {
                 .toolCall(toolCallInfo)
                 .toolResult(toolResultInfo)
                 .errorMessage(event.getErrorMessage())
+                .finishReason(event.getFinishReason())
                 .build();
     }
 

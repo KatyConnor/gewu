@@ -76,8 +76,8 @@ public class ReactAgentExecutor implements AgentExecutor {
     private final OutputSanitizer outputSanitizer;
     private final ModelSelector modelSelector;
 
-    /** 推理模型截断自愈：finish=length 且正文为空时的最大重试次数 */
-    private static final int MAX_TRUNCATION_RETRIES = 2;
+    /** 推理模型截断自愈：finish=length 时的最大重试次数（8192 起步 ×3 次翻倍可达 65536 硬顶） */
+    private static final int MAX_TRUNCATION_RETRIES = 3;
     /** max_tokens 硬上限（自动扩大重试的封顶值） */
     private static final int MAX_TOKENS_HARD_CAP = 65536;
 
@@ -158,30 +158,45 @@ public class ReactAgentExecutor implements AgentExecutor {
             budgetController.consume(plan.budget, tokens, tokens * 0.00001);
 
             if (response.getToolCalls() == null || response.getToolCalls().isEmpty()) {
-                // 推理模型截断自愈（S8）：思考阶段耗尽全部 token、正文为空时，
-                // 自动加倍 max_tokens 重试（上限 65536），而非直接返回空回复。
-                // 预算熔断（shouldStop）是重试的自然上界。
-                if ("length".equals(response.getFinishReason())
-                        && (response.getContent() == null || response.getContent().isBlank())
+                boolean truncated = "length".equals(response.getFinishReason());
+                boolean blankContent = response.getContent() == null || response.getContent().isBlank();
+                // 推理模型截断自愈（S8/S9）：finish=length 时自动加倍 max_tokens 重试
+                // （上限 65536）。S9 起覆盖「正文非空中途截断」——丢弃部分内容整体
+                // 重新生成，而非静默返回半截回复。预算熔断（shouldStop）是重试的自然上界。
+                if (truncated
                         && truncationRetries < MAX_TRUNCATION_RETRIES
                         && currentMaxTokens < MAX_TOKENS_HARD_CAP) {
                     truncationRetries++;
                     currentMaxTokens = Math.min(currentMaxTokens * 2, MAX_TOKENS_HARD_CAP);
                     // 主动升级预算：token/时间预算随 max_tokens 同步放大，否则重试轮次
-                    // 会在循环头的 shouldStop 处被熔断（尤其 L1 级仅 30s 时间预算）
+                    // 会在循环头的 shouldStop 处被熔断（尤其 L1 级仅 30s 时间预算）。
+                    // consume() 会累计 currentRound，重试也占轮次，需同步扩容 maxRounds
                     plan.budget.setTokenBudget(plan.budget.getTokenBudget() * 2);
                     plan.budget.setTimeBudgetMs(Math.max(plan.budget.getTimeBudgetMs() * 2,
                             plan.budget.getElapsedMs() * 3));
-                    log.warn("推理模型思考耗尽 token 预算（finish=length），自动扩大 max_tokens 至 {} 重试（第 {}/{} 次）",
-                            currentMaxTokens, truncationRetries, MAX_TRUNCATION_RETRIES);
+                    plan.budget.setMaxRounds(plan.budget.getMaxRounds() + 1);
+                    log.warn("推理模型回复被截断（finish=length，正文{}），自动扩大 max_tokens 至 {} 重试（第 {}/{} 次）",
+                            blankContent ? "为空" : "不完整", currentMaxTokens, truncationRetries, MAX_TRUNCATION_RETRIES);
                     continue;
+                }
+                if (truncated && blankContent) {
+                    // 重试预算耗尽且无任何正文：明确报错，不再返回空回复
+                    throw AgentEngineException.of("TRUNCATED",
+                            "AI 回复被截断：推理过程消耗了全部 token 上限，未生成正式回复。" +
+                                    "请增大 max_tokens 或简化问题后重试。");
+                }
+                if (truncated) {
+                    // 重试耗尽但已有部分正文：保留部分内容并明示不完整（响应带 finishReason=length）
+                    log.warn("截断重试预算耗尽，保留部分回复（finishReason=length）");
                 }
                 // 输出安全层：PII 脱敏后再持久化/缓存/返回
                 response.setContent(outputSanitizer.checkOutput(response.getContent()));
-                storeExperience(task, response.getContent());
+                if (!truncated) {
+                    storeExperience(task, response.getContent());
+                    // 写入语义缓存（供后续相似请求命中）——截断的部分内容不入缓存
+                    responseCache.put(task.getMessage(), response.getContent(), cacheContext);
+                }
                 recordSuccess(task, plan.budget);
-                // 写入语义缓存（供后续相似请求命中）
-                responseCache.put(task.getMessage(), response.getContent(), cacheContext);
                 return response;
             }
 
@@ -354,27 +369,30 @@ public class ReactAgentExecutor implements AgentExecutor {
                                 }
                             });
                 })
-                .map(chunk -> {
+                .flatMapIterable(chunk -> {
+                    // 先记录 finish_reason 再处理增量：部分供应商把 finish_reason 放在
+                    // 最后一个 content/reasoning chunk 上，若先 return 会丢失截断信号
+                    if (chunk.getFinishReason() != null) {
+                        finishReasonHolder[0] = chunk.getFinishReason();
+                    }
+                    List<AgentEvent> events = new ArrayList<>(2);
                     if (chunk.getReasoning() != null && !chunk.getReasoning().isEmpty()) {
-                        return AgentEvent.builder()
+                        events.add(AgentEvent.builder()
                                 .type(AgentEvent.THINKING)
                                 .reasoning(chunk.getReasoning())
-                                .build();
+                                .build());
                     }
                     if (chunk.getDelta() != null && !chunk.getDelta().isEmpty()) {
                         contentBuilder.append(chunk.getDelta());
-                        return AgentEvent.builder()
+                        events.add(AgentEvent.builder()
                                 .type(AgentEvent.CONTENT)
                                 .content(chunk.getDelta())
-                                .build();
+                                .build());
                     }
                     if (chunk.getToolCallDelta() != null) {
                         accumulateToolCall(toolCallAccumulators, chunk.getToolCallDelta());
                     }
-                    if (chunk.getFinishReason() != null) {
-                        finishReasonHolder[0] = chunk.getFinishReason();
-                    }
-                    return AgentEvent.builder().build();
+                    return events;
                 })
                 .filter(event -> event.getType() != null)
                 .startWith(AgentEvent.builder()
@@ -392,29 +410,46 @@ public class ReactAgentExecutor implements AgentExecutor {
                             .build());
 
                     if (toolCalls.isEmpty()) {
-                        if ("length".equals(finishReasonHolder[0]) && content.isBlank()) {
-                            // 推理模型思考耗尽全部 token（S8）：自动加倍 max_tokens 重试，
-                            // 重试前移除本轮的空 assistant 消息避免污染上下文
-                            if (truncationRetries < MAX_TRUNCATION_RETRIES && maxTokens < MAX_TOKENS_HARD_CAP) {
-                                int nextMaxTokens = Math.min(maxTokens * 2, MAX_TOKENS_HARD_CAP);
-                                log.warn("推理模型思考耗尽 token 预算（finish=length），自动扩大 max_tokens 至 {} 重试（第 {}/{} 次）: model={}",
-                                        nextMaxTokens, truncationRetries + 1, MAX_TRUNCATION_RETRIES, model);
-                                if (!messages.isEmpty()) {
-                                    messages.remove(messages.size() - 1);
-                                }
-                                // 主动升级预算：重试轮次的 token/时间预算随 max_tokens 同步放大，
-                                // 否则递归入口的 shouldStop 会因时间预算（L1 仅 30s）直接熔断
-                                budget.setTokenBudget(budget.getTokenBudget() * 2);
-                                budget.setTimeBudgetMs(Math.max(budget.getTimeBudgetMs() * 2,
-                                        budget.getElapsedMs() * 3));
-                                return Flux.just(AgentEvent.builder()
-                                                .type(AgentEvent.STATUS)
-                                                .content("思考超限，正在扩大预算重试...")
-                                                .build())
-                                        .concatWith(Flux.defer(() ->
-                                                streamRound(client, model, messages, tools, toolConfigMap, toolContext,
-                                                        temperature, nextMaxTokens, round, truncationRetries + 1, budget)));
+                        boolean truncated = "length".equals(finishReasonHolder[0]);
+                        boolean blankContent = content.isBlank();
+                        // 推理模型截断自愈（S8/S9）：finish=length 时自动加倍 max_tokens 重试。
+                        // S9 起覆盖「正文非空中途截断」：先发 CONTENT_RESET 通知前端清空已
+                        // 流出的部分正文，再整体重新生成，而非静默结束在半截回复上。
+                        if (truncated
+                                && truncationRetries < MAX_TRUNCATION_RETRIES
+                                && maxTokens < MAX_TOKENS_HARD_CAP) {
+                            int nextMaxTokens = Math.min(maxTokens * 2, MAX_TOKENS_HARD_CAP);
+                            log.warn("推理模型回复被截断（finish=length，正文{}），自动扩大 max_tokens 至 {} 重试（第 {}/{} 次）: model={}",
+                                    blankContent ? "为空" : "不完整",
+                                    nextMaxTokens, truncationRetries + 1, MAX_TRUNCATION_RETRIES, model);
+                            // 移除本轮的空/半截 assistant 消息避免污染上下文
+                            if (!messages.isEmpty()) {
+                                messages.remove(messages.size() - 1);
                             }
+                            // 主动升级预算：重试轮次的 token/时间预算随 max_tokens 同步放大，
+                            // 否则递归入口的 shouldStop 会因时间预算（L1 仅 30s）直接熔断。
+                            // consume() 累计 currentRound，重试也占轮次，需同步扩容 maxRounds
+                            budget.setTokenBudget(budget.getTokenBudget() * 2);
+                            budget.setTimeBudgetMs(Math.max(budget.getTimeBudgetMs() * 2,
+                                    budget.getElapsedMs() * 3));
+                            budget.setMaxRounds(budget.getMaxRounds() + 1);
+                            // 正文已部分流出时，通知调用方清空累积内容（旧内容将被重新生成替换）
+                            AgentEvent resetEvent = blankContent ? null : AgentEvent.builder()
+                                    .type(AgentEvent.CONTENT_RESET)
+                                    .content("回复被截断，正在重新生成")
+                                    .build();
+                            AgentEvent statusEvent = AgentEvent.builder()
+                                    .type(AgentEvent.STATUS)
+                                    .content("回复超限，正在扩大预算重新生成...")
+                                    .build();
+                            Flux<AgentEvent> retryHead = resetEvent != null
+                                    ? Flux.just(resetEvent, statusEvent)
+                                    : Flux.just(statusEvent);
+                            return retryHead.concatWith(Flux.defer(() ->
+                                    streamRound(client, model, messages, tools, toolConfigMap, toolContext,
+                                            temperature, nextMaxTokens, round, truncationRetries + 1, budget)));
+                        }
+                        if (truncated && blankContent) {
                             log.warn("LLM 回复被截断且重试预算耗尽: finish_reason=length, model={}", model);
                             return Flux.just(AgentEvent.builder()
                                     .type(AgentEvent.ERROR)
@@ -422,13 +457,29 @@ public class ReactAgentExecutor implements AgentExecutor {
                                             "请增大 max_tokens 或简化问题后重试。")
                                     .build());
                         }
+                        if (truncated) {
+                            // 重试耗尽但已有部分正文：保留内容，STATUS 明示不完整，done 带 finishReason=length
+                            log.warn("截断重试预算耗尽，保留部分回复: model={}", model);
+                            return Flux.just(
+                                    AgentEvent.builder().type(AgentEvent.STATUS)
+                                            .content("回复因 token 上限被截断，可能不完整")
+                                            .build(),
+                                    AgentEvent.builder().type(AgentEvent.EXPERIENCE_SAVED)
+                                            .content("执行经验已沉淀至长期记忆")
+                                            .build(),
+                                    AgentEvent.builder().type(AgentEvent.DONE)
+                                            .finishReason(finishReasonHolder[0])
+                                            .build());
+                        }
                         // 经验沉淀通知 + 完成事件（T4.5：实际写入在流终止回调，
                         // 此事件告知前端本次交互将沉淀为长期记忆）
                         return Flux.just(
                                 AgentEvent.builder().type(AgentEvent.EXPERIENCE_SAVED)
                                         .content("执行经验已沉淀至长期记忆")
                                         .build(),
-                                AgentEvent.builder().type(AgentEvent.DONE).build());
+                                AgentEvent.builder().type(AgentEvent.DONE)
+                                        .finishReason(finishReasonHolder[0])
+                                        .build());
                     }
 
                     List<AgentEvent> toolCallEvents = new ArrayList<>();

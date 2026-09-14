@@ -10,6 +10,8 @@ export interface ChatErrorInfo {
   cause: string; // 可能原因
   suggestion: string; // 建议处理
   time: number; // 发生时间（毫秒时间戳）
+  /** warning 级：非错误但需用户知晓（如回复截断），提示框用琥珀色系 */
+  level?: 'error' | 'warning';
 }
 
 interface CategoryTemplate {
@@ -96,5 +98,22 @@ export function classifyChatError(raw: string): ChatErrorInfo {
     cause: tpl.cause,
     suggestion: tpl.suggestion,
     time: Date.now(),
+    level: 'error',
+  };
+}
+
+/**
+ * 回复截断提示（S9）：done 事件携带 finishReason=length 时使用。
+ * 引擎已自动加倍重试 2 次仍被 token 上限截断，保留部分内容并明示不完整。
+ */
+export function truncationNotice(): ChatErrorInfo {
+  return {
+    raw: 'LLM finish_reason=length（截断重试预算耗尽后保留部分回复）',
+    title: '回复因 token 上限被截断，内容可能不完整',
+    category: '回复截断',
+    cause: '推理模型的思考与输出总 token 超过了本次请求上限，引擎已自动扩大预算重试 2 次仍未完整生成。',
+    suggestion: '可点击重发按钮再试一次；若反复出现，尝试简化问题、缩短上下文，或在模型配置中增大 max_tokens。',
+    time: Date.now(),
+    level: 'warning',
   };
 }

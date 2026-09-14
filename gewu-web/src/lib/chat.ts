@@ -127,6 +127,8 @@ export interface ChatStreamEvent {
   verify?: VerifyInfo;
   file?: FileInfo;
   errorMessage?: string;
+  /** LLM 完成原因（done 事件携带：stop 正常 / length 截断） */
+  finishReason?: string;
 }
 
 // 模型信息
@@ -174,6 +176,8 @@ export interface ChatStreamCallbacks {
   onContent: (text: string) => void;
   onThinking?: (text: string) => void;
   onStatus?: (status: string) => void;
+  /** 截断重试前清空已累积的部分正文（旧内容将被整体重新生成，S9） */
+  onContentReset?: (note: string) => void;
   onToolCall?: (toolCall: { id: string; name: string; arguments: string }) => void;
   onToolExecuting?: (toolCall: { id: string; name: string; arguments: string }) => void;
   onToolResult?: (result: { toolCallId: string; output: string }) => void;
@@ -188,7 +192,8 @@ export interface ChatStreamCallbacks {
   /** 失败已记录通知（进入失败案例库） */
   onFailureRecorded?: (reason: string) => void;
   onError?: (error: string) => void;
-  onComplete?: () => void;
+  /** 完成回调，携带 LLM finishReason（length=回复可能被截断） */
+  onComplete?: (finishReason?: string) => void;
 }
 
 /**
@@ -265,11 +270,11 @@ async function consumeChatSse(
   let buffer = '';
   let completed = false;
 
-  // 幂等的完成回调，确保 onComplete 只被调用一次
-  const safeComplete = () => {
+  // 幂等的完成回调，确保 onComplete 只被调用一次（携带 done 事件的 finishReason）
+  const safeComplete = (finishReason?: string) => {
     if (completed) return;
     completed = true;
-    callbacks.onComplete?.();
+    callbacks.onComplete?.(finishReason);
   };
 
   // 幂等的错误回调，确保 onError 后不再触发 onComplete
@@ -300,9 +305,9 @@ async function consumeChatSse(
 
           try {
             const event: ChatStreamEvent = JSON.parse(dataStr);
-            // done 事件触发完成并终止读取
+            // done 事件触发完成并终止读取（透传 finishReason 供截断提示）
             if (event.type === 'done') {
-              safeComplete();
+              safeComplete(event.finishReason);
               return;
             }
             // error 事件触发错误回调
@@ -325,7 +330,7 @@ async function consumeChatSse(
         try {
           const event: ChatStreamEvent = JSON.parse(dataStr);
           if (event.type === 'done') {
-            safeComplete();
+            safeComplete(event.finishReason);
             return;
           }
           if (event.type === 'error') {
@@ -358,6 +363,7 @@ function handleStreamEvent(
     onContent: (text: string) => void;
     onThinking?: (text: string) => void;
     onStatus?: (status: string) => void;
+    onContentReset?: (note: string) => void;
     onToolCall?: (toolCall: { id: string; name: string; arguments: string }) => void;
     onToolExecuting?: (toolCall: { id: string; name: string; arguments: string }) => void;
     onToolResult?: (result: { toolCallId: string; output: string }) => void;
@@ -388,6 +394,12 @@ function handleStreamEvent(
     case 'status':
       if (event.content && callbacks.onStatus) {
         callbacks.onStatus(event.content);
+      }
+      break;
+    case 'content_reset':
+      // 截断重试：清空已累积的部分正文，旧内容将被整体重新生成
+      if (callbacks.onContentReset) {
+        callbacks.onContentReset(event.content || '');
       }
       break;
     case 'tool_call':

@@ -50,6 +50,8 @@ public class AgentEvent {
     private String role;
     /** 编排层扩展：附加元数据 */
     private Map<String, Object> metadata;
+    /** LLM 完成原因（done 事件透传：stop 正常结束 / length 截断，前端据此提示不完整） */
+    private String finishReason;
 
     @Data
     @Builder
@@ -80,6 +82,8 @@ public class AgentEvent {
     public static final String TOOL_RESULT = "tool_result";
     public static final String DONE = "done";
     public static final String ERROR = "error";
+    /** 截断重试前置事件：通知调用方清空已累积的部分正文（S9，随重试整体重新生成） */
+    public static final String CONTENT_RESET = "content_reset";
 
     // ===== 阶段二扩展事件类型 =====
     /** 预算告警（消耗达 70%/90%） */

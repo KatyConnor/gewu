@@ -18,6 +18,8 @@ public class AgentChunk {
     private ToolCallInfo toolCall;
     private ToolResultInfo toolResult;
     private String errorMessage;
+    /** LLM 完成原因（done 事件透传：stop / length 截断标记） */
+    private String finishReason;
 
     @Data
     @Builder

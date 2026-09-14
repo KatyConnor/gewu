@@ -40,6 +40,23 @@ public class OpenAiCompatibleClient implements LlmClient {
 
     private static final Duration DEFAULT_REQUEST_TIMEOUT = Duration.ofSeconds(120);
 
+    /** 流式空闲看门狗（毫秒，0=禁用）：SSE 流无数据超过该时长即中断读取，防上游挂死 */
+    private volatile long streamIdleTimeoutMs = DEFAULT_STREAM_IDLE_TIMEOUT_MS;
+
+    private static final long DEFAULT_STREAM_IDLE_TIMEOUT_MS = 180_000L;
+
+    /** 看门狗共享调度线程（daemon，进程级单例） */
+    private static final java.util.concurrent.ScheduledExecutorService WATCHDOG_SCHEDULER =
+            java.util.concurrent.Executors.newScheduledThreadPool(1, r -> {
+                Thread t = new Thread(r, "llm-stream-watchdog");
+                t.setDaemon(true);
+                return t;
+            });
+
+    public void setStreamIdleTimeoutMs(long streamIdleTimeoutMs) {
+        this.streamIdleTimeoutMs = streamIdleTimeoutMs;
+    }
+
     public OpenAiCompatibleClient(String providerCode, String apiKey, String baseUrl,
                                    ObjectMapper objectMapper, HttpClient httpClient,
                                    LlmRequestBodyBuilder bodyBuilder) {
@@ -142,15 +159,17 @@ public class OpenAiCompatibleClient implements LlmClient {
                     return;
                 }
 
-                try (java.io.InputStream is = response.body();
+                try (java.io.InputStream is = withIdleWatchdog(response.body(), streamIdleTimeoutMs);
                      java.io.BufferedReader reader = new java.io.BufferedReader(
-                             new java.io.InputStreamReader(is))) {
+                             new java.io.InputStreamReader(is, java.nio.charset.StandardCharsets.UTF_8))) {
                     String line;
                     int chunkCount = 0;
+                    boolean sawDone = false;
                     while ((line = reader.readLine()) != null) {
                         if (line.startsWith("data:")) {
                             String data = line.substring(5).trim();
                             if ("[DONE]".equals(data)) {
+                                sawDone = true;
                                 log.info("{} SSE 流结束: [DONE], 共 {} 个 chunk, 总耗时={}ms",
                                         providerCode, chunkCount, System.currentTimeMillis() - startMs);
                                 break;
@@ -161,6 +180,15 @@ public class OpenAiCompatibleClient implements LlmClient {
                                 sink.next(chunk);
                             }
                         }
+                    }
+                    if (!sawDone) {
+                        // EOF 但未收到 [DONE]：上游连接被中断（代理超时/连接静默关闭），
+                        // 按错误处理而非静默 complete，让截断可见（S9）
+                        log.error("{} SSE 流中断：连接结束但未收到 [DONE]，已收 {} 个 chunk, 总耗时={}ms",
+                                providerCode, chunkCount, System.currentTimeMillis() - startMs);
+                        sink.error(new RuntimeException(
+                                providerCode + " 上游连接中断（SSE 流结束但未收到 [DONE]）"));
+                        return;
                     }
                     log.info("{} SSE 读取完成: 共 {} 个 chunk", providerCode, chunkCount);
                     sink.complete();
@@ -187,6 +215,55 @@ public class OpenAiCompatibleClient implements LlmClient {
         } catch (Exception e) {
             return "<unreadable>";
         }
+    }
+
+    /**
+     * 流式空闲看门狗：包装响应流，超过 idleTimeoutMs 无任何数据（读取阻塞无进展）
+     * 时主动关闭底层流，使阻塞中的 readLine 抛出 IOException 中断读取，避免
+     * boundedElastic 线程因上游挂死而永久占用（S9）。
+     */
+    private java.io.InputStream withIdleWatchdog(java.io.InputStream delegate, long timeoutMs) {
+        if (timeoutMs <= 0) {
+            return delegate;
+        }
+        return new java.io.FilterInputStream(delegate) {
+            private volatile long lastActivityMs = System.currentTimeMillis();
+            private final java.util.concurrent.ScheduledFuture<?> check = WATCHDOG_SCHEDULER
+                    .scheduleWithFixedDelay(() -> {
+                        if (System.currentTimeMillis() - lastActivityMs >= timeoutMs) {
+                            log.error("{} 流式空闲超时（{}ms 无数据），中断读取", providerCode, timeoutMs);
+                            try {
+                                delegate.close();
+                            } catch (Exception ignored) {
+                                // 关闭失败只能尽力而为：读取线程可能继续阻塞
+                            }
+                        }
+                    }, timeoutMs, timeoutMs, java.util.concurrent.TimeUnit.MILLISECONDS);
+
+            @Override
+            public int read() throws java.io.IOException {
+                int b = super.read();
+                if (b >= 0) {
+                    lastActivityMs = System.currentTimeMillis();
+                }
+                return b;
+            }
+
+            @Override
+            public int read(byte[] b, int off, int len) throws java.io.IOException {
+                int n = super.read(b, off, len);
+                if (n > 0) {
+                    lastActivityMs = System.currentTimeMillis();
+                }
+                return n;
+            }
+
+            @Override
+            public void close() throws java.io.IOException {
+                check.cancel(false);
+                super.close();
+            }
+        };
     }
 
     private LlmResponse parseResponse(String responseBody) {

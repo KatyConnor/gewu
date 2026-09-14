@@ -208,6 +208,65 @@ class ReactAgentExecutorSyncTest {
     }
 
     @Test
+    @DisplayName("正文非空中途截断：丢弃部分内容，加倍 max_tokens 重新生成（S9）")
+    void midContentTruncationRegenerates() {
+        LlmResponse partial = LlmResponse.builder()
+                .content("#!/usr/bin/env bash").finishReason("length").build();
+        LlmResponse full = LlmResponse.builder()
+                .content("完整脚本内容").finishReason("stop").build();
+        ScriptedLlmClient client = new ScriptedLlmClient(List.of(partial, full));
+        ReactAgentExecutor executor = executor(client,
+                new BudgetController(81920, 300000, 10), 10);
+        // 任务级 maxTokens 控制初始预算
+        AgentTask t = task();
+        t.setMaxTokens(1024);
+
+        LlmResponse response = executor.execute(t);
+
+        // 两次调用，第二次 max_tokens 加倍，返回重试后的完整内容
+        assertThat(client.requests).hasSize(2);
+        assertThat(client.requests.get(1).getMaxTokens()).isEqualTo(2048);
+        assertThat(response.getContent()).isEqualTo("完整脚本内容");
+        assertThat(response.getFinishReason()).isEqualTo("stop");
+    }
+
+    @Test
+    @DisplayName("重试耗尽且正文非空：保留部分内容返回 finishReason=length，且不入语义缓存")
+    void retriesExhaustedReturnsPartialWithLength() {
+        List<LlmResponse> allTruncated = new java.util.ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            allTruncated.add(LlmResponse.builder()
+                    .content("部分内容" + i).finishReason("length").build());
+        }
+        ScriptedLlmClient client = new ScriptedLlmClient(allTruncated);
+
+        LlmResponse response = defaultExecutor(client).execute(task());
+
+        // 初次 + 3 次重试后放弃，返回最后一次的部分内容并带截断标记
+        assertThat(client.requests).hasSize(4);
+        assertThat(response.getContent()).isEqualTo("部分内容3");
+        assertThat(response.getFinishReason()).isEqualTo("length");
+        // 截断内容不写入语义缓存（避免不完整回复被复用）
+        assertThat(responseCache.puts).isEmpty();
+    }
+
+    @Test
+    @DisplayName("重试耗尽且正文为空：抛 TRUNCATED 错误而非返回空回复")
+    void retriesExhaustedBlankThrows() {
+        List<LlmResponse> allBlank = new java.util.ArrayList<>();
+        for (int i = 0; i < 4; i++) {
+            allBlank.add(LlmResponse.builder()
+                    .content(null).finishReason("length").build());
+        }
+        ScriptedLlmClient client = new ScriptedLlmClient(allBlank);
+
+        org.assertj.core.api.Assertions.assertThatThrownBy(() ->
+                        defaultExecutor(client).execute(task()))
+                .isInstanceOf(AgentEngineException.class)
+                .hasMessageContaining("被截断");
+    }
+
+    @Test
     @DisplayName("工具轮：assistant 携带 toolCalls 回灌，tool 结果关联 toolCallId")
     void toolRoundProtocol() {
         ScriptedLlmClient client = new ScriptedLlmClient(List.of(

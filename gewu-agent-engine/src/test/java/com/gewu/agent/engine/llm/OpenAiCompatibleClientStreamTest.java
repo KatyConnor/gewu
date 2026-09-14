@@ -176,14 +176,14 @@ class OpenAiCompatibleClientStreamTest {
     }
 
     @Test
-    @DisplayName("无 [DONE] 时读取到流末尾自然完成")
-    void streamCompletesWithoutDoneMarker() {
+    @DisplayName("无 [DONE] 的静默断流按错误信号处理（S9：截断可见）")
+    void streamBreakWithoutDoneMarkerErrors() {
         respondSse(200, List.of(
                 "{\"choices\":[{\"delta\":{\"content\":\"done\"},\"finish_reason\":null}]}"));
 
-        List<LlmChunk> chunks = client().chatStream(request()).collectList().block();
-
-        assertThat(chunks).isNotNull().hasSize(1);
-        assertThat(chunks.get(0).getDelta()).isEqualTo("done");
+        // EOF 但未收到 [DONE]：上游连接中断，必须转错误信号而非静默完成，
+        // 否则截断内容会被当正常回复收尾（缺陷：回复只输出一半无提示）
+        assertThatThrownBy(() -> client().chatStream(request()).collectList().block())
+                .hasMessageContaining("未收到 [DONE]");
     }
 }

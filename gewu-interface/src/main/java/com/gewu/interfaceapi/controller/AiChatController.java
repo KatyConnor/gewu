@@ -165,6 +165,10 @@ public class AiChatController {
             if ("content".equals(event.getType()) && event.getContent() != null) {
                 accumulated.get().append(event.getContent());
             }
+            // 截断重试重新生成：清空已累积的部分正文，落库以最终重试结果为准
+            if ("content_reset".equals(event.getType())) {
+                accumulated.set(new StringBuilder());
+            }
             if ("file".equals(event.getType()) && event.getFile() != null) {
                 fileEvents.add(event.getFile());
             }
@@ -395,6 +399,7 @@ public class AiChatController {
                 .toolCall(toolCallInfo)
                 .toolResult(toolResultInfo)
                 .errorMessage(chunk.getErrorMessage())
+                .finishReason(chunk.getFinishReason())
                 .build();
     }
 

@@ -15,7 +15,7 @@ import { listAgents } from '@/lib/agent';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import FileCard from '@/components/ui/FileCard';
 import ChatErrorBanner from '@/components/ui/ChatErrorBanner';
-import { classifyChatError, type ChatErrorInfo } from '@/lib/chatErrors';
+import { classifyChatError, truncationNotice, type ChatErrorInfo } from '@/lib/chatErrors';
 import type { FileInfo } from '@/types';
 import {
   listMySessions, createSession, updateSession,
@@ -247,11 +247,20 @@ export default function ChatPage() {
           proc.tracker.addContent(text);
           setStreamText(prev => prev + text);
         },
+        onContentReset: () => {
+          // 截断重试：清空已累积的部分正文（旧内容将被整体重新生成）
+          setStreamText('');
+          proc.tracker.resetContent();
+        },
         onFile: (file) => { setStreamingFiles(prev => [...prev, file]); },
         onError: (msg) => {
           setChatError(classifyChatError(msg));
         },
-        onComplete: () => {
+        onComplete: (finishReason?: string) => {
+          // 截断重试耗尽：明示不完整（S9）
+          if (finishReason === 'length') {
+            setChatError(truncationNotice());
+          }
           // 回填真实 messageId：从后端重载会话消息
           loadConversationById(currentSessionId);
         },
@@ -394,6 +403,12 @@ export default function ChatPage() {
             accumulatedText += text;
             setStreamText(accumulatedText);
           },
+          onContentReset: () => {
+            // 截断重试：清空已累积的部分正文（旧内容将被整体重新生成）
+            accumulatedText = '';
+            setStreamText('');
+            proc.tracker.resetContent();
+          },
           onFile: (file) => {
             accumulatedFiles = [...accumulatedFiles, file];
             setStreamingFiles(accumulatedFiles);
@@ -411,11 +426,15 @@ export default function ChatPage() {
               accumulatedFiles
             );
           },
-          onComplete: () => {
+          onComplete: (finishReason?: string) => {
             if (completed) return;
             completed = true;
             proc.tracker.finish();
             const snapshot = proc.tracker.snapshot();
+            // finishReason=length：重试预算耗尽后的部分回复，明示不完整（S9）
+            if (finishReason === 'length') {
+              setChatError(truncationNotice());
+            }
             // 直接使用局部变量，避免在 state updater 中执行副作用。
             // React StrictMode（Next.js App Router 默认开启）会双重调用 updater 函数，
             // 若在 updater 内调用 handleMessageComplete（含 setMessages 副作用），

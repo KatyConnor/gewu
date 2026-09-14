@@ -154,6 +154,15 @@ export class ProcessTracker {
     });
   }
 
+  /**
+   * 截断重试（S9）：清空已累积的全部正文段（旧内容将被整体重新生成）。
+   * 思考/工具等过程事件保留——它们如实记录了本次交互的过程。
+   */
+  resetContent() {
+    this.items = this.items.filter(i => i.kind !== 'content');
+    this.closeActiveThinking();
+  }
+
   addTool(toolCall: { id: string; name: string; arguments?: string }) {
     this.closeActiveThinking();
     this.items.push({

@@ -35,6 +35,13 @@ public class LlmClientRegistry {
     /** 动态创建客户端的同步请求超时（由自动装配注入 agent.engine.llm.request-timeout） */
     private volatile java.time.Duration requestTimeout;
 
+    /** 动态创建客户端的流式空闲看门狗（agent.engine.llm.stream-idle-timeout-ms，0=禁用） */
+    private volatile long streamIdleTimeoutMs;
+
+    public void setStreamIdleTimeoutMs(long streamIdleTimeoutMs) {
+        this.streamIdleTimeoutMs = streamIdleTimeoutMs;
+    }
+
     private final LlmProvider provider;
     private final ObjectMapper objectMapper;
     private final HttpClient httpClient;
@@ -110,8 +117,12 @@ public class LlmClientRegistry {
                 return null;
             }
             String apiKey = config.apiKey() != null ? config.apiKey() : "";
-            return new OpenAiCompatibleClient(
+            OpenAiCompatibleClient client = new OpenAiCompatibleClient(
                     providerCode, apiKey, config.baseUrl(), objectMapper, httpClient, bodyBuilder, requestTimeout);
+            if (streamIdleTimeoutMs > 0) {
+                client.setStreamIdleTimeoutMs(streamIdleTimeoutMs);
+            }
+            return client;
         } catch (Exception e) {
             log.warn("从 LlmProvider 加载供应商 {} 失败: {}", providerCode, e.getMessage());
             return null;

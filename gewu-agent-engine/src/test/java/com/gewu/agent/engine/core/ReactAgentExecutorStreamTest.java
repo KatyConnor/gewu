@@ -222,6 +222,78 @@ class ReactAgentExecutorStreamTest {
         assertThat(events.get(0).getType()).isEqualTo("status");
         assertThat(events.get(events.size() - 1).getType()).isEqualTo("done");
         assertThat(events.stream().filter(e -> "content".equals(e.getType()))).hasSize(1);
+        // done 事件透传 finish_reason（S9：前端区分正常结束/截断）
+        assertThat(events.get(events.size() - 1).getFinishReason()).isEqualTo("stop");
+    }
+
+    @Test
+    @DisplayName("正文非空中途截断：CONTENT_RESET 清空 + 加倍 max_tokens 重新生成（S9）")
+    void streamMidContentTruncationRetriesWithReset() {
+        // 第一轮：思考完输出部分正文后被 length 掐断（用户实测缺陷形态）
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().reasoning("先写脚本").build(),
+                LlmChunk.builder().delta("#!/usr/bin/env bash").build(),
+                LlmChunk.builder().finishReason("length").build()));
+        // 第二轮：加倍预算后完整生成
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().delta("完整回复").build(),
+                LlmChunk.builder().finishReason("stop").build()));
+
+        List<AgentEvent> events = executor.executeStream(task(1024))
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        List<String> types = events.stream().map(AgentEvent::getType).toList();
+        // 事件链：半截 content -> content_reset -> status -> content -> done
+        assertThat(types).containsSubsequence("content_reset", "status", "content", "done");
+        // 两次 LLM 调用，第二次 max_tokens 加倍
+        assertThat(llmClient.recordedRequests).hasSize(2);
+        assertThat(llmClient.recordedRequests.get(1).getMaxTokens()).isEqualTo(2048);
+        // 重试成功后 done 为正常结束
+        assertThat(events.get(events.size() - 1).getFinishReason()).isEqualTo("stop");
+    }
+
+    @Test
+    @DisplayName("正文为空截断：不加倍提示直接重试，保持 S8 行为")
+    void streamBlankTruncationRetriesWithoutReset() {
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().reasoning("思考中").build(),
+                LlmChunk.builder().finishReason("length").build()));
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().delta("完整回复").build(),
+                LlmChunk.builder().finishReason("stop").build()));
+
+        List<AgentEvent> events = executor.executeStream(task(1024))
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        assertThat(llmClient.recordedRequests).hasSize(2);
+        assertThat(events.stream().map(AgentEvent::getType)).doesNotContain("content_reset");
+        assertThat(llmClient.recordedRequests.get(1).getMaxTokens()).isEqualTo(2048);
+    }
+
+    @Test
+    @DisplayName("重试耗尽且正文非空：保留部分内容，STATUS 明示 + done 带 finishReason=length")
+    void streamRetriesExhaustedKeepsPartialContent() {
+        // 四轮（初次 + 3 次重试）全部 length 且正文非空
+        for (int i = 0; i < 4; i++) {
+            llmClient.scriptedRounds.add(Flux.just(
+                    LlmChunk.builder().delta("部分内容" + i).build(),
+                    LlmChunk.builder().finishReason("length").build()));
+        }
+
+        List<AgentEvent> events = executor.executeStream(task(1024))
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        assertThat(llmClient.recordedRequests).hasSize(4);
+        // 每次非空截断重试各发一次 content_reset
+        assertThat(events.stream().filter(e -> "content_reset".equals(e.getType()))).hasSize(3);
+        AgentEvent last = events.get(events.size() - 1);
+        assertThat(last.getType()).isEqualTo("done");
+        assertThat(last.getFinishReason()).isEqualTo("length");
+        // 不静默：截断保留路径包含 STATUS 提示（而非直接 done）
+        assertThat(events.stream().map(AgentEvent::getType)).doesNotContain("error");
     }
 
     private TraceService noOpTraceService() {
