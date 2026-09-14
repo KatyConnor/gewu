@@ -150,7 +150,13 @@ export default function AIProcessTimeline({
   );
 }
 
-/** 思考行：🧠 思考 · 持续了N秒，点击展开原文（暗色等宽块） */
+/** 单行尾部预览：截取流式内容最新一段（zcode 单行滚动效果，S9 F4） */
+function tailPreview(text: string, max = 64): string {
+  const clean = text.replace(/\s+/g, ' ').trimEnd();
+  return clean.length > max ? `…${clean.slice(-max)}` : clean;
+}
+
+/** 思考行：🧠 思考 · 持续了N秒，点击展开原文（暗色等宽块）；流式期间单行滚动显示最新思考内容 */
 function ThinkingRow({ item, now, streaming, expanded, onToggle }: {
   item: Extract<ProcessItem, { kind: 'thinking' }>;
   now: number;
@@ -166,12 +172,20 @@ function ThinkingRow({ item, now, streaming, expanded, onToggle }: {
     <div>
       <button onClick={onToggle} className="w-full flex items-center gap-2 py-1 text-left text-xs text-ink-500 hover:text-ink-300 transition-colors">
         <Brain className={`w-3.5 h-3.5 flex-shrink-0 ${active && streaming ? 'text-tech-400/90' : ''}`} />
-        <span>思考</span>
-        <span className="text-ink-600">· 持续了{duration}{active && '…'}</span>
-        <span className="ml-auto text-ink-600">{expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</span>
+        <span className="flex-shrink-0">思考</span>
+        {/* 流式期间：单行视图滚动显示最新思考内容（完成后回落为持续时长） */}
+        {active && streaming && item.text ? (
+          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-400">
+            {tailPreview(item.text)}
+            <span className="inline-block w-1 h-3 bg-tech-400/80 animate-pulse ml-0.5 align-middle" />
+          </span>
+        ) : (
+          <span className="text-ink-600">· 持续了{duration}{active && '…'}</span>
+        )}
+        <span className="ml-auto flex-shrink-0 text-ink-600">{expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</span>
       </button>
       {expanded && (
-        <div className="mb-1.5 rounded-md bg-ink-900/40 px-3 py-2">
+        <div className="mb-1.5 rounded-md bg-ink-900/40 px-3 py-2 max-h-40 overflow-y-auto scrollbar-thin">
           <pre className="text-[11px] text-ink-500 whitespace-pre-wrap break-words font-mono leading-relaxed">
             {item.text}
             {active && <span className="inline-block w-1.5 h-3 bg-tech-400 animate-pulse ml-0.5 align-middle" />}
@@ -204,6 +218,12 @@ function ToolRow({ item, expanded, onToggle }: {
                     : <Wrench className="w-3.5 h-3.5 flex-shrink-0" />}
         <span className="flex-shrink-0">{info.verb}</span>
         <span className={`min-w-0 flex-1 truncate ${info.mono ? 'font-mono text-[11px]' : ''}`}>{info.detail}</span>
+        {/* 已完成且无展开：单行尾部预览最新执行结果（S9 F4 流式单行视图） */}
+        {!expanded && !running && item.result && (
+          <span className="hidden sm:inline-block flex-shrink-0 max-w-[160px] truncate font-mono text-[10px] text-ink-600" title={item.result}>
+            {tailPreview(item.result, 40)}
+          </span>
+        )}
         <span className="ml-auto flex-shrink-0 text-ink-600">{expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</span>
       </button>
       {expanded && (
