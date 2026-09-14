@@ -22,6 +22,7 @@ export interface SessionDTO {
   lastMessageAt: number | null;
   agent?: string;
   directory?: string;
+  workspaceId?: string;
   createdAt: number;
   createdBy?: string;
 }
@@ -100,10 +101,28 @@ async function unwrap<T>(p: Promise<ApiResponse<T>>): Promise<T> {
 
 // ==================== 会话 API ====================
 
-/** 获取我的会话列表 */
-export async function listMySessions(page = 1, size = 50): Promise<PageResult<SessionDTO>> {
+/** 我的会话列表过滤参数（S9 F1：项目分组/归档视图） */
+export interface SessionListFilter {
+  /** 精确匹配项目 ID */
+  projectId?: string;
+  /** true=仅无项目的默认空间会话 */
+  defaultSpace?: boolean;
+  /** 状态精确过滤（0 进行中/1 已完成/2 已归档）；缺省=排除已归档 */
+  status?: number;
+}
+
+/** 获取我的会话列表（支持项目/默认空间/归档过滤） */
+export async function listMySessions(
+  page = 1,
+  size = 50,
+  filter?: SessionListFilter
+): Promise<PageResult<SessionDTO>> {
+  const params = new URLSearchParams({ page: String(page), size: String(size) });
+  if (filter?.projectId) params.set('projectId', filter.projectId);
+  if (filter?.defaultSpace) params.set('defaultSpace', 'true');
+  if (filter?.status !== undefined) params.set('status', String(filter.status));
   return unwrap(request.get<ApiResponse<PageResult<SessionDTO>>>(
-    `/v1/sessions/my?page=${page}&size=${size}`));
+    `/v1/sessions/my?${params.toString()}`));
 }
 
 /** 获取单个会话 */

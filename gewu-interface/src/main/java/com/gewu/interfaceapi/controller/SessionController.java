@@ -43,9 +43,13 @@ public class SessionController {
     }
 
     @GetMapping("/my")
-    @Operation(summary = "我的会话", description = "分页查询当前用户参与的会话")
-    public Result<PageResult<SessionDTO>> mySessions(@Valid PageQuery query) {
-        return Result.success(sessionService.listMySessions(query));
+    @Operation(summary = "我的会话", description = "分页查询当前用户参与的会话（支持项目/默认空间/归档过滤）")
+    public Result<PageResult<SessionDTO>> mySessions(
+            @Valid PageQuery query,
+            @RequestParam(required = false) String projectId,
+            @RequestParam(required = false, defaultValue = "false") boolean defaultSpace,
+            @RequestParam(required = false) Integer status) {
+        return Result.success(sessionService.listMySessions(query, projectId, defaultSpace, status));
     }
 
     @PutMapping("/{sessionId}")

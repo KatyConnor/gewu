@@ -1,13 +1,14 @@
 'use client';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Send, Plus, Settings, Share2, Clock, ArrowLeft, RefreshCw, Pin, PinOff, Link2, Link2Off, AlertTriangle } from 'lucide-react';
+import { Send, Settings, Share2, Clock, RefreshCw, Link2, Link2Off, AlertTriangle, FolderOpen, GitBranch, MessageSquare } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import { setPage, setPendingAgentId, type RootState } from '@/store';
 import CustomSelect from '@/components/ui/Select';
 import { Message } from '@/types';
 import AIProcessTimeline from './AIProcessTimeline';
 import ChatHomeView from './ChatHomeView';
+import SessionSidebar from './SessionSidebar';
 import { chatStream, regenerateMessageStream } from '@/lib/chat';
 import { createProcessStreamHandler, hasProcessActivity, type ProcessSnapshot, type ProcessItem } from '@/lib/agentProcess';
 import { listActiveModels, type ModelConfig } from '@/lib/model-config';
@@ -20,20 +21,10 @@ import type { FileInfo } from '@/types';
 import {
   listMySessions, createSession, updateSession,
   listMessages, pinSession, shareSession, unshareSession,
+  archiveSession, unarchiveSession,
   type SessionDTO,
 } from '@/lib/session';
-
-const chatTabs = [
-  { id: 'project', label: '项目' },
-  { id: 'requirement', label: '需求' },
-  { id: 'task', label: '任务' },
-];
-
-const tabGroupLabels: Record<string, string> = {
-  project: '项目会话',
-  requirement: '需求会话',
-  task: '任务会话',
-};
+import { listMyProjects, type ProjectDTO } from '@/lib/project';
 
 const agentModeOptions = [
   { value: 'assistant', label: '助手模式' },
@@ -74,14 +65,17 @@ export default function ChatPage() {
   const currentUser = useSelector((s: RootState) => s.app.user);
   // 会话记录
   const [sessions, setSessions] = useState<SessionDTO[]>([]);
+  const [archivedSessions, setArchivedSessions] = useState<SessionDTO[]>([]);
+  const [showArchived, setShowArchived] = useState(false);
+  const [projects, setProjects] = useState<ProjectDTO[]>([]);
+  // 当前项目上下文（会话所属项目/新建会话的归属空间；null=默认空间）
+  const [currentProjectId, setCurrentProjectId] = useState<string | null>(null);
   const [currentSessionId, setCurrentSessionId] = useState<string | null>(null);
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [sharedSessionId, setSharedSessionId] = useState<string | null>(null);
   const [loadingSessions, setLoadingSessions] = useState(false);
   // 项目筛选
   const [filterProjectId, setFilterProjectId] = useState<string | null>(null);
-  const [projectSessions, setProjectSessions] = useState<SessionDTO[]>([]);
-  const [filteredSessions, setFilteredSessions] = useState<SessionDTO[]>([]);
   const bottomRef = useRef<HTMLDivElement>(null);
   const dispatch = useDispatch();
   const toast = useToast();
@@ -124,44 +118,37 @@ export default function ChatPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pendingAgentId]);
 
-  // 加载用户会话记录
+  // 加载用户会话记录（活跃 + 已归档两份，归档视图单独展示）
   const loadSessions = useCallback(async () => {
     setLoadingSessions(true);
     try {
-      const result = await listMySessions(1, 50);
-      setSessions(result.records || []);
+      const [active, archived] = await Promise.all([
+        listMySessions(1, 50),
+        listMySessions(1, 50, { status: 2 }),
+      ]);
+      setSessions(active.records || []);
+      setArchivedSessions(archived.records || []);
     } catch (err) {
       console.error('加载会话记录失败:', err);
       setSessions([]);
+      setArchivedSessions([]);
     } finally {
       setLoadingSessions(false);
     }
   }, []);
 
-  useEffect(() => { loadSessions(); }, [loadSessions]);
-
-  // 根据标签过滤会话
-  useEffect(() => {
-    let filtered = sessions;
-
-    if (activeTab === 'project') {
-      // 项目会话：有 projectId 或标题包含"项目"
-      filtered = sessions.filter(s =>
-        s.projectId || s.title.includes('项目')
-      );
-    } else if (activeTab === 'requirement') {
-      // 需求会话：标题包含"需求"
-      filtered = sessions.filter(s =>
-        s.title.includes('需求') || s.title.includes('PRD') || s.title.includes('需求文档')
-      );
-    } else if (activeTab === 'task') {
-      // 任务会话：标题包含"任务"
-      filtered = sessions.filter(s =>
-        s.title.includes('任务') || s.title.includes('Task')
-      );
+  // 加载我的项目（侧栏项目分组）
+  const loadProjects = useCallback(async () => {
+    try {
+      const result = await listMyProjects({ page: 1, size: 50 });
+      setProjects(result.records || []);
+    } catch {
+      setProjects([]);
     }
-    setFilteredSessions(filtered);
-  }, [activeTab, sessions]);
+  }, []);
+
+  useEffect(() => { loadSessions(); }, [loadSessions]);
+  useEffect(() => { loadProjects(); }, [loadProjects]);
 
   // 从 URL hash 解析项目 ID 和会话 ID
   useEffect(() => {
@@ -171,7 +158,7 @@ export default function ChatPage() {
       const projectId = match[1];
       const sessionId = match[2];
       setFilterProjectId(projectId);
-      setActiveTab('project');
+      setCurrentProjectId(projectId);
       // 自动加载指定会话
       if (sessionId) {
         const targetSession = sessions.find(s => s.sessionId === sessionId);
@@ -206,7 +193,9 @@ export default function ChatPage() {
   const loadConversation = async (session: SessionDTO) => {
     setCurrentTitle(session.title);
     setCurrentSessionId(session.sessionId);
+    setCurrentProjectId(session.projectId ?? null);
     setShowChatView(true);
+    setShowArchived(false);
     try {
       const result = await listMessages(session.sessionId, 1, 100);
       const msgs: Message[] = (result.records || []).map(m => {
@@ -359,7 +348,9 @@ export default function ChatPage() {
     if (!sessionIdForTurn) {
       try {
         const session = await createSession({
-          title: input.trim().slice(0, 20) || '新对话', type: 1, agent: agentId || undefined,
+          title: input.trim().slice(0, 20) || '新对话', type: 1,
+          agent: agentId || undefined,
+          projectId: currentProjectId ?? undefined,
         });
         sessionIdForTurn = session.sessionId;
         setCurrentSessionId(session.sessionId);
@@ -477,12 +468,19 @@ export default function ChatPage() {
     }
   };
 
-  const startNewChat = async (overrideAgentId?: string) => {
+  /** 新建会话：projectId 非空=项目会话（文件操作走项目仓库目录），null=默认空间 */
+  const startNewChat = async (overrideAgentId?: string, projectId?: string | null) => {
     const aid = overrideAgentId ?? agentId;
+    const pid = projectId !== undefined ? projectId : currentProjectId;
     try {
-      const session = await createSession({ title: '新对话', type: 1, agent: aid || undefined });
+      const session = await createSession({
+        title: '新对话', type: 1,
+        agent: aid || undefined,
+        projectId: pid ?? undefined,
+      });
       setCurrentSessionId(session.sessionId);
       setCurrentTitle(session.title);
+      setCurrentProjectId(pid ?? null);
       setShowChatView(true);
       setMessages([]);
       loadSessions();
@@ -491,65 +489,57 @@ export default function ChatPage() {
       toast('会话创建失败，请检查网络后重试', 'error');
     }
   };
+
+  /** 在指定项目/默认空间新建会话（侧栏项目名右侧 + 按钮） */
+  const handleCreateSessionIn = (projectId: string | null) => {
+    startNewChat(undefined, projectId);
+  };
+
+  /** 归档/取消归档（S9 F1）：成功后刷新两份列表 */
+  const handleArchiveSession = async (sessionId: string) => {
+    try {
+      await archiveSession(sessionId);
+      toast('会话已归档', 'success');
+      await loadSessions();
+    } catch (e) {
+      console.error('归档失败:', e);
+    }
+  };
+  const handleUnarchiveSession = async (sessionId: string) => {
+    try {
+      await unarchiveSession(sessionId);
+      toast('已取消归档', 'success');
+      await loadSessions();
+    } catch (e) {
+      console.error('取消归档失败:', e);
+    }
+  };
   const backToHome = () => { setShowChatView(false); setMessages([]); dispatch(setPage('dashboard')); };
   const toggleProcess = (msgId: string) => { setMessages(prev => prev.map(m => m.id === msgId ? { ...m, processExpanded: !(m.processExpanded ?? true) } : m)); };
+
+  // 当前项目（顶栏 F2：项目文件夹 + Git 分支信息）
+  const currentProject = projects.find(p => p.projectId === currentProjectId) ?? null;
 
   if (!showChatView) {
     return (
       <div className="flex h-screen w-full main-bg">
-        <aside className="w-72 border-r flex flex-col h-full flex-shrink0 sidebar-bg">
-          <div className="px-3 pt-3 pb-1"><div className="flex gap-1 rounded-lg p-1 tab-bar-bg">
-            {chatTabs.map(tab => (
-              <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-1 py-1.5 px-2 text-xs rounded-md font-medium transition-all ${activeTab === tab.id ? 'text-ink-100 tab-active-bg' : 'text-ink-400 hover:text-ink-200'}`}>{tab.label}</button>
-            ))}
-          </div></div>
-          <div className="px-3 pb-2">
-            <button onClick={() => startNewChat()} className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-tech-500/20 text-xs font-medium text-tech-400 hover:bg-tech-500/10 hover:border-tech-500/30 transition-all"><Plus className="w-3.5 h-3.5" />新增会话</button>
-          </div>
-          <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-1">
-            {loadingSessions ? (
-              <div className="flex items-center justify-center py-8"><div className="w-4 h-4 border-2 border-tech-400 border-t-transparent rounded-full animate-spin" /></div>
-            ) : filteredSessions.length === 0 ? (
-              <div className="px-3 py-8 text-center"><p className="text-xs text-ink-500">暂无会话记录</p></div>
-            ) : (
-              <>
-                <div className="px-3 py-2 text-[10px] font-medium text-ink-500 uppercase">
-                  {tabGroupLabels[activeTab] || '会话'}
-                </div>
-                {filteredSessions.map(session => (
-                  <div key={session.sessionId}
-                    onClick={() => loadConversation(session)}
-                    className={`group/item p-3 rounded-lg cursor-pointer transition-all border ${
-                      currentSessionId === session.sessionId ? 'bg-tech-500/10 border-tech-500/20' : 'border-transparent hover:bg-tech-500/5 hover:border-tech-500/10'
-                    }`}
-                  >
-                    <div className="flex items-center gap-1.5">
-                      {session.pinned === 1 && <Pin className="w-3 h-3 text-tech-400 flex-shrink-0" aria-label="已置顶" />}
-                      <p className="text-sm text-ink-200 truncate flex-1">{session.title}</p>
-                      <button
-                        onClick={(e) => { e.stopPropagation(); togglePin(session.sessionId, session.pinned !== 1); }}
-                        className="p-1 text-ink-500 hover:text-tech-400 rounded transition-all opacity-0 group-hover/item:opacity-100"
-                        aria-label={session.pinned === 1 ? '取消置顶' : '置顶'}
-                        title={session.pinned === 1 ? '取消置顶' : '置顶'}
-                      >{session.pinned === 1 ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}</button>
-                    </div>
-                    <p className="text-xs text-ink-500 mt-1">
-                      {session.lastMessageAt ? new Date(session.lastMessageAt).toLocaleDateString('zh-CN') : '刚刚'}
-                      {session.messageCount > 0 && ` · ${session.messageCount}条消息`}
-                    </p>
-                  </div>
-                ))}
-              </>
-            )}
-          </div>
-          <div className="p-3 border-t" style={{ borderColor: 'rgba(0,184,148,0.08)' }}>
-            <div className="flex items-center gap-3 px-2 py-1.5">
-              <div className="w-8 h-8 rounded-full bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center text-white font-semibold text-xs">{(currentUser?.name || '用').charAt(0)}</div>
-              <div className="flex-1 min-w-0"><p className="text-xs text-ink-100 truncate font-medium">{currentUser?.name || '当前用户'}</p></div>
-              <button onClick={backToHome} className="p-1.5 text-ink-500 hover:text-tech-400 rounded-md transition-all" title="返回主页"><ArrowLeft className="w-4 h-4" /></button>
-            </div>
-          </div>
-        </aside>
+        <SessionSidebar
+          sessions={sessions}
+          archivedSessions={archivedSessions}
+          projects={projects}
+          activeSessionId={currentSessionId}
+          currentProjectId={currentProjectId}
+          showArchived={showArchived}
+          onToggleArchived={() => setShowArchived(prev => !prev)}
+          onSelectSession={loadConversation}
+          onCreateSession={handleCreateSessionIn}
+          onArchive={handleArchiveSession}
+          onUnarchive={handleUnarchiveSession}
+          onPin={togglePin}
+          loading={loadingSessions}
+          user={currentUser}
+          onBackHome={backToHome}
+        />
         <ChatHomeView onStartNewChat={startNewChat} onSwitchTab={(tab) => setActiveTab(tab)} />
       </div>
     );
@@ -557,67 +547,63 @@ export default function ChatPage() {
 
   return (
     <div className="flex h-screen w-full chat-bg">
-      {/* 左侧会话列表 - 始终显示 */}
-      <aside className="w-72 border-r flex flex-col h-full flex-shrink-0 sidebar-bg">
-        <div className="px-3 pt-3 pb-1"><div className="flex gap-1 rounded-lg p-1 tab-bar-bg">
-          {chatTabs.map(tab => (
-            <button key={tab.id} onClick={() => setActiveTab(tab.id)} className={`flex-1 py-1.5 px-2 text-xs rounded-md font-medium transition-all ${activeTab === tab.id ? 'text-ink-100 tab-active-bg' : 'text-ink-400 hover:text-ink-200'}`}>{tab.label}</button>
-          ))}
-        </div></div>
-        <div className="px-3 pb-2">
-          <button onClick={() => startNewChat()} className="w-full flex items-center justify-center gap-1.5 py-2 rounded-lg border border-tech-500/20 text-xs font-medium text-tech-400 hover:bg-tech-500/10 hover:border-tech-500/30 transition-all"><Plus className="w-3.5 h-3.5" />新增会话</button>
-        </div>
-        <div className="flex-1 overflow-y-auto scrollbar-thin p-2 space-y-1">
-          {loadingSessions ? (
-            <div className="flex items-center justify-center py-8"><div className="w-4 h-4 border-2 border-tech-400 border-t-transparent rounded-full animate-spin" /></div>
-          ) : filteredSessions.length === 0 ? (
-            <div className="px-3 py-8 text-center"><p className="text-xs text-ink-500">暂无会话记录</p></div>
-          ) : (
-            <>
-              <div className="px-3 py-2 text-[10px] font-medium text-ink-500 uppercase">
-                {tabGroupLabels[activeTab] || '会话'}
-              </div>
-              {filteredSessions.map(session => (
-                <div key={session.sessionId} onClick={() => loadConversation(session)}
-                  className={`group/item p-3 rounded-lg cursor-pointer transition-all border ${
-                    currentSessionId === session.sessionId ? 'bg-tech-500/10 border-tech-500/20' : 'border-transparent hover:bg-tech-500/5 hover:border-tech-500/10'
-                  }`}>
-                  <div className="flex items-center gap-1.5">
-                    {session.pinned === 1 && <Pin className="w-3 h-3 text-tech-400 flex-shrink-0" aria-label="已置顶" />}
-                    <p className="text-sm text-ink-200 truncate flex-1">{session.title}</p>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); togglePin(session.sessionId, session.pinned !== 1); }}
-                      className="p-1 text-ink-500 hover:text-tech-400 rounded transition-all opacity-0 group-hover/item:opacity-100"
-                      aria-label={session.pinned === 1 ? '取消置顶' : '置顶'}
-                      title={session.pinned === 1 ? '取消置顶' : '置顶'}
-                    >{session.pinned === 1 ? <PinOff className="w-3.5 h-3.5" /> : <Pin className="w-3.5 h-3.5" />}</button>
-                  </div>
-                  <p className="text-xs text-ink-500 mt-1">
-                    {session.lastMessageAt ? new Date(session.lastMessageAt).toLocaleDateString('zh-CN') : '刚刚'}
-                    {session.messageCount > 0 && ` · ${session.messageCount}条消息`}
-                  </p>
-                </div>
-              ))}
-            </>
-          )}
-        </div>
-        <div className="p-3 border-t" style={{ borderColor: 'rgba(0,184,148,0.08)' }}>
-          <div className="flex items-center gap-3 px-2 py-1.5">
-            <div className="w-8 h-8 rounded-full bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center text-white font-semibold text-xs">{(currentUser?.name || '用').charAt(0)}</div>
-            <div className="flex-1 min-w-0"><p className="text-xs text-ink-100 truncate font-medium">{currentUser?.name || '当前用户'}</p></div>
-            <button onClick={backToHome} className="p-1.5 text-ink-500 hover:text-tech-400 rounded-md transition-all" title="返回主页"><ArrowLeft className="w-4 h-4" /></button>
-          </div>
-        </div>
-      </aside>
+      {/* 左侧会话列表 - 始终显示（项目树形分组） */}
+      <SessionSidebar
+        sessions={sessions}
+        archivedSessions={archivedSessions}
+        projects={projects}
+        activeSessionId={currentSessionId}
+        currentProjectId={currentProjectId}
+        showArchived={showArchived}
+        onToggleArchived={() => setShowArchived(prev => !prev)}
+        onSelectSession={loadConversation}
+        onCreateSession={handleCreateSessionIn}
+        onArchive={handleArchiveSession}
+        onUnarchive={handleUnarchiveSession}
+        onPin={togglePin}
+        loading={loadingSessions}
+        user={currentUser}
+        onBackHome={backToHome}
+      />
 
       {/* 右侧聊天区域 */}
       <div className="flex-1 flex flex-col h-full">
       <header className="flex items-center justify-between px-6 py-4 border-b backdrop-blur-sm flex-shrink-0" style={{ background: 'rgba(8,18,17,0.5)', borderColor: 'rgba(0,184,148,0.08)' }}>
-        <div className="flex items-center gap-3">
-          <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400/20 to-tech-600/20 flex items-center justify-center">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400/20 to-tech-600/20 flex items-center justify-center flex-shrink-0">
             <svg className="w-4 h-4 text-tech-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="1.5" d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
           </div>
-          <div><h3 className="text-sm font-medium text-ink-100">{currentTitle}</h3><p className="text-xs text-ink-500">文档助手</p></div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <h3 className="text-sm font-medium text-ink-100 truncate">{currentTitle}</h3>
+              {/* F2：项目文件夹与 Git 分支信息（无项目会话显示默认空间） */}
+              {currentProject ? (
+                <>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-tech-500/10 border border-tech-500/20 text-[11px] text-tech-300"
+                    title={`项目工作空间：${currentProject.worktree || currentProject.repoLocalPath || '项目目录'}`}>
+                    <FolderOpen className="w-3 h-3" />
+                    {currentProject.projectName}
+                  </span>
+                  {currentProject.repoBranch && (
+                    <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-ink-800/60 border border-ink-700/60 text-[11px] text-ink-300"
+                      title={`Git 分支：${currentProject.repoBranch}${currentProject.headCommit ? ` @ ${currentProject.headCommit.slice(0, 7)}` : ''}`}>
+                      <GitBranch className="w-3 h-3 text-tech-400" />
+                      {currentProject.repoBranch}
+                    </span>
+                  )}
+                </>
+              ) : (
+                currentSessionId && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-ink-800/60 border border-ink-700/60 text-[11px] text-ink-400"
+                    title="未关联项目：文件操作在用户默认工作空间执行">
+                    <MessageSquare className="w-3 h-3" />
+                    默认空间
+                  </span>
+                )
+              )}
+            </div>
+            <p className="text-xs text-ink-500">{currentProject ? `项目会话 · ${currentProject.projectCode || ''}` : '文档助手'}</p>
+          </div>
         </div>
         <div className="flex items-center gap-2">
           <button className="p-2 text-ink-400 hover:text-tech-400 rounded-lg transition-all" aria-label="设置"><Settings className="w-4 h-4" /></button>

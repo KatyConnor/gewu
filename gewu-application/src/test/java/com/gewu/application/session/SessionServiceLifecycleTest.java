@@ -6,6 +6,7 @@ import com.gewu.domain.session.SessionMember;
 import com.gewu.infrastructure.mapper.SessionMapper;
 import com.gewu.infrastructure.mapper.SessionMemberMapper;
 import com.gewu.infrastructure.mapper.SessionMessageMapper;
+import com.gewu.infrastructure.mapper.WorkspaceMapper;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -40,11 +41,14 @@ class SessionServiceLifecycleTest {
     @Mock
     private SessionMessageMapper sessionMessageMapper;
 
+    @Mock
+    private WorkspaceMapper workspaceMapper;
+
     private SessionService sessionService;
 
     @BeforeEach
     void setUp() {
-        sessionService = new SessionService(sessionMapper, sessionMemberMapper, sessionMessageMapper);
+        sessionService = new SessionService(sessionMapper, sessionMemberMapper, sessionMessageMapper, workspaceMapper);
         UserContext.set(UserContext.builder().userId("user-1").build());
         // 当前用户是会话成员（部分用例不涉及，故 lenient）
         lenient().when(sessionMemberMapper.selectCount(any())).thenReturn(1L);

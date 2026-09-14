@@ -10,9 +10,11 @@ import com.gewu.common.result.PageResult;
 import com.gewu.common.result.ResultCode;
 import com.gewu.domain.session.Session;
 import com.gewu.domain.session.SessionMember;
+import com.gewu.domain.workspace.Workspace;
 import com.gewu.infrastructure.mapper.SessionMapper;
 import com.gewu.infrastructure.mapper.SessionMemberMapper;
 import com.gewu.infrastructure.mapper.SessionMessageMapper;
+import com.gewu.infrastructure.mapper.WorkspaceMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,6 +31,7 @@ public class SessionService {
     private final SessionMapper sessionMapper;
     private final SessionMemberMapper sessionMemberMapper;
     private final SessionMessageMapper sessionMessageMapper;
+    private final WorkspaceMapper workspaceMapper;
 
     @Transactional
     public SessionDTO createSession(CreateSessionCommand command) {
@@ -43,6 +46,7 @@ public class SessionService {
         session.setIsPublic(command.getIsPublic() != null ? command.getIsPublic() : 0);
         session.setAgent(command.getAgent());
         session.setDirectory(command.getDirectory());
+        bindWorkspace(session, command.getProjectId(), command.getDirectory());
         session.setStatus(0);
         session.setMessageCount(0);
         sessionMapper.insert(session);
@@ -55,6 +59,27 @@ public class SessionService {
         sessionMemberMapper.insert(member);
 
         return toDTO(session);
+    }
+
+    /**
+     * 工作空间绑定（S9 F1）：项目会话的文件操作走项目仓库目录
+     * （/workspace/projects/{projectId}/repo），无项目会话绑定用户默认空间。
+     * 工作空间解析失败不阻断会话创建（后续文件工具按需回退）。
+     */
+    private void bindWorkspace(Session session, String projectId, String directory) {
+        try {
+            Workspace ws = workspaceMapper.selectOne(
+                    new LambdaQueryWrapper<Workspace>().eq(Workspace::getUserId, UserContext.currentUserId()));
+            if (ws != null) {
+                session.setWorkspaceId(ws.getId());
+            }
+        } catch (Exception ignored) {
+            // 工作空间缺失/异常不阻断会话创建
+        }
+        if (projectId != null && !projectId.isBlank()
+                && (directory == null || directory.isBlank())) {
+            session.setDirectory("/workspace/projects/" + projectId + "/repo");
+        }
     }
 
     @Transactional
@@ -125,7 +150,15 @@ public class SessionService {
         return PageResult.of(dtos, result.getTotal(), query.getPage(), query.getSize());
     }
 
-    public PageResult<SessionDTO> listMySessions(PageQuery query) {
+    /**
+     * 我的会话列表（S9 F1 过滤参数）。
+     *
+     * @param projectId    项目过滤：精确匹配；与 defaultSpace 二选一
+     * @param defaultSpace true=仅无项目的默认空间会话（projectId IS NULL）
+     * @param status       状态精确过滤（0 进行中/1 已完成/2 已归档）；缺省时默认排除已归档
+     */
+    public PageResult<SessionDTO> listMySessions(PageQuery query, String projectId,
+                                                  boolean defaultSpace, Integer status) {
         String userId = UserContext.currentUserId();
         if (userId == null) {
             throw BusinessException.of(ResultCode.UNAUTHORIZED);
@@ -136,15 +169,31 @@ public class SessionService {
             return PageResult.empty(query.getPage(), query.getSize());
         }
         List<String> sessionIds = members.stream().map(SessionMember::getSessionId).toList();
+        LambdaQueryWrapper<Session> wrapper = new LambdaQueryWrapper<Session>()
+                .in(Session::getId, sessionIds);
+        if (defaultSpace) {
+            wrapper.isNull(Session::getProjectId);
+        } else if (projectId != null && !projectId.isBlank()) {
+            wrapper.eq(Session::getProjectId, projectId);
+        }
+        if (status != null) {
+            wrapper.eq(Session::getStatus, status);
+        } else {
+            // 默认排除已归档会话（归档会话在「已归档」视图单独查看）
+            wrapper.and(w -> w.isNull(Session::getStatus).or().ne(Session::getStatus, 2));
+        }
+        wrapper.orderByDesc(Session::getPinned)
+                .orderByDesc(Session::getLastMessageAt)
+                .orderByDesc(Session::getCreatedAt);
         Page<Session> page = new Page<>(query.getPage(), query.getSize());
-        Page<Session> result = sessionMapper.selectPage(page,
-                new LambdaQueryWrapper<Session>()
-                        .in(Session::getId, sessionIds)
-                        .orderByDesc(Session::getPinned)
-                        .orderByDesc(Session::getLastMessageAt)
-                        .orderByDesc(Session::getCreatedAt));
+        Page<Session> result = sessionMapper.selectPage(page, wrapper);
         List<SessionDTO> dtos = result.getRecords().stream().map(this::toDTO).toList();
         return PageResult.of(dtos, result.getTotal(), query.getPage(), query.getSize());
+    }
+
+    /** 兼容旧签名（无过滤） */
+    public PageResult<SessionDTO> listMySessions(PageQuery query) {
+        return listMySessions(query, null, false, null);
     }
 
     @Transactional
@@ -339,6 +388,7 @@ public class SessionService {
                 .lastMessageAt(session.getLastMessageAt())
                 .agent(session.getAgent())
                 .directory(session.getDirectory())
+                .workspaceId(session.getWorkspaceId())
                 .slug(session.getSlug())
                 .shareUrl(session.getShareUrl())
                 .createdAt(session.getCreatedAt())

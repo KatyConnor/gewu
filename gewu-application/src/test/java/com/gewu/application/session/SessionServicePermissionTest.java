@@ -9,6 +9,7 @@ import com.gewu.domain.session.SessionMember;
 import com.gewu.infrastructure.mapper.SessionMapper;
 import com.gewu.infrastructure.mapper.SessionMemberMapper;
 import com.gewu.infrastructure.mapper.SessionMessageMapper;
+import com.gewu.infrastructure.mapper.WorkspaceMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -35,11 +36,14 @@ class SessionServicePermissionTest {
     @Mock
     private SessionMessageMapper sessionMessageMapper;
 
+    @Mock
+    private WorkspaceMapper workspaceMapper;
+
     private SessionService sessionService;
 
     @BeforeEach
     void setUp() throws Exception {
-        sessionService = new SessionService(sessionMapper, sessionMemberMapper, sessionMessageMapper);
+        sessionService = new SessionService(sessionMapper, sessionMemberMapper, sessionMessageMapper, workspaceMapper);
     }
 
     @Test

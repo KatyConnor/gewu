@@ -26,6 +26,8 @@ public class ProjectDTO {
     private Long closedAt;
     /** Git 仓库地址 */
     private String repoUrl;
+    /** 当前 Git 分支名（会话顶栏展示，S9 F2） */
+    private String repoBranch;
     /** clone 状态: pending/cloning/ready/failed */
     private String cloneStatus;
     /** 当前 HEAD commit */

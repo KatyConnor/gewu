@@ -50,6 +50,8 @@ export interface ProjectDTO {
   initiatedAt: number;
   closedAt: number;
   repoUrl?: string;
+  /** 当前 Git 分支名（会话顶栏展示，S9 F2） */
+  repoBranch?: string;
   cloneStatus?: string;
   headCommit?: string;
   repoLocalPath?: string;

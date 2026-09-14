@@ -25,6 +25,8 @@ public class SessionDTO {
     private Long lastMessageAt;
     private String agent;
     private String directory;
+    /** 工作空间 ID（项目会话=用户默认工作空间，文件操作经其沙箱路由；S9 F1） */
+    private String workspaceId;
     private Long createdAt;
     private String createdBy;
 }

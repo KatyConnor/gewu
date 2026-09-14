@@ -223,6 +223,7 @@ public class ProjectService {
                 .initiatedAt(project.getInitiatedAt())
                 .closedAt(project.getClosedAt())
                 .repoUrl(project.getRepoUrl())
+                .repoBranch(project.getRepoBranch())
                 .cloneStatus(project.getCloneStatus())
                 .headCommit(project.getHeadCommit())
                 .repoLocalPath(project.getRepoLocalPath())
