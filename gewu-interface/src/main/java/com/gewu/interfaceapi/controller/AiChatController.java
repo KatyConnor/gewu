@@ -51,6 +51,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 
 @Slf4j
@@ -173,19 +174,37 @@ public class AiChatController {
             PrintWriter writer = new PrintWriter(new OutputStreamWriter(outputStream, StandardCharsets.UTF_8), false);
             CountDownLatch latch = new CountDownLatch(1);
             AtomicReference<Throwable> errorRef = new AtomicReference<>();
+            AtomicBoolean clientGone = new AtomicBoolean(false);
+            AtomicReference<Disposable> subRef = new AtomicReference<>();
 
-            Disposable disposable = eventFlux.subscribe(
+            subRef.set(eventFlux.subscribe(
                     event -> {
+                        // 客户端断连后静默丢弃剩余事件（S8：写失败会置位断连标记）
+                        if (clientGone.get()) {
+                            return;
+                        }
                         try {
                             writer.write("data: ");
                             writer.write(objectMapper.writeValueAsString(event));
                             writer.write("\n\n");
                             writer.flush();
                         } catch (Exception e) {
-                            log.error("SSE 写入失败: {}", e.getMessage());
+                            // 写失败即客户端断连（broken pipe）：置位断连标记并终止订阅，
+                            // 释放被占住的异步线程与上游 LLM 资源（S8 修复，此前会
+                            // 持续写入失败直至 10 分钟异步超时）
+                            log.error("SSE 写入失败，终止订阅: {}", e.getMessage());
+                            clientGone.set(true);
+                            latch.countDown();
+                            Disposable d = subRef.get();
+                            if (d != null) {
+                                d.dispose();
+                            }
                         }
                     },
                     error -> {
+                        if (clientGone.get()) {
+                            return;
+                        }
                         errorRef.set(error);
                         log.error("SSE 流错误: {}", error.getMessage());
                         try {
@@ -202,6 +221,9 @@ public class AiChatController {
                         latch.countDown();
                     },
                     () -> {
+                        if (clientGone.get()) {
+                            return;
+                        }
                         try {
                             writer.write("data: [DONE]\n\n");
                             writer.flush();
@@ -209,14 +231,19 @@ public class AiChatController {
                         }
                         latch.countDown();
                     }
-            );
+            ));
 
             try {
                 latch.await();
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                disposable.dispose();
+                clientGone.set(true);
             } finally {
+                // 请求线程侧最终清理：无论正常完成/断连/中断都终止上游订阅
+                Disposable d = subRef.get();
+                if (d != null) {
+                    d.dispose();
+                }
                 writer.close();
             }
 

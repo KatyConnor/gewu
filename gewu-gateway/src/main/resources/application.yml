@@ -7,6 +7,11 @@ spring:
   main:
     web-application-type: reactive
   cloud:
+    circuitbreaker:
+      resilience4j:
+        # 关闭默认 1s TimeLimiter：SSE 流式与分钟级 LLM 推理请求必须放行，
+        # 否则全部被掐断转 17002 且计入失败率加速熔断开门（S8 部署实测发现）
+        disable-time-limiter: true
     gateway:
       default-filters:
         - DedupeResponseHeader=Access-Control-Allow-Origin
@@ -51,6 +56,11 @@ resilience4j:
         sliding-window-size: 10
         sliding-window-type: COUNT_BASED
         permitted-number-of-calls-in-half-open-state: 5
+        # S8 补齐：小窗口下的生效门槛与慢调用/半开治理
+        minimum-number-of-calls: 20
+        slow-call-duration-threshold: 30s
+        slow-call-rate-threshold: 80
+        automatic-transition-from-open-to-half-open: true
 
 logging:
   level:

@@ -2,6 +2,14 @@
 
 server:
   port: 8081
+  tomcat:
+    # S8 取证：请求耗时(%D)/首字节(%F)/状态/字节数，挂起类问题回溯依赖
+    accesslog:
+      enabled: true
+      directory: /home/wnn/devcode/ai-code/gewu-platform/logs
+      prefix: access
+      suffix: .log
+      pattern: "%h %t \"%r\" %s %b %D %F"
 
 spring:
   profiles:
@@ -28,11 +36,15 @@ spring:
       connection-timeout: 30000
 
   # Flyway 数据库迁移
+  # baseline-version=37（S8 拆弹）：既有库由旧 V1 脚本初始化且从未跑过 Flyway，
+  # baseline=37 使其对齐当前 schema 后从 V38 增量接管；
+  # 若保持 0，下次重启会从 V1 全量重放撞种子数据导致启动失败
+  # 注意：工程含 MySQL/wenshi PG 双数据源，Flyway 自动配置在多数据源下会静默
+  # 退避——必须显式指定 url/username/password 才能让主库迁移生效（S8 实测发现）
   flyway:
-    enabled: true
-    locations: classpath:db/migration
-    baseline-on-migrate: true
-    baseline-version: 0
+    # 主库迁移由 FlywayMigrationConfig 显式 Bean 接管（多数据源下自动配置退避），
+    # baseline-version 由该 Bean 读取
+    baseline-version: 37
 
 
 

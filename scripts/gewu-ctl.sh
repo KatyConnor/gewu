@@ -163,7 +163,7 @@ start_backend_service() {
     fi
 
     local svc_opts_var="${svc^^}_JAVA_OPTS"
-    local opts="${!svc_opts_var:-${JAVA_OPTS:--Xms256m -Xmx1024m}}"
+    local opts="${!svc_opts_var:-${JAVA_OPTS:--Xms256m -Xmx1024m -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/home/wnn/devcode/ai-code/gewu-platform/logs -Xlog:gc*:file=/home/wnn/devcode/ai-code/gewu-platform/logs/gc-$svc.log:time,uptime:filecount=5,filesize=20M}}"
 
     setup_java
     log_info "启动 $svc（端口 $port）..."

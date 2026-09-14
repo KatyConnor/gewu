@@ -38,6 +38,10 @@
         
         <!-- 核心依赖版本 -->
         <spring-boot.version>3.2.5</spring-boot.version>
+        <!-- S8：覆写内嵌 Tomcat 至 10.1.36（Boot 3.2.5 默认 10.1.20）——
+             10.1.21~10.1.36 含 16 个月的 NIO Endpoint/Poller 与异步场景修复，
+             针对 interface 长运行挂起问题；单属性可逆 -->
+        <tomcat.version>10.1.36</tomcat.version>
         <mybatis-plus.version>3.5.5</mybatis-plus.version>
         <hutool.version>5.8.25</hutool.version>
         <mapstruct.version>1.5.5.Final</mapstruct.version>

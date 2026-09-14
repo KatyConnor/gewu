@@ -3,14 +3,21 @@
 server:
   port: 8080
   tomcat:
-    max-threads: 200
-    min-spare-threads: 20
+    # S8：清理 Boot 2.3 起失效的旧键（max-threads/min-spare-threads），
+    # threads.max 才是生效属性；补 access log 取证
     accept-count: 100
     connection-timeout: 10000
     max-connections: 8192
     keep-alive-timeout: 30000
+    accesslog:
+      enabled: true
+      directory: /home/wnn/devcode/ai-code/gewu-platform/logs
+      prefix: access
+      suffix: .log
+      pattern: "%h %t \"%r\" %s %b %D %F"
     threads:
       max: 200
+      min-spare: 20
 
 spring:
   profiles:
@@ -39,10 +46,8 @@ spring:
       validation-timeout: 5000
 
   flyway:
-    enabled: true
-    locations: classpath:db/migration
-    baseline-on-migrate: true
-    baseline-version: 0
+    # 主库迁移由 FlywayMigrationConfig 显式 Bean 接管（多数据源下自动配置退避）
+    baseline-version: 37
     validate-on-migrate: false
 
   data:

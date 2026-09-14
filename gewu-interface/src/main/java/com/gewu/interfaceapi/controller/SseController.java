@@ -24,7 +24,8 @@ public class SseController {
     @GetMapping("/sessions/{sessionId}")
     @Operation(summary = "订阅会话事件", description = "建立 SSE 长连接以接收会话内实时消息推送")
     public SseEmitter subscribe(@PathVariable String sessionId) {
-        SseEmitter emitter = new SseEmitter(0L);
+        // 30 分钟超时（S8）：永不超时的连接会在客户端异常断开时堆积为半开连接
+        SseEmitter emitter = new SseEmitter(1800000L);
         sseEventManager.addEmitter(sessionId, com.gewu.common.context.UserContext.currentUserId(), emitter);
         return emitter;
     }

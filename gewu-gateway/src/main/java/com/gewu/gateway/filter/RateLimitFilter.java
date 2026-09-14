@@ -49,6 +49,11 @@ public class RateLimitFilter implements GlobalFilter, Ordered {
 
         return Mono.fromCallable(limiter::tryAcquire)
                 .subscribeOn(Schedulers.boundedElastic())
+                // Redis 故障时降级放行（限流器失效不应放大为网关全局 500，S8）
+                .onErrorResume(e -> {
+                    log.warn("RateLimitFilter: Redis 不可用，限流降级放行: {}", e.getMessage());
+                    return Mono.just(true);
+                })
                 .flatMap(acquired -> {
                     ServerHttpResponse response = exchange.getResponse();
                     if (acquired) {

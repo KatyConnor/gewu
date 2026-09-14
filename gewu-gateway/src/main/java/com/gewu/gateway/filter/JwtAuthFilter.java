@@ -52,8 +52,13 @@ public class JwtAuthFilter implements GlobalFilter, Ordered {
             return unauthorized(exchange, "令牌无效或已过期");
         }
 
+        // S8 防御：签名合法但关键 claims 缺失的异常令牌按 401 处理，
+        // 避免 userId/username 为 null 时 header 构造抛 NPE 演变成 500
         String userId = jwtUtil.getUserIdFromToken(token);
         String username = jwtUtil.getUsernameFromToken(token);
+        if (userId == null || userId.isBlank() || username == null || username.isBlank()) {
+            return unauthorized(exchange, "令牌缺少必要的用户标识");
+        }
         List<String> roles = jwtUtil.getRolesFromToken(token);
 
         ServerHttpRequest mutatedRequest = request.mutate()
