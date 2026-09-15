@@ -2,7 +2,7 @@
 
 > 日期：2026-09-15
 > 范围：1 个 P0 缺陷修复（流式回复中途截断）+ 5 项功能（F1-F5，参考 zcode 交互）
-> 提交序列：43b0096(M0) → e2c3a90(M1) → e314c2a(M2) → d7ef1ba(M3) → 265946b(M4)
+> 提交序列：43b0096(M0) → e2c3a90(M1) → e314c2a(M2) → d7ef1ba(M3) → 265946b(M4) → 819fbf1(M4 沙箱修复)
 
 ## 一、缺陷修复：会话回复未完全输出（M0，P0）
 
@@ -55,11 +55,19 @@
 | SandboxDTO 缺 Jackson 构造器注解，反序列化必败——dev 沙箱创建从未走通 | 补 @NoArgsConstructor/@AllArgsConstructor（265946b） |
 | git_credential 缺 updated_by（V20 建表遗漏），沙箱创建的凭证查询失败 | V40 幂等补列（265946b） |
 | LlmConfig 旧静态 QwenClient 用 dashscope 原生协议，与 compatible-mode 端点协议不匹配且优先于 DB 动态加载——qwen 供应商静默返回空流 | 移除静态客户端，统一 DB 驱动 OpenAI 兼容路径；删除 LlmClientAdapterRegistration（265946b） |
+| 沙箱容器无默认 CMD 的镜像（alpine）启动即退出——exec 全部 409、DB 状态与容器脱节 | 容器创建统一覆盖 CMD 常驻进程（819fbf1） |
+| docker cp 不自动创建父目录——子目录写入（scripts/xx）一律 404（也影响既有 DevWorkspacePage 保存） | 写前 mkdir -p（819fbf1） |
+| 沙箱 DB 状态 running 但容器已死——恢复逻辑只信 DB 状态从不探活 | ensureDevSandboxForUser 增加探活自愈（819fbf1） |
 
 ## 七、验证与遗留
 
 - **全量测试**：447 绿（引擎 194 含 plan/文件工具/截断 7 个新用例；application 131 含会话过滤适配）
 - **迁移**：V39/V40 Flyway 落库成功（baseline 链 37→40）
-- **实况冒烟**：M0 截断自愈 done=stop ✓、M3 计划事件链 ✓、M1 生命周期 7/7 ✓；M4 文件工具实况因 ark-code 5h 配额窗口耗尽（多轮冒烟消耗）顺延——机制已由单测覆盖，配额重置后补测：写/编辑文件 → 变更列表 +N/-N → diff 审查 → 面板保存写回
+- **实况冒烟（全部通过）**：
+  - M0 截断自愈：重推理题两次空截断自动升级 8192→16384→32768 后第三轮完整生成 12350 字符，done=stop
+  - M1 项目会话生命周期 7/7（过滤/绑定/归档/取消归档）
+  - M3 计划事件链：plan_created → plan_updated → done 带快照
+  - M4 文件工具实况：write_file 创建 → edit_file 编辑 → read_file 回读内容一致，done=stop
+  - M4 变更追踪：列表 [CREATE] +2-0 → diff（before=None/+行标注）→ 面板保存写回 → 保存后 diff 增量
 - **环境注意**：qwen/opencode 供应商 DB 中 api_key 为空（仅 ark-code 有密钥），动态客户端不可用属配置问题非代码问题
-- **遗留低优先级**：同项目多会话并发共享工作空间时变更归属为后写覆盖；Monaco 资源 24MB（sync-monaco.sh 按需同步）；沙箱 dev 镜像默认 alpine（git 操作需换装 git 的镜像，GEWU_DEV_IMAGE 可覆盖）
+- **遗留低优先级**：同项目多会话并发共享工作空间时变更归属为后写覆盖；Monaco 资源 24MB（sync-monaco.sh 按需同步）；dev 沙箱镜像默认 alpine（含 git 需求可 GEWU_DEV_IMAGE 覆盖）
