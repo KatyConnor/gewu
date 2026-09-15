@@ -96,7 +96,32 @@ public class DevWorkspaceService {
     /** 启动开发沙箱（创建或恢复） */
     @Transactional
     public SandboxDTO startDevSandbox() {
-        Workspace ws = getOrCreateDevWorkspace();
+        String userId = UserContext.currentUserId();
+        if (userId == null) {
+            throw BusinessException.of(ResultCode.UNAUTHORIZED);
+        }
+        return ensureDevSandboxForUser(userId);
+    }
+
+    /**
+     * 按显式 userId 确保开发沙箱可用（创建或恢复）。
+     * S9 F3：引擎文件工具在工具执行池线程调用，无 UserContext ThreadLocal，
+     * 需要 userId 显式传入的入口。
+     */
+    @Transactional
+    public SandboxDTO ensureDevSandboxForUser(String userId) {
+        Workspace ws = workspaceMapper.selectOne(
+                new LambdaQueryWrapper<Workspace>().eq(Workspace::getUserId, userId));
+        if (ws == null) {
+            if (!hasDevRole(userId)) {
+                throw BusinessException.of(ResultCode.FORBIDDEN, "开发工作空间仅限开发/测试角色使用");
+            }
+            ws = initDevWorkspace(userId);
+        }
+        if (!"dev".equals(ws.getMode())) {
+            ws.setMode("dev");
+            workspaceMapper.updateById(ws);
+        }
 
         // 若已有沙箱，尝试恢复
         if (ws.getDevSandboxId() != null) {

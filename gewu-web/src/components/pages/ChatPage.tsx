@@ -1,7 +1,7 @@
 'use client';
 import { useState, useRef, useEffect, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Send, Settings, Share2, Clock, RefreshCw, Link2, Link2Off, AlertTriangle, FolderOpen, GitBranch, MessageSquare } from 'lucide-react';
+import { Send, Settings, Share2, Clock, RefreshCw, Link2, Link2Off, AlertTriangle, FolderOpen, GitBranch, MessageSquare, FileDiff } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import { setPage, setPendingAgentId, type RootState } from '@/store';
 import CustomSelect from '@/components/ui/Select';
@@ -10,7 +10,9 @@ import AIProcessTimeline from './AIProcessTimeline';
 import ChatHomeView from './ChatHomeView';
 import SessionSidebar from './SessionSidebar';
 import PlanCard from './PlanCard';
+import FileEditorPanel from './FileEditorPanel';
 import { chatStream, regenerateMessageStream, type PlanStepInfo } from '@/lib/chat';
+import { listFileChanges, type FileChangeDTO } from '@/lib/sessionFileChanges';
 import { createProcessStreamHandler, hasProcessActivity, type ProcessSnapshot, type ProcessItem } from '@/lib/agentProcess';
 import { listActiveModels, type ModelConfig } from '@/lib/model-config';
 import { listAgents } from '@/lib/agent';
@@ -57,6 +59,9 @@ export default function ChatPage() {
   const [chatError, setChatError] = useState<ChatErrorInfo | null>(null);
   // 任务流程计划（S9 F5：模型经 plan_task 工具提交，右上角卡片渲染）
   const [plan, setPlan] = useState<{ title: string; steps: PlanStepInfo[] } | null>(null);
+  // 会话文件变更（S9 F3：流结束后拉取，驱动「更改」chip 与右侧编辑面板）
+  const [fileChanges, setFileChanges] = useState<FileChangeDTO[]>([]);
+  const [filePanelOpen, setFilePanelOpen] = useState(false);
   const [modelOptions, setModelOptions] = useState<{ value: string; label: string }[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
   const [agentMode, setAgentMode] = useState('assistant');
@@ -174,6 +179,17 @@ export default function ChatPage() {
     }
   }, [sessions]);
 
+  // 加载会话文件变更（S9 F3）：流结束后或切换会话时拉取
+  const loadFileChanges = useCallback(async (sessionId: string) => {
+    try {
+      const changes = await listFileChanges(sessionId);
+      setFileChanges(changes);
+    } catch {
+      // 会话无工作空间/无变更记录时静默（面板数据为空即可）
+      setFileChanges([]);
+    }
+  }, []);
+
   const handleMessageComplete = (text: string, processItems: ProcessItem[], processMs: number, files?: FileInfo[]) => {
     setIsStreaming(false);
     setStreamText('');
@@ -200,6 +216,9 @@ export default function ChatPage() {
     setShowChatView(true);
     setShowArchived(false);
     setPlan(null);
+    setFileChanges([]);
+    setFilePanelOpen(false);
+    loadFileChanges(session.sessionId);
     try {
       const result = await listMessages(session.sessionId, 1, 100);
       const msgs: Message[] = (result.records || []).map(m => {
@@ -265,6 +284,8 @@ export default function ChatPage() {
           if (finishReason === 'length') {
             setChatError(truncationNotice());
           }
+          // F3：重发生成后刷新文件变更列表
+          loadFileChanges(currentSessionId);
           // 回填真实 messageId：从后端重载会话消息
           loadConversationById(currentSessionId);
         },
@@ -463,6 +484,10 @@ export default function ChatPage() {
             if (finishReason === 'length') {
               setChatError(truncationNotice());
             }
+            // F3：流结束后拉取会话文件变更（驱动「更改」chip 与编辑面板）
+            if (sessionIdForTurn) {
+              loadFileChanges(sessionIdForTurn);
+            }
             // 直接使用局部变量，避免在 state updater 中执行副作用。
             // React StrictMode（Next.js App Router 默认开启）会双重调用 updater 函数，
             // 若在 updater 内调用 handleMessageComplete（含 setMessages 副作用），
@@ -520,6 +545,8 @@ export default function ChatPage() {
       setCurrentProjectId(pid ?? null);
       setShowChatView(true);
       setMessages([]);
+      setFileChanges([]);
+      setFilePanelOpen(false);
       loadSessions();
     } catch {
       // 创建失败不再静默降级为无会话模式（否则整段对话不落库、无上下文）
@@ -639,6 +666,21 @@ export default function ChatPage() {
                     默认空间
                   </span>
                 )
+              )}
+              {/* F3：会话文件更改 chip（点击展开/收起右侧编辑面板） */}
+              {fileChanges.length > 0 && currentSessionId && (
+                <button onClick={() => setFilePanelOpen(prev => !prev)}
+                  className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] border transition-all ${
+                    filePanelOpen
+                      ? 'text-tech-300 bg-tech-500/10 border-tech-500/30'
+                      : 'text-ink-300 bg-ink-800/60 border-ink-700/60 hover:border-tech-500/30'
+                  }`}
+                  title="查看本次会话编辑的所有文件">
+                  <FileDiff className="w-3 h-3" />
+                  {fileChanges.length} 个文件已更改
+                  <span className="text-green-400/80">+{fileChanges.reduce((s, c) => s + (c.additions || 0), 0)}</span>
+                  <span className="text-red-400/70">-{fileChanges.reduce((s, c) => s + (c.deletions || 0), 0)}</span>
+                </button>
               )}
             </div>
             <p className="text-xs text-ink-500">{currentProject ? `项目会话 · ${currentProject.projectCode || ''}` : '文档助手'}</p>
@@ -767,6 +809,16 @@ export default function ChatPage() {
         </div>
       </div>
       </div>
+
+      {/* 右侧文件编辑面板（S9 F3）：默认折叠，「更改」chip 或工具行触发打开 */}
+      {filePanelOpen && currentSessionId && (
+        <FileEditorPanel
+          sessionId={currentSessionId}
+          changes={fileChanges}
+          onClose={() => setFilePanelOpen(false)}
+          onChangesRefresh={() => loadFileChanges(currentSessionId)}
+        />
+      )}
     </div>
   );
 }

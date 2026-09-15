@@ -34,3 +34,6 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# Monaco 静态资源（scripts/sync-monaco.sh 同步生成）
+/public/monaco

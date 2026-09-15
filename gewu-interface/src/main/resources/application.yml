@@ -217,6 +217,10 @@ gewu:
     api:
       url: http://localhost:8082/api/v1/sandboxes
       internal-key: ${GEWU_INTERNAL_API_KEY:gewu-dev-internal-key-change-me}
+    # 开发工作空间沙箱（S9 F3 文件工具路由目标）；
+    # 默认 alpine（Docker cp 读写 + ls 即可支撑文件工具），可按部署环境覆盖
+    dev:
+      image: ${GEWU_DEV_IMAGE:alpine:latest}
 
   ai:
     gateway:

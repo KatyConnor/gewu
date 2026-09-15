@@ -1,7 +1,6 @@
 package com.gewu.infrastructure.llm;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
-import org.springframework.beans.factory.annotation.Value;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
@@ -10,27 +9,16 @@ import java.time.Duration;
 import java.util.Map;
 
 /**
- * LLM 客户端配置 — 注册专用客户端（qwen、deepseek）。
+ * LLM 客户端配置 — 基础 HTTP/JSON 设施。
  * <p>
- * 其他供应商（zhipu、doubao、LongCat 等）由 LlmClientFactory 在运行时
- * 从数据库动态加载并创建 OpenAiCompatibleClient。
+ * 所有供应商（含 qwen、deepseek）由 LlmClientFactory 在运行时
+ * 从数据库动态加载并创建 OpenAiCompatibleClient（S9 收敛，移除
+ * dashscope 原生协议的旧静态客户端）。
  *
  * @since 1.0.0
  */
 @Configuration
 public class LlmConfig {
-
-    @Value("${gewu.ai.qwen.api-key:}")
-    private String qwenApiKey;
-
-    @Value("${gewu.ai.qwen.base-url:https://dashscope.aliyuncs.com/api/v1/services/aigc/text-generation/generation}")
-    private String qwenBaseUrl;
-
-    @Value("${gewu.ai.deepseek.api-key:}")
-    private String deepseekApiKey;
-
-    @Value("${gewu.ai.deepseek.base-url:https://api.deepseek.com/v1/chat/completions}")
-    private String deepseekBaseUrl;
 
     @Bean
     public HttpClient llmHttpClient() {
@@ -45,27 +33,18 @@ public class LlmConfig {
         return new ObjectMapper();
     }
 
-    @Bean
-    public QwenClient qwenClient(HttpClient llmHttpClient, ObjectMapper llmObjectMapper,
-                                  LlmRequestBodyBuilder bodyBuilder) {
-        return new QwenClient(qwenApiKey, qwenBaseUrl, llmObjectMapper, llmHttpClient, bodyBuilder);
-    }
-
-    @Bean
-    public DeepSeekClient deepSeekClient(HttpClient llmHttpClient, ObjectMapper llmObjectMapper,
-                                          LlmRequestBodyBuilder bodyBuilder) {
-        return new DeepSeekClient(deepseekApiKey, deepseekBaseUrl, llmObjectMapper, llmHttpClient, bodyBuilder);
-    }
+    // S9：移除 qwen/deepseek 专用静态客户端注册。
+    // 旧 QwenClient 使用 dashscope 原生协议（input/messages 请求体），
+    // 与 model_provider 现行 OpenAI 兼容端点（compatible-mode）协议不匹配，
+    // 会静默返回空流；且静态客户端优先于 DB 动态加载，覆盖了正确配置。
+    // 现全部供应商统一经 LlmClientFactory 从 DB 动态创建 OpenAiCompatibleClient。
 
     /**
-     * 静态注册的专用客户端 Map — 仅包含 qwen 和 deepseek。
-     * 其他供应商由 LlmClientFactory 在运行时从数据库动态创建。
+     * 静态注册的专用客户端 Map — 已清空（S9 起）。
+     * 所有供应商由 LlmClientFactory 在运行时从数据库动态创建。
      */
     @Bean
-    public Map<String, LlmClient> staticClientMap(QwenClient qwenClient, DeepSeekClient deepSeekClient) {
-        return Map.of(
-                "qwen", qwenClient,
-                "deepseek", deepSeekClient
-        );
+    public Map<String, LlmClient> staticClientMap() {
+        return Map.of();
     }
 }

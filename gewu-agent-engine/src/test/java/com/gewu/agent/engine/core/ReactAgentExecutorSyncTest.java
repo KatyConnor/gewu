@@ -163,7 +163,8 @@ class ReactAgentExecutorSyncTest {
                 responseCache,
                 new PromptInjectionDetector(),
                 new OutputSanitizer(),
-                (taskDescription, complexity, privacyLevel, latencyPreference, budgetRemaining) -> null);
+                (taskDescription, complexity, privacyLevel, latencyPreference, budgetRemaining) -> null,
+                null);
     }
 
     private ReactAgentExecutor defaultExecutor(ScriptedLlmClient client) {

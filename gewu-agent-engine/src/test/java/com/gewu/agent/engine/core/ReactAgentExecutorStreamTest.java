@@ -118,7 +118,8 @@ class ReactAgentExecutorStreamTest {
                 },
                 new PromptInjectionDetector(),
                 new OutputSanitizer(),
-                noOpModelSelector());
+                noOpModelSelector(),
+                null);
     }
 
     @AfterEach
@@ -337,6 +338,99 @@ class ReactAgentExecutorStreamTest {
                 .anyMatch(t -> "plan_task".equals(t.getName()));
         // 内置工具本地执行，不走外部 ToolExecutor
         verify(toolExecutor, never()).execute(anyString(), anyString(), any(), any());
+    }
+
+    @Test
+    @DisplayName("内置文件工具：write_file/edit_file 经 FileWorkspaceSpi 执行（S9 F3）")
+    void fileToolsExecuteViaSpi() {
+        // 假文件工作空间（内存 Map）+ 重建执行器
+        FakeFileWorkspace fake = new FakeFileWorkspace();
+        executor = new ReactAgentExecutor(
+                new LlmClientRegistry(List.of(llmClient), null, objectMapper,
+                        HttpClient.newHttpClient(), new LlmRequestBodyBuilder(objectMapper)),
+                toolExecutor,
+                new DefaultMessageBuilder(new SystemPromptComposer()),
+                new NoOpSessionContextService(),
+                new NoOpPersistenceService(),
+                AgentEngineConfig.builder()
+                        .maxToolRounds(5)
+                        .defaultMaxTokens(8192)
+                        .defaultTemperature(0.7)
+                        .toolExecutor(toolExecutorPool)
+                        .defaultHistoryLimit(50)
+                        .build(),
+                objectMapper,
+                new NoOpMemoryRouter(),
+                new NoOpMemoryStore(),
+                new BudgetController(81920, 300000, 10),
+                new NoOpPerceptionEngine(),
+                new ComplexityRouter(new DualSystemRouter()),
+                noOpTraceService(),
+                noOpMetricService(),
+                new ResponseCache() {
+                },
+                new PromptInjectionDetector(),
+                new OutputSanitizer(),
+                noOpModelSelector(),
+                fake);
+
+        // 第一轮：模型创建文件（同轮工具并行执行，依赖前序结果的编辑应在下一轮）
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().toolCallDelta(LlmChunk.ToolCallDelta.builder()
+                        .id("call-1").name("write_file").build()).build(),
+                LlmChunk.builder().toolCallDelta(LlmChunk.ToolCallDelta.builder()
+                        .arguments("{\"path\":\"scripts/hello.sh\",\"content\":\"#!/usr/bin/env bash\\necho v1\"}")
+                        .build()).build(),
+                LlmChunk.builder().finishReason("tool_calls").build()));
+        // 第二轮：编辑文件
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().toolCallDelta(LlmChunk.ToolCallDelta.builder()
+                        .id("call-2").name("edit_file").build()).build(),
+                LlmChunk.builder().toolCallDelta(LlmChunk.ToolCallDelta.builder()
+                        .arguments("{\"path\":\"scripts/hello.sh\",\"old_text\":\"echo v1\",\"new_text\":\"echo v2\"}")
+                        .build()).build(),
+                LlmChunk.builder().finishReason("tool_calls").build()));
+        // 第三轮：最终回答
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().delta("文件已创建并编辑").build(),
+                LlmChunk.builder().finishReason("stop").build()));
+
+        List<AgentEvent> events = executor.executeStream(task(2048))
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        List<String> types = events.stream().map(AgentEvent::getType).toList();
+        // 事件结构：tool_call -> tool_executing -> tool_result ->（第二轮）-> content -> done
+        assertThat(types).containsSubsequence("tool_call", "tool_executing",
+                "tool_result", "content", "done");
+        // 文件工具定义透出（无需 DB 配置）
+        assertThat(llmClient.recordedRequests.get(0).getTools())
+                .anyMatch(t -> "write_file".equals(t.getName()))
+                .anyMatch(t -> "read_file".equals(t.getName()));
+        // 假工作空间收到写入与编辑后的最终内容
+        assertThat(fake.files.get("scripts/hello.sh")).isEqualTo("#!/usr/bin/env bash\necho v2");
+        // 内置工具不走外部 ToolExecutor
+        verify(toolExecutor, never()).execute(anyString(), anyString(), any(), any());
+    }
+
+    /** 内存版文件工作空间（测试专用） */
+    static class FakeFileWorkspace implements com.gewu.agent.engine.tool.FileWorkspaceSpi {
+        final java.util.Map<String, String> files = new java.util.concurrent.ConcurrentHashMap<>();
+
+        @Override
+        public String readFile(com.gewu.agent.engine.tool.ToolContext ctx, String path) {
+            return files.get(path);
+        }
+
+        @Override
+        public void writeFile(com.gewu.agent.engine.tool.ToolContext ctx, String path, String content) {
+            files.put(path, content);
+        }
+
+        @Override
+        public java.util.List<String> listDir(com.gewu.agent.engine.tool.ToolContext ctx, String path) {
+            return List.copyOf(files.keySet());
+        }
     }
 
     private TraceService noOpTraceService() {

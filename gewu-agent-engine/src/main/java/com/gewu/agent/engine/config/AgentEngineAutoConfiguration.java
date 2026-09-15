@@ -319,11 +319,19 @@ public class AgentEngineAutoConfiguration {
                                        ResponseCache responseCache,
                                        PromptInjectionDetector promptInjectionDetector,
                                        OutputSanitizer outputSanitizer,
-                                       ModelSelector modelSelector) {
+                                       ModelSelector modelSelector,
+                                       com.gewu.agent.engine.tool.FileWorkspaceSpi fileWorkspaceSpi) {
         return new ReactAgentExecutor(llmClientRegistry, toolExecutor, messageBuilder,
                 sessionContextService, persistenceService, config, objectMapper, memoryRouter, memoryStore,
                 budgetController, perceptionEngine, complexityRouter, traceService, metricService, responseCache,
-                promptInjectionDetector, outputSanitizer, modelSelector);
+                promptInjectionDetector, outputSanitizer, modelSelector, fileWorkspaceSpi);
+    }
+
+    /** 文件工作空间 SPI 缺省实现（S9 F3）：应用层提供沙箱实现时被覆盖 */
+    @Bean
+    @ConditionalOnMissingBean(com.gewu.agent.engine.tool.FileWorkspaceSpi.class)
+    public com.gewu.agent.engine.tool.FileWorkspaceSpi fileWorkspaceSpi() {
+        return new com.gewu.agent.engine.spi.defaults.NoOpFileWorkspaceSpi();
     }
 
     @Bean

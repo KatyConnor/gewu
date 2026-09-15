@@ -75,11 +75,42 @@ public class ReactAgentExecutor implements AgentExecutor {
     private final PromptInjectionDetector promptInjectionDetector;
     private final OutputSanitizer outputSanitizer;
     private final ModelSelector modelSelector;
+    /** 文件工作空间 SPI（S9 F3）：内置文件工具执行后端，null 时禁用文件工具 */
+    private final com.gewu.agent.engine.tool.FileWorkspaceSpi fileWorkspace;
 
     /** 推理模型截断自愈：finish=length 时的最大重试次数（8192 起步 ×3 次翻倍可达 65536 硬顶） */
     private static final int MAX_TRUNCATION_RETRIES = 3;
     /** max_tokens 硬上限（自动扩大重试的封顶值） */
     private static final int MAX_TOKENS_HARD_CAP = 65536;
+
+    // ==================== 内置工具定义（S9：plan_task / 文件工具） ====================
+
+    /** 内置任务计划工具名（S9 F5）：本地执行，不走 ToolExecutor 外部链路 */
+    private static final String PLAN_TOOL_NAME = "plan_task";
+    private static final String PLAN_TOOL_DESCRIPTION =
+            "创建或更新当前任务的任务清单。开始多步骤工作前调用一次以制定计划；"
+                    + "完成某步骤或计划变化时再次调用以更新整体状态（全量覆盖语义）。";
+    private static final String PLAN_TOOL_SCHEMA = """
+            {"type":"object","properties":{"title":{"type":"string","description":"任务清单标题"},"steps":{"type":"array","description":"任务步骤列表（全量提交，以本次调用为准整体覆盖）","items":{"type":"object","properties":{"id":{"type":"string","description":"步骤唯一标识"},"text":{"type":"string","description":"步骤内容"},"status":{"type":"string","enum":["pending","in_progress","done"],"description":"步骤状态"}},"required":["id","text","status"]}}},"required":["steps"]}
+            """;
+
+    /** 内置文件工具（S9 F3）：经 FileWorkspaceSpi 在会话工作空间执行 */
+    private static final String READ_FILE_TOOL = "read_file";
+    private static final String WRITE_FILE_TOOL = "write_file";
+    private static final String EDIT_FILE_TOOL = "edit_file";
+    private static final String LIST_DIR_TOOL = "list_dir";
+    private static final String READ_FILE_SCHEMA = """
+            {"type":"object","properties":{"path":{"type":"string","description":"文件相对路径（相对当前工作空间根目录）"}},"required":["path"]}
+            """;
+    private static final String WRITE_FILE_SCHEMA = """
+            {"type":"object","properties":{"path":{"type":"string","description":"文件相对路径"},"content":{"type":"string","description":"完整文件内容（整体覆盖）"}},"required":["path","content"]}
+            """;
+    private static final String EDIT_FILE_SCHEMA = """
+            {"type":"object","properties":{"path":{"type":"string","description":"文件相对路径"},"old_text":{"type":"string","description":"要替换的原文（需唯一匹配）"},"new_text":{"type":"string","description":"替换后的新文本"}},"required":["path","old_text","new_text"]}
+            """;
+    private static final String LIST_DIR_SCHEMA = """
+            {"type":"object","properties":{"path":{"type":"string","description":"目录相对路径，默认工作空间根目录"}},"required":[]}
+            """;
 
     // ==================== 同步执行 ====================
 
@@ -211,8 +242,8 @@ public class ReactAgentExecutor implements AgentExecutor {
                         // OTel 追踪：每次工具执行包装 Span
                         Object toolSpan = traceService.startSpan(task.getSessionId(), tc.getName(), "tool_call");
                     try {
-                        ToolResult r = PLAN_TOOL_NAME.equals(tc.getName())
-                                ? executePlanToolSync(tc.getArguments(), toolContext)
+                        ToolResult r = isBuiltinTool(tc.getName())
+                                ? executeBuiltinToolSync(tc, toolContext)
                                 : toolExecutor.execute(tc.getName(), tc.getArguments(), toolContext,
                                         toolConfigMap.get(tc.getName()));
                         traceService.endSpan(toolSpan);
@@ -503,10 +534,10 @@ public class ReactAgentExecutor implements AgentExecutor {
                             .concatWith(Flux.fromIterable(executingEvents))
                             .concatWith(Flux.fromIterable(toolCalls)
                                     .flatMap(tc -> {
-                                        // 内置任务计划工具（S9 F5）：本地解析步骤、
-                                        // 发计划事件，不走 ToolExecutor 外部链路
-                                        if (PLAN_TOOL_NAME.equals(tc.getName())) {
-                                            return executePlanToolStream(tc, toolContext, messages);
+                                        // 内置工具（S9）：plan_task（F5）与文件工具（F3）
+                                        // 本地/SPI 执行，不走 ToolExecutor 外部链路
+                                        if (isBuiltinTool(tc.getName())) {
+                                            return executeBuiltinToolStream(tc, toolContext, messages);
                                         }
                                         return Mono.fromFuture(CompletableFuture.supplyAsync(
                                                         () -> toolExecutor.execute(tc.getName(), tc.getArguments(), toolContext,
@@ -524,7 +555,107 @@ public class ReactAgentExecutor implements AgentExecutor {
                 }));
     }
 
-    // ==================== 内置任务计划工具（S9 F5） ====================
+    // ==================== 内置工具执行（S9：plan_task / 文件工具） ====================
+
+    private boolean isBuiltinTool(String name) {
+        return PLAN_TOOL_NAME.equals(name)
+                || READ_FILE_TOOL.equals(name)
+                || WRITE_FILE_TOOL.equals(name)
+                || EDIT_FILE_TOOL.equals(name)
+                || LIST_DIR_TOOL.equals(name);
+    }
+
+    /** 同步路径内置工具分发 */
+    private ToolResult executeBuiltinToolSync(ToolCall tc, ToolContext toolContext) {
+        if (PLAN_TOOL_NAME.equals(tc.getName())) {
+            return executePlanToolSync(tc.getArguments(), toolContext);
+        }
+        return executeFileTool(tc, toolContext);
+    }
+
+    /** 流式路径内置工具分发：plan_task 发计划事件；文件工具走 SPI（阻塞 IO 调度到工具执行池） */
+    private Flux<AgentEvent> executeBuiltinToolStream(ToolCall tc, ToolContext toolContext, List<Message> messages) {
+        if (PLAN_TOOL_NAME.equals(tc.getName())) {
+            return executePlanToolStream(tc, toolContext, messages);
+        }
+        return Mono.fromFuture(CompletableFuture.supplyAsync(
+                        () -> executeFileTool(tc, toolContext), config.getToolExecutor()))
+                .map(result -> {
+                    String output = result.isSuccess() ? result.getOutput() : result.getError();
+                    appendToolMessage(messages, tc, output);
+                    return toolResultEvent(tc, output);
+                })
+                .flux();
+    }
+
+    /** 文件工具执行（S9 F3）：read/write/edit/list，经 FileWorkspaceSpi 路由到会话工作空间 */
+    private ToolResult executeFileTool(ToolCall tc, ToolContext toolContext) {
+        if (fileWorkspace == null || !fileWorkspace.available()) {
+            return ToolResult.builder().success(false).error("文件工具未配置").build();
+        }
+        String name = tc.getName();
+        String args = tc.getArguments() != null ? tc.getArguments() : "{}";
+        try {
+            JsonNode root = objectMapper.readTree(args);
+            String path = root.path("path").asText("");
+            if (path.isBlank()) {
+                return ToolResult.builder().success(false).error("缺少 path 参数").build();
+            }
+            switch (name) {
+                case READ_FILE_TOOL -> {
+                    String content = fileWorkspace.readFile(toolContext, path);
+                    if (content == null) {
+                        return ToolResult.builder().success(false).error("文件不存在: " + path).build();
+                    }
+                    // 内容截断保护（与外发工具同款输出上限策略，默认 10KB）
+                    return ToolResult.builder().success(true).output(truncate(content, 10 * 1024)).build();
+                }
+                case WRITE_FILE_TOOL -> {
+                    String content = root.path("content").asText("");
+                    fileWorkspace.writeFile(toolContext, path, content);
+                    return ToolResult.builder().success(true)
+                            .output("已写入 " + path + "（" + content.length() + " 字符）").build();
+                }
+                case EDIT_FILE_TOOL -> {
+                    String oldText = root.path("old_text").asText("");
+                    String newText = root.path("new_text").asText("");
+                    if (oldText.isEmpty()) {
+                        return ToolResult.builder().success(false).error("缺少 old_text 参数").build();
+                    }
+                    String current = fileWorkspace.readFile(toolContext, path);
+                    if (current == null) {
+                        return ToolResult.builder().success(false).error("文件不存在: " + path).build();
+                    }
+                    int idx = current.indexOf(oldText);
+                    if (idx < 0) {
+                        return ToolResult.builder().success(false)
+                                .error("未找到要替换的文本（old_text 不匹配）: " + path).build();
+                    }
+                    if (current.indexOf(oldText, idx + 1) >= 0) {
+                        return ToolResult.builder().success(false)
+                                .error("old_text 在文件中多处匹配，请提供更长的唯一上下文").build();
+                    }
+                    String updated = current.substring(0, idx) + newText + current.substring(idx + oldText.length());
+                    fileWorkspace.writeFile(toolContext, path, updated);
+                    return ToolResult.builder().success(true)
+                            .output("已编辑 " + path + "（替换 1 处）").build();
+                }
+                case LIST_DIR_TOOL -> {
+                    List<String> entries = fileWorkspace.listDir(toolContext, path);
+                    if (entries.isEmpty()) {
+                        return ToolResult.builder().success(true).output("(空目录)").build();
+                    }
+                    return ToolResult.builder().success(true)
+                            .output(truncate(String.join("\n", entries), 4096)).build();
+                }
+                default -> {
+                    return ToolResult.builder().success(false).error("未知内置工具: " + name).build();
+                }
+            }
+        } catch (Exception e) {
+            return ToolResult.builder().success(false).error("文件操作失败: " + e.getMessage()).build();
+        }
+    }
 
     /** 流式路径执行 plan_task：发计划事件（首次创建/后续更新）+ 工具结果事件，并回灌 tool 消息 */
     private Flux<AgentEvent> executePlanToolStream(ToolCall tc, ToolContext toolContext, List<Message> messages) {
@@ -751,17 +882,23 @@ public class ReactAgentExecutor implements AgentExecutor {
                 .description(PLAN_TOOL_DESCRIPTION)
                 .parameters(PLAN_TOOL_SCHEMA)
                 .build());
+        // 内置文件工具（S9 F3）：read/write/edit/list，经 FileWorkspaceSpi 在会话工作空间执行
+        if (fileWorkspace != null && fileWorkspace.available()) {
+            definitions.add(ToolDefinition.builder().name(READ_FILE_TOOL)
+                    .description("读取工作空间中的文件内容（相对路径）。")
+                    .parameters(READ_FILE_SCHEMA).build());
+            definitions.add(ToolDefinition.builder().name(WRITE_FILE_TOOL)
+                    .description("创建或覆盖工作空间中的文件（整体写入）。")
+                    .parameters(WRITE_FILE_SCHEMA).build());
+            definitions.add(ToolDefinition.builder().name(EDIT_FILE_TOOL)
+                    .description("精确编辑文件中的一段文本（old_text 需在文件中唯一匹配）。")
+                    .parameters(EDIT_FILE_SCHEMA).build());
+            definitions.add(ToolDefinition.builder().name(LIST_DIR_TOOL)
+                    .description("列出工作空间目录中的文件与子目录。")
+                    .parameters(LIST_DIR_SCHEMA).build());
+        }
         return definitions;
     }
-
-    /** 内置任务计划工具名（S9 F5）：本地执行，不走 ToolExecutor 外部链路 */
-    private static final String PLAN_TOOL_NAME = "plan_task";
-    private static final String PLAN_TOOL_DESCRIPTION =
-            "创建或更新当前任务的任务清单。开始多步骤工作前调用一次以制定计划；"
-                    + "完成某步骤或计划变化时再次调用以更新整体状态（全量覆盖语义）。";
-    private static final String PLAN_TOOL_SCHEMA = """
-            {"type":"object","properties":{"title":{"type":"string","description":"任务清单标题"},"steps":{"type":"array","description":"任务步骤列表（全量提交，以本次调用为准整体覆盖）","items":{"type":"object","properties":{"id":{"type":"string","description":"步骤唯一标识"},"text":{"type":"string","description":"步骤内容"},"status":{"type":"string","enum":["pending","in_progress","done"],"description":"步骤状态"}},"required":["id","text","status"]}}},"required":["steps"]}
-            """;
 
     private ToolContext buildToolContext(AgentTask task, AgentSpec agent) {
         boolean sandboxEnabled = false;
