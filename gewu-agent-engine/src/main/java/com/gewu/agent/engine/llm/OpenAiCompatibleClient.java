@@ -195,10 +195,18 @@ public class OpenAiCompatibleClient implements LlmClient {
                 }
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
-                log.error("{} chatStream 被中断", providerCode, e);
+                // 中断多来自 SSE 连接超时/客户端断开引发的订阅取消（非故障），WARN 即可，
+                // 避免误导排障方向（用户实报超时场景曾以 ERROR 形式干扰定位）
+                log.warn("{} chatStream 被取消（连接超时/客户端断开）: {}", providerCode, e.getMessage());
                 sink.error(e);
             } catch (Exception e) {
-                log.error("{} chatStream 异常: {}", providerCode, e.getMessage(), e);
+                // JDK HttpClient 的中断以 IOException 包装形式抛出（用户实报栈形态），同样按取消降噪
+                if (e.getCause() instanceof InterruptedException) {
+                    Thread.currentThread().interrupt();
+                    log.warn("{} chatStream 被取消（连接超时/客户端断开）: {}", providerCode, e.getMessage());
+                } else {
+                    log.error("{} chatStream 异常: {}", providerCode, e.getMessage(), e);
+                }
                 sink.error(e);
             }
         }).subscribeOn(Schedulers.boundedElastic());

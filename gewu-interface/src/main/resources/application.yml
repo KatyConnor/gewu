@@ -20,7 +20,10 @@ spring:
   # 默认 Tomcat 30s 超时会导致流式响应被截断后一次性 flush
   mvc:
     async:
-      request-timeout: 600000  # 10 分钟（原 5 分钟，放宽以适配长推理+多轮工具调用）
+      # 30 分钟：马拉松生成（深度思考 + 截断重试最多 3 次翻倍至 65536 tokens + 多轮工具）
+      # 合法可超 10 分钟；死流由 LLM 客户端 180s 空闲看门狗兜底，拉长不泄漏连接。
+      # 超时后经 GlobalExceptionHandler 的 SSE 专用处理优雅报错（不再 406）
+      request-timeout: 1800000
 
   # 数据库配置
   datasource:
