@@ -42,6 +42,11 @@ public class ContainerFileService {
         String parentDir = getParentDir(remotePath);
         String remoteDir = WORKSPACE_ROOT + "/" + parentDir;
 
+        // 父目录不存在时 docker cp 返回 404：先递归创建（S9 F4 实测 scripts/ 子目录写入失败）
+        if (!".".equals(parentDir)) {
+            ensureContainerDir(containerId, remoteDir);
+        }
+
         byte[] data = content.getBytes(StandardCharsets.UTF_8);
         try (ByteArrayOutputStream baos = new ByteArrayOutputStream();
              TarArchiveOutputStream tar = new TarArchiveOutputStream(baos)) {
@@ -148,6 +153,24 @@ public class ContainerFileService {
         }
         if (path.startsWith("/")) {
             throw new IllegalArgumentException("请使用相对路径（相对于 /workspace）");
+        }
+    }
+
+    /** 容器内递归创建目录（docker cp 不会自动建父目录） */
+    private void ensureContainerDir(String containerId, String dir) {
+        try {
+            com.github.dockerjava.api.command.ExecCreateCmdResponse exec = dockerClient
+                    .execCreateCmd(containerId)
+                    .withAttachStdout(true)
+                    .withAttachStderr(true)
+                    .withCmd("mkdir", "-p", dir)
+                    .exec();
+            dockerClient.execStartCmd(exec.getId())
+                    .exec(new com.github.dockerjava.core.command.ExecStartResultCallback(
+                            new java.io.ByteArrayOutputStream(), System.err))
+                    .awaitCompletion(10, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (Exception e) {
+            log.warn("创建容器目录失败: dir={}, error={}", dir, e.getMessage());
         }
     }
 

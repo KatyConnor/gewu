@@ -94,6 +94,9 @@ public class DockerSandboxProvider implements SandboxProvider {
 
         CreateContainerResponse container = dockerClient.createContainerCmd(image)
                 .withName("gewu-sandbox-" + Ulid.next().substring(0, 8).toLowerCase())
+                // 常驻进程覆盖镜像默认 CMD：沙箱为 exec/文件操作型容器，
+                // 无 CMD 的基础镜像（如 alpine）启动后立即退出（S9 F4 实测）
+                .withCmd("tail", "-f", "/dev/null")
                 .withEnv(env)
                 .withHostConfig(hostConfigBuilder)
                 .exec();

@@ -123,12 +123,15 @@ public class DevWorkspaceService {
             workspaceMapper.updateById(ws);
         }
 
-        // 若已有沙箱，尝试恢复
+        // 若已有沙箱，尝试恢复（DB 状态可能滞后于容器实际状态：
+        // 容器被手动清理/异常退出时状态仍为 running，需探活校验，S9 F4）
         if (ws.getDevSandboxId() != null) {
             SandboxDTO existing = sandboxClient.getSandbox(ws.getDevSandboxId());
             String status = existing.getStatus();
-            if ("running".equals(status)) return existing;
-            if ("stopped".equals(status) || "expired".equals(status)) {
+            if ("running".equals(status) && probeSandboxAlive(ws.getDevSandboxId())) {
+                return existing;
+            }
+            if ("running".equals(status) || "stopped".equals(status) || "expired".equals(status)) {
                 return sandboxClient.startSandbox(ws.getDevSandboxId());
             }
         }
@@ -155,6 +158,17 @@ public class DevWorkspaceService {
 
         log.info("开发沙箱启动: userId={}, sandboxId={}", ws.getUserId(), sandbox.getSandboxId());
         return sandbox;
+    }
+
+    /** 沙箱探活：DB 状态 running 不代表容器存活，exec 一条空命令验证 */
+    private boolean probeSandboxAlive(String sandboxId) {
+        try {
+            sandboxClient.execCommand(sandboxId, "echo ok", 5);
+            return true;
+        } catch (Exception e) {
+            log.info("开发沙箱探活失败，尝试恢复: sandboxId={}, err={}", sandboxId, e.getMessage());
+            return false;
+        }
     }
 
     /** 停止开发沙箱（保留 Volume） */
