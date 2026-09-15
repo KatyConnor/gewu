@@ -106,8 +106,8 @@ export default function WorkspacePage() {
       const tree = await listFiles(currentParentId ?? undefined);
       setFiles(tree);
       if (currentParentId && expandedDirs.has(currentParentId)) {
-        const children = await loadChildren(currentParentId);
-        setFiles(prev => prev); // refresh handled by parent
+        await loadChildren(currentParentId);
+        setFiles(prev => [...prev]); // refresh handled by parent
       }
     } catch (e) {
       toast('创建失败: ' + (e instanceof Error ? e.message : String(e)), 'error');

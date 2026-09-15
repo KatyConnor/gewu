@@ -227,7 +227,8 @@ export default function WorkflowPage() {
     }
   };
 
-  // 保存配置（真实 API）
+  // 保存配置（真实 API）——暂未接线，保留实现待接入工作流编辑弹窗
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   const handleSaveConfig = async (wf: WorkflowItem, name: string, desc: string) => {
     setBusy(wf.workflowId);
     try {

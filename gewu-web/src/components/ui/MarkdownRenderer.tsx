@@ -133,7 +133,7 @@ export default function MarkdownRenderer({ content, isStreaming }: MarkdownRende
         remarkPlugins={[remarkGfm]}
         components={{
           // 代码块
-          code({ className, children, ...props }) {
+          code({ className, children }) {
             const match = /language-(\w+)/.exec(className || '');
             const isInline = !match && !String(children).includes('\n');
 

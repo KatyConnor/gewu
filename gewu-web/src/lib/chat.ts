@@ -1,5 +1,5 @@
 // AI 聊天服务 — 对接后端 AiChatController
-import { API_ENDPOINTS, API_CONFIG } from './api';
+import { API_ENDPOINTS } from './api';
 import { getAccessToken } from './token';
 
 /**

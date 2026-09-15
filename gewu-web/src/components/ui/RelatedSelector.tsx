@@ -1,7 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { X, Search, Plus, Check } from 'lucide-react';
-import { listMyProjects, type ProjectDTO } from '@/lib/project';
+import { listMyProjects } from '@/lib/project';
 
 // ==================== 组件 Props ====================
 
@@ -16,7 +16,7 @@ interface RelatedSelectorProps {
 
 // ==================== 主组件 ====================
 
-export default function RelatedSelector({ label, type, value, onChange, projectId, multiple = true }: RelatedSelectorProps) {
+export default function RelatedSelector({ label, type, value, onChange, multiple = true }: RelatedSelectorProps) {
   const [isOpen, setIsOpen] = useState(false);
   const [searchKeyword, setSearchKeyword] = useState('');
   const [selectedIds, setSelectedIds] = useState<string[]>([]);

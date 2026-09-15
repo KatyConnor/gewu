@@ -1,5 +1,4 @@
 // 模型配置服务 — 对接后端 ModelConfigController
-import { API_ENDPOINTS } from './api';
 import { getAccessToken } from './token';
 
 // 后端统一响应结构
