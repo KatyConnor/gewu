@@ -124,15 +124,22 @@ public class DevWorkspaceService {
         }
 
         // 若已有沙箱，尝试恢复（DB 状态可能滞后于容器实际状态：
-        // 容器被手动清理/异常退出时状态仍为 running，需探活校验，S9 F4）
+        // 容器被手动清理/异常退出时状态仍为 running，需探活校验，S9 F4；
+        // 容器被彻底删除（外部 docker rm）时 getSandbox/startSandbox 均抛错，
+        // 捕获后落到下方新建逻辑重新绑定——任何外部清理形态都能自愈）
         if (ws.getDevSandboxId() != null) {
-            SandboxDTO existing = sandboxClient.getSandbox(ws.getDevSandboxId());
-            String status = existing.getStatus();
-            if ("running".equals(status) && probeSandboxAlive(ws.getDevSandboxId())) {
-                return existing;
-            }
-            if ("running".equals(status) || "stopped".equals(status) || "expired".equals(status)) {
-                return sandboxClient.startSandbox(ws.getDevSandboxId());
+            try {
+                SandboxDTO existing = sandboxClient.getSandbox(ws.getDevSandboxId());
+                String status = existing.getStatus();
+                if ("running".equals(status) && probeSandboxAlive(ws.getDevSandboxId())) {
+                    return existing;
+                }
+                if ("running".equals(status) || "stopped".equals(status) || "expired".equals(status)) {
+                    return sandboxClient.startSandbox(ws.getDevSandboxId());
+                }
+            } catch (Exception e) {
+                log.info("开发沙箱恢复失败，转为新建: sandboxId={}, err={}",
+                        ws.getDevSandboxId(), e.getMessage());
             }
         }
 

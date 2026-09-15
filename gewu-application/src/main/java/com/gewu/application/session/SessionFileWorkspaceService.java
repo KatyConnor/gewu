@@ -8,10 +8,8 @@ import com.gewu.common.result.ResultCode;
 import com.gewu.common.ulid.Ulid;
 import com.gewu.domain.session.Session;
 import com.gewu.domain.session.SessionFileChange;
-import com.gewu.domain.workspace.Workspace;
 import com.gewu.infrastructure.mapper.SessionFileChangeMapper;
 import com.gewu.infrastructure.mapper.SessionMapper;
-import com.gewu.infrastructure.mapper.WorkspaceMapper;
 import com.gewu.application.sandbox.SandboxClient;
 import com.gewu.application.workspace.DevWorkspaceService;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +35,6 @@ import java.util.regex.Pattern;
 public class SessionFileWorkspaceService implements FileWorkspaceSpi {
 
     private final SessionMapper sessionMapper;
-    private final WorkspaceMapper workspaceMapper;
     private final SessionFileChangeMapper fileChangeMapper;
     private final SandboxClient sandboxClient;
     private final DevWorkspaceService devWorkspaceService;
@@ -276,19 +273,10 @@ public class SessionFileWorkspaceService implements FileWorkspaceSpi {
 
     private String resolveSandboxId(Session session) {
         String userId = session.getCreatedBy() != null ? session.getCreatedBy() : "system";
-        // 会话绑定的工作空间优先；未绑定（历史会话）时按创建者默认工作空间回退
-        Workspace ws = session.getWorkspaceId() != null
-                ? workspaceMapper.selectById(session.getWorkspaceId())
-                : workspaceMapper.selectOne(new LambdaQueryWrapper<Workspace>()
-                        .eq(Workspace::getUserId, userId));
-        String sandboxId = ws != null ? ws.getDevSandboxId() : null;
-        if (sandboxId == null || sandboxId.isBlank()) {
-            // 惰性确保开发沙箱（显式 userId，工具执行池线程无 UserContext）
-            com.gewu.common.dto.sandbox.SandboxDTO sandbox =
-                    devWorkspaceService.ensureDevSandboxForUser(userId);
-            sandboxId = sandbox.getSandboxId();
-        }
-        return sandboxId;
+        // 统一经 ensureDevSandboxForUser：内部完成探活恢复（DB 状态滞后）、
+        // 容器被外部删除后的新建兜底、以及工作空间/沙箱的惰性初始化。
+        // 不能因 dev_sandbox_id 非空而直取——该 id 可能已指向被清理的容器。
+        return devWorkspaceService.ensureDevSandboxForUser(userId).getSandboxId();
     }
 
     private Session requireSession(String sessionId) {
