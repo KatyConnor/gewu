@@ -333,6 +333,8 @@ curl -f http://<host>:<port>/actuator/health/readiness   # UP
 | 症状 | 原因 | 处置 |
 |------|------|------|
 | **SSE 流式不逐字输出（一次性吐完）** | 反向代理缓冲响应 | Nginx 加 `proxy_buffering off` + 长超时（K8s ingress 已内置注解）；确认前端走直连地址（NEXT_PUBLIC_API_BASE） |
+| **长任务对话中途断开（连接空闲被掐）** | 反向代理空闲超时（如 Nginx `proxy_read_timeout` 默认 60s 按"两次读之间"计） | 服务端已内置 20s 心跳帧（`type:"ping"`）保活；若外层仍有 Nginx，确认 `proxy_read_timeout ≥ 60s` 且未改小；前端有 60s 空闲看门狗，静默即报错而非假死 |
+| **单轮流式被服务端超时掐断** | `spring.mvc.async.request-timeout`（现为 2 小时安全帽，任务总时长语义） | 正常 agent 任务小时级是合法形态（模型层 180s 空闲看门狗/工具层超时/业务预算负责异常检测）；如需调整改该配置并重启 interface |
 | 沙箱创建失败 / exec 无响应 | docker.sock 权限或未挂载 | 容器挂载 `/var/run/docker.sock` 并 `groupadd` 对应 gid；确认 internal-key 两端一致 |
 | 启动报 Flyway 校验失败 | 迁移文件被修改/校验和漂移 | `flyway repair`；严禁改已发布迁移 |
 | 登录后所有请求 401 | JWT 密钥两端不一致或已轮换 | 统一 gateway 与 interface 的密钥；重新登录 |

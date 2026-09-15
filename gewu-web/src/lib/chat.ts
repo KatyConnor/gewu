@@ -283,10 +283,29 @@ async function consumeChatSse(
   let buffer = '';
   let completed = false;
 
+  // 空闲看门狗（S9）：服务端有心跳（20s ping），超过 60s 无任何数据 = 连接真断，
+  // 主动报错而非无限等待。每个数据块到达即重置。
+  const IDLE_TIMEOUT_MS = 60_000;
+  let idleTimer: ReturnType<typeof setTimeout> | null = null;
+  const clearIdleTimer = () => {
+    if (idleTimer !== null) {
+      clearTimeout(idleTimer);
+      idleTimer = null;
+    }
+  };
+  const resetIdleTimer = () => {
+    clearIdleTimer();
+    idleTimer = setTimeout(() => {
+      safeError('连接空闲超时：超过 60 秒未收到任何数据，请检查网络后重试');
+      try { reader.cancel(); } catch { /* 忽略 */ }
+    }, IDLE_TIMEOUT_MS);
+  };
+
   // 幂等的完成回调，确保 onComplete 只被调用一次（携带 done 事件的 finishReason）
   const safeComplete = (finishReason?: string) => {
     if (completed) return;
     completed = true;
+    clearIdleTimer();
     callbacks.onComplete?.(finishReason);
   };
 
@@ -294,13 +313,16 @@ async function consumeChatSse(
   const safeError = (msg: string) => {
     if (completed) return;
     completed = true;
+    clearIdleTimer();
     callbacks.onError?.(msg);
   };
 
   try {
+    resetIdleTimer();
     while (true) {
       const { done, value } = await reader.read();
       if (done) break;
+      resetIdleTimer();
 
       buffer += decoder.decode(value, { stream: true });
 
@@ -367,6 +389,7 @@ async function consumeChatSse(
     const message = err instanceof Error ? err.message : '流式读取异常';
     safeError(message);
   } finally {
+    clearIdleTimer();
     reader.releaseLock();
   }
 }

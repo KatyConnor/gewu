@@ -200,10 +200,12 @@ public class AiChatController {
                             return;
                         }
                         try {
-                            writer.write("data: ");
-                            writer.write(objectMapper.writeValueAsString(event));
-                            writer.write("\n\n");
-                            writer.flush();
+                            synchronized (writer) {
+                                writer.write("data: ");
+                                writer.write(objectMapper.writeValueAsString(event));
+                                writer.write("\n\n");
+                                writer.flush();
+                            }
                         } catch (Exception e) {
                             // 写失败即客户端断连（broken pipe）：置位断连标记并终止订阅，
                             // 释放被占住的异步线程与上游 LLM 资源（S8 修复，此前会
@@ -228,10 +230,12 @@ public class AiChatController {
                                     .type("error")
                                     .errorMessage(error.getMessage() != null ? error.getMessage() : "AI 处理失败")
                                     .build();
-                            writer.write("data: ");
-                            writer.write(objectMapper.writeValueAsString(errorEvent));
-                            writer.write("\n\n");
-                            writer.flush();
+                            synchronized (writer) {
+                                writer.write("data: ");
+                                writer.write(objectMapper.writeValueAsString(errorEvent));
+                                writer.write("\n\n");
+                                writer.flush();
+                            }
                         } catch (Exception ignored) {
                         }
                         latch.countDown();
@@ -241,13 +245,44 @@ public class AiChatController {
                             return;
                         }
                         try {
-                            writer.write("data: [DONE]\n\n");
-                            writer.flush();
+                            synchronized (writer) {
+                                writer.write("data: [DONE]\n\n");
+                                writer.flush();
+                            }
                         } catch (Exception ignored) {
                         }
                         latch.countDown();
                     }
             ));
+
+            // 心跳保活（S9）：工具执行长静默期（单轮工具可能数十秒无事件）每 20s
+            // 发 ping 帧，防中间层空闲超时掐断连接；前端对未知事件类型自动忽略。
+            // 与订阅写入共用 writer（同步块互斥），订阅终止即停。
+            java.util.concurrent.ScheduledExecutorService heartbeatExecutor =
+                    java.util.concurrent.Executors.newSingleThreadScheduledExecutor(r -> {
+                        Thread t = new Thread(r, "sse-heartbeat");
+                        t.setDaemon(true);
+                        return t;
+                    });
+            java.util.concurrent.ScheduledFuture<?> heartbeatTask = heartbeatExecutor.scheduleAtFixedRate(() -> {
+                if (clientGone.get()) {
+                    return;
+                }
+                try {
+                    synchronized (writer) {
+                        writer.write("data: {\"type\":\"ping\"}\n\n");
+                        writer.flush();
+                    }
+                } catch (Exception e) {
+                    // 心跳写失败=连接已断：置位断连并终止上游订阅
+                    clientGone.set(true);
+                    latch.countDown();
+                    Disposable d = subRef.get();
+                    if (d != null) {
+                        d.dispose();
+                    }
+                }
+            }, 20, 20, java.util.concurrent.TimeUnit.SECONDS);
 
             try {
                 latch.await();
@@ -255,7 +290,9 @@ public class AiChatController {
                 Thread.currentThread().interrupt();
                 clientGone.set(true);
             } finally {
-                // 请求线程侧最终清理：无论正常完成/断连/中断都终止上游订阅
+                // 请求线程侧最终清理：无论正常完成/断连/中断都终止上游订阅与心跳
+                heartbeatTask.cancel(false);
+                heartbeatExecutor.shutdownNow();
                 Disposable d = subRef.get();
                 if (d != null) {
                     d.dispose();

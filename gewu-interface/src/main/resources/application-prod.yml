@@ -28,9 +28,9 @@ spring:
   # 默认 Tomcat 30s 超时会导致流式响应被截断后一次性 flush
   mvc:
     async:
-      # 30 分钟：马拉松生成（深度思考 + 截断重试最多 3 次翻倍至 65536 tokens）合法可超 10 分钟；
-      # 死流由 LLM 客户端 180s 空闲看门狗兜底；超时经 SSE 专用异常处理优雅报错（不再 406）
-      request-timeout: 1800000
+      # 2 小时安全帽：马拉松 agent 任务小时级是合法形态；分层空闲超时
+      # （模型层 180s 看门狗/工具层超时/业务预算）负责真正的异常检测
+      request-timeout: 7200000
 
   datasource:
     url: jdbc:mysql://${DB_HOST:localhost}:${DB_PORT:3306}/${DB_NAME:gewu_prod}?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true&cachePrepStmts=true&prepStmtCacheSize=250&prepStmtCacheSqlLimit=2048&useServerPrepStmts=true&rewriteBatchedStatements=true
