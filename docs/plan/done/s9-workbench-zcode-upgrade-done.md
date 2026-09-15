@@ -58,6 +58,8 @@
 | 沙箱容器无默认 CMD 的镜像（alpine）启动即退出——exec 全部 409、DB 状态与容器脱节 | 容器创建统一覆盖 CMD 常驻进程（819fbf1） |
 | docker cp 不自动创建父目录——子目录写入（scripts/xx）一律 404（也影响既有 DevWorkspacePage 保存） | 写前 mkdir -p（819fbf1） |
 | 沙箱 DB 状态 running 但容器已死——恢复逻辑只信 DB 状态从不探活 | ensureDevSandboxForUser 增加探活自愈（819fbf1） |
+| 容器被外部彻底删除（docker rm）时 getSandbox/startSandbox 抛错，恢复链无兜底；且文件工具因 dev_sandbox_id 非空而绕过恢复逻辑直取失效 id | 恢复失败转新建兜底 + resolveSandboxId 统一经 ensureDevSandboxForUser 三级自愈路由（ed251e0，用户实报 500 修复） |
+| 用户 19:17 打包后重启的 interface 使用了不含 819fbf1 修复的旧包（target jar 停留在 18:32），故障期内自愈代码未在运行 | 教训：发布前校验产物包含预期修复（已纳入本次修复流程：解包符号校验） |
 
 ## 七、验证与遗留
 
