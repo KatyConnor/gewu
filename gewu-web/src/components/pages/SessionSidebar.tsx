@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import {
   Archive, ArchiveRestore, ArrowLeft, ChevronDown, ChevronRight,
-  Folder, FolderOpen, MessageSquare, Pin, PinOff, Plus,
+  Folder, FolderOpen, Loader2, MessageSquare, Pin, PinOff, Plus,
 } from 'lucide-react';
 import type { SessionDTO } from '@/lib/session';
 import type { ProjectDTO } from '@/lib/project';
@@ -16,7 +16,7 @@ import type { ProjectDTO } from '@/lib/project';
 export default function SessionSidebar({
   sessions, archivedSessions, projects, activeSessionId, currentProjectId,
   showArchived, onToggleArchived, onSelectSession, onCreateSession,
-  onArchive, onUnarchive, onPin, loading, user, onBackHome,
+  onArchive, onUnarchive, onPin, loading, user, onBackHome, streamingSessionId,
 }: {
   sessions: SessionDTO[];
   archivedSessions: SessionDTO[];
@@ -33,6 +33,8 @@ export default function SessionSidebar({
   loading: boolean;
   user: { name?: string } | null;
   onBackHome: () => void;
+  /** 后台正在生成的会话 id（行内 spinner 标识，S9 会话隔离配套） */
+  streamingSessionId?: string | null;
 }) {
   // 折叠的项目分组（默认全展开；当前会话所在分组不可折叠隐藏）
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
@@ -62,6 +64,9 @@ export default function SessionSidebar({
         }`}
       >
         <div className="flex items-center gap-1.5">
+          {session.sessionId === streamingSessionId && !archived && (
+            <Loader2 className="w-3 h-3 text-tech-400 animate-spin flex-shrink-0" aria-label="生成中" />
+          )}
           {session.pinned === 1 && !archived && (
             <Pin className="w-3 h-3 text-tech-400 flex-shrink-0" aria-label="已置顶" />
           )}
@@ -101,7 +106,7 @@ export default function SessionSidebar({
 
   const renderProjectGroup = (project: ProjectDTO, groupSessions: SessionDTO[]) => {
     const key = project.projectId;
-    const isCollapsed = collapsed.has(key) && currentProjectId !== key;
+    const isCollapsed = collapsed.has(key);
     const Icon = isCollapsed ? Folder : FolderOpen;
     return (
       <div key={key}>
@@ -132,7 +137,7 @@ export default function SessionSidebar({
   };
 
   const renderDefaultGroup = () => {
-    const isCollapsed = collapsed.has('__default__') && currentProjectId !== null;
+    const isCollapsed = collapsed.has('__default__');
     return (
       <div>
         <div className="group/space flex items-center gap-1.5 pl-2 pr-2 py-1.5 cursor-pointer rounded-md hover:bg-tech-500/5"
@@ -194,7 +199,6 @@ export default function SessionSidebar({
           )
         ) : (
           <>
-            {renderDefaultGroup()}
             {projectGroups.map(g => renderProjectGroup(g.project, g.sessions))}
             {orphanSessions.length > 0 && (
               <div>
@@ -205,6 +209,7 @@ export default function SessionSidebar({
                 <div className="space-y-0.5">{orphanSessions.map(s => renderSessionRow(s))}</div>
               </div>
             )}
+            {renderDefaultGroup()}
           </>
         )}
       </div>

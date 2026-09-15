@@ -1,5 +1,5 @@
 'use client';
-import { useState, useRef, useEffect, useCallback } from 'react';
+import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { Send, Settings, Share2, Clock, RefreshCw, Link2, Link2Off, AlertTriangle, FolderOpen, GitBranch, MessageSquare, FileDiff } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
@@ -28,6 +28,58 @@ import {
   type SessionDTO,
 } from '@/lib/session';
 import { listMyProjects, type ProjectDTO } from '@/lib/project';
+
+
+/**
+ * 单条历史消息（S9 性能修复）：React.memo 隔离——输入按键/流式 chunk 引发的
+ * 父组件重渲染不再重跑全部历史消息的 markdown 解析与代码高亮。
+ */
+const MessageItem = React.memo(function MessageItem({ msg, isStreaming, regeneratingId, onRegenerate, onToggleProcess }: {
+  msg: Message;
+  isStreaming: boolean;
+  regeneratingId: string | null;
+  onRegenerate: (messageId: string) => void;
+  onToggleProcess: (msgId: string) => void;
+}) {
+  return (
+    <div className={`group flex gap-4 ${msg.role === 'user' ? 'justify-end' : ''} animate-fade-up`}>
+      {msg.role === 'ai' && <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-xs font-bold text-white">AI</span></div>}
+      {msg.role === 'ai' && msg.fromBackend && (
+        <button
+          onClick={() => onRegenerate(msg.id)}
+          disabled={isStreaming || regeneratingId !== null}
+          className="self-start mt-1 p-1.5 text-ink-500 hover:text-tech-400 hover:bg-tech-500/10 rounded-md transition-all opacity-0 group-hover:opacity-100 disabled:opacity-30"
+          aria-label="重新生成"
+          title="以原始输入重新生成此回复"
+        ><RefreshCw className={`w-3.5 h-3.5 ${regeneratingId === msg.id ? 'animate-spin' : ''}`} /></button>
+      )}
+      <div className={`flex-1 max-w-3xl ${msg.role === 'user' ? 'flex flex-col items-end' : ''}`}>
+        {msg.role === 'ai' && msg.process && hasProcessActivity(msg.process) ? (
+          <>
+            {/* 有过程事件：正文与操作行交错的时间线（zcode 风格），不再套气泡 */}
+            <AIProcessTimeline items={msg.process} streaming={false} totalMs={msg.processMs} expanded={msg.processExpanded ?? true} onToggle={() => onToggleProcess(msg.id)} />
+            {msg.files && msg.files.length > 0 && (
+              <div className="mt-2 space-y-2">
+                {msg.files.map((f, i) => <FileCard key={i} file={f} />)}
+              </div>
+            )}
+          </>
+        ) : (
+          <div className={`rounded-xl p-4 ${msg.role === 'ai' ? 'chat-bubble-ai rounded-tl-sm' : 'chat-bubble-user rounded-tr-sm'}`}>
+            <MarkdownRenderer content={msg.content} />
+            {msg.role === 'ai' && msg.files && msg.files.length > 0 && (
+              <div className="mt-3 space-y-2">
+                {msg.files.map((f, i) => <FileCard key={i} file={f} />)}
+              </div>
+            )}
+          </div>
+        )}
+        <span className="text-[11px] text-ink-500 mt-1.5 block">{msg.timestamp}</span>
+      </div>
+      {msg.role === 'user' && <div className="w-8 h-8 rounded-full bg-gradient-to-br from-tech-400 to-cyber-500 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-xs font-semibold text-white">张</span></div>}
+    </div>
+  );
+});
 
 const agentModeOptions = [
   { value: 'assistant', label: '助手模式' },
@@ -59,6 +111,13 @@ export default function ChatPage() {
   const [chatError, setChatError] = useState<ChatErrorInfo | null>(null);
   // 任务流程计划（S9 F5：模型经 plan_task 工具提交，右上角卡片渲染）
   const [plan, setPlan] = useState<{ title: string; steps: PlanStepInfo[] } | null>(null);
+  // 会话状态隔离（S9 修复）：流式过程属于发起它的会话，切换会话仅隐藏 UI，
+  // 流在后台继续生成并照常落库；plan/fileChanges 各自带所属会话标记
+  const [streamingSessionId, setStreamingSessionId] = useState<string | null>(null);
+  const [planSessionId, setPlanSessionId] = useState<string | null>(null);
+  const [fileChangesSessionId, setFileChangesSessionId] = useState<string | null>(null);
+  // 回调内读取「当前正在查看的会话」需绕过闭包陈旧值，用 ref 镜像（effect 在 state 声明后绑定）
+  const currentSessionIdRef = useRef<string | null>(null);
   // 会话文件变更（S9 F3：流结束后拉取，驱动「更改」chip 与右侧编辑面板）
   const [fileChanges, setFileChanges] = useState<FileChangeDTO[]>([]);
   const [filePanelOpen, setFilePanelOpen] = useState(false);
@@ -82,9 +141,11 @@ export default function ChatPage() {
   const [regeneratingId, setRegeneratingId] = useState<string | null>(null);
   const [sharedSessionId, setSharedSessionId] = useState<string | null>(null);
   const [loadingSessions, setLoadingSessions] = useState(false);
+  useEffect(() => { currentSessionIdRef.current = currentSessionId; }, [currentSessionId]);
   // 项目筛选
   const [filterProjectId, setFilterProjectId] = useState<string | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const scrollContainerRef = useRef<HTMLDivElement>(null);
   const dispatch = useDispatch();
   const toast = useToast();
 
@@ -184,16 +245,25 @@ export default function ChatPage() {
     try {
       const changes = await listFileChanges(sessionId);
       setFileChanges(changes);
+      setFileChangesSessionId(sessionId);
     } catch {
       // 会话无工作空间/无变更记录时静默（面板数据为空即可）
       setFileChanges([]);
+      setFileChangesSessionId(sessionId);
     }
   }, []);
 
-  const handleMessageComplete = (text: string, processItems: ProcessItem[], processMs: number, files?: FileInfo[]) => {
+  const handleMessageComplete = (text: string, processItems: ProcessItem[], processMs: number, files?: FileInfo[], targetSessionId?: string | null) => {
     setIsStreaming(false);
     setStreamText('');
     setProcess(null);
+    setStreamingSessionId(null);
+    setStreamingFiles([]);
+    // 完成落位守卫：仅当用户仍停留在发起流式的会话时才 append 本地消息；
+    // 已切走时不污染当前列表（后端照常落库，重新进入该会话时从后端重载）
+    if (targetSessionId && targetSessionId !== currentSessionIdRef.current) {
+      return;
+    }
     setMessages(prev => [...prev, {
       id: Date.now().toString(),
       role: 'ai' as const,
@@ -204,10 +274,18 @@ export default function ChatPage() {
       files: files && files.length > 0 ? files : undefined,
       processExpanded: true,
     }]);
-    setStreamingFiles([]);
   };
 
-  useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages, streamText, process]);
+  // 自动滚动节流（S9 性能修复）：仅当用户停留在底部附近时跟随，且 rAF 合帧，
+  // 避免长会话下每个流式 chunk 都强制整页 layout
+  useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+    const distance = container.scrollHeight - container.scrollTop - container.clientHeight;
+    if (distance > 160) return;
+    const raf = requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }));
+    return () => cancelAnimationFrame(raf);
+  }, [messages, streamText, process]);
 
   const loadConversation = async (session: SessionDTO) => {
     setCurrentTitle(session.title);
@@ -247,8 +325,9 @@ export default function ChatPage() {
   };
 
   /** 重新生成：删除目标 AI 消息及之后的本地消息，SSE 重跑，完成后重载会话回填真实 messageId */
-  async function regenerateMessage(messageId: string) {
+  const regenerateMessage = useCallback(async (messageId: string) => {
     if (!currentSessionId || isStreaming || regeneratingId) return;
+    const targetSession = currentSessionId;
     const idx = messages.findIndex(m => m.id === messageId);
     if (idx >= 0) {
       setMessages(messages.slice(0, idx));
@@ -257,6 +336,8 @@ export default function ChatPage() {
     setIsStreaming(true);
     setStreamText('');
     setStreamingFiles([]);
+    // 会话隔离：重发生成的流式状态归属当前会话
+    setStreamingSessionId(targetSession);
     const proc = createProcessStreamHandler(setProcess);
     setProcess(proc.tracker.snapshot());
     try {
@@ -273,21 +354,24 @@ export default function ChatPage() {
         },
         onFile: (file) => { setStreamingFiles(prev => [...prev, file]); },
         onPlan: (title, steps) => {
-          // 重发场景同样更新任务流程卡片
+          // 重发场景同样更新任务流程卡片（归属当前会话）
           setPlan({ title, steps });
+          setPlanSessionId(targetSession);
         },
         onError: (msg) => {
           setChatError(classifyChatError(msg));
         },
         onComplete: (finishReason?: string) => {
           // 截断重试耗尽：明示不完整（S9）
-          if (finishReason === 'length') {
+          if (finishReason === 'length' && currentSessionIdRef.current === targetSession) {
             setChatError(truncationNotice());
           }
           // F3：重发生成后刷新文件变更列表
-          loadFileChanges(currentSessionId);
-          // 回填真实 messageId：从后端重载会话消息
-          loadConversationById(currentSessionId);
+          loadFileChanges(targetSession);
+          // 回填真实 messageId：仅当用户仍停留在该会话时重载列表
+          if (currentSessionIdRef.current === targetSession) {
+            loadConversationById(targetSession);
+          }
         },
       });
       } catch (e) {
@@ -298,8 +382,10 @@ export default function ChatPage() {
       setIsStreaming(false);
       setStreamText('');
       setStreamingFiles([]);
+      setStreamingSessionId(null);
     }
-  }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [messages, currentSessionId, isStreaming, regeneratingId, currentTitle]);
 
   /** 按 sessionId 加载消息（重发完成后回填真实 messageId 用） */
   async function loadConversationById(sessionId: string) {
@@ -394,7 +480,12 @@ export default function ChatPage() {
   }
 
   const sendMessage = async () => {
-    if (!input.trim() || isStreaming) return;
+    if (isStreaming) {
+      // 流式进行中（可能在后台会话）：不允许发起第二个流
+      toast('有会话正在生成中，请等待完成或回到该会话查看', 'error');
+      return;
+    }
+    if (!input.trim()) return;
     // 无会话时自动创建（缺陷修复：此前 sessionId 为空会导致后端不落库、
     // 引擎不加载历史——界面看似连续对话，实际每轮都是无上下文的独立推理）
     let sessionIdForTurn = currentSessionId;
@@ -423,6 +514,8 @@ export default function ChatPage() {
     setProcess(null);
     setChatError(null); // 新消息开始时清除上一次的错误提示
     setPlan(null); // 新消息开始时清除上一次的任务计划
+    // 会话隔离：本轮流式过程归属该会话（切换会话仅隐藏 UI，流后台继续）
+    setStreamingSessionId(sessionIdForTurn);
 
     // 处理过程时间线：思考/工具/搜索事件按发生顺序实时累积渲染
     const proc = createProcessStreamHandler(setProcess);
@@ -461,18 +554,22 @@ export default function ChatPage() {
           onPlan: (title, steps) => {
             // 任务流程卡片（S9 F5）：plan_created/plan_updated/done 快照实时更新
             setPlan({ title, steps });
+            setPlanSessionId(sessionIdForTurn);
           },
           onError: (error) => {
             if (completed) return;
             completed = true;
-            setChatError(classifyChatError(error));
+            if (currentSessionIdRef.current === sessionIdForTurn) {
+              setChatError(classifyChatError(error));
+            }
             proc.tracker.finish();
             // 始终显示回复消息：有内容则显示内容，否则显示错误信息（而非静默丢弃）
             handleMessageComplete(
               accumulatedText || `⚠️ ${error}`,
               proc.tracker.snapshot().items,
               proc.tracker.elapsedMs,
-              accumulatedFiles
+              accumulatedFiles,
+              sessionIdForTurn
             );
           },
           onComplete: (finishReason?: string) => {
@@ -480,8 +577,9 @@ export default function ChatPage() {
             completed = true;
             proc.tracker.finish();
             const snapshot = proc.tracker.snapshot();
+            const stillViewing = currentSessionIdRef.current === sessionIdForTurn;
             // finishReason=length：重试预算耗尽后的部分回复，明示不完整（S9）
-            if (finishReason === 'length') {
+            if (finishReason === 'length' && stillViewing) {
               setChatError(truncationNotice());
             }
             // F3：流结束后拉取会话文件变更（驱动「更改」chip 与编辑面板）
@@ -500,7 +598,8 @@ export default function ChatPage() {
                 '⚠️ AI 生成了思考过程但未能输出正式回复，可能是 token 上限不足导致截断。请尝试增大 max_tokens 或简化问题。',
                 snapshot.items,
                 snapshot.elapsedMs,
-                accumulatedFiles
+                accumulatedFiles,
+                sessionIdForTurn
               );
             } else {
               setIsStreaming(false);
@@ -513,7 +612,9 @@ export default function ChatPage() {
                 ? accumulatedText.substring(0, 12).replace(/[\n\r]/g, '') + '...'
                 : accumulatedText.replace(/[\n\r]/g, '');
               updateSession(sessionIdForTurn, { title: newTitle }).then(() => {
-                setCurrentTitle(newTitle);
+                if (currentSessionIdRef.current === sessionIdForTurn) {
+                  setCurrentTitle(newTitle);
+                }
                 loadSessions();
               }).catch(() => {});
             }
@@ -522,11 +623,14 @@ export default function ChatPage() {
       );
     } catch (err: unknown) {
       const message = err instanceof Error ? err.message : '发送消息失败';
-      setChatError(classifyChatError(message));
+      if (currentSessionIdRef.current === sessionIdForTurn) {
+        setChatError(classifyChatError(message));
+      }
       setIsStreaming(false);
       setStreamText('');
       setStreamingFiles([]);
       setProcess(null);
+      setStreamingSessionId(null);
     }
   };
 
@@ -579,10 +683,12 @@ export default function ChatPage() {
     }
   };
   const backToHome = () => { setShowChatView(false); setMessages([]); dispatch(setPage('dashboard')); };
-  const toggleProcess = (msgId: string) => { setMessages(prev => prev.map(m => m.id === msgId ? { ...m, processExpanded: !(m.processExpanded ?? true) } : m)); };
+  const toggleProcess = useCallback((msgId: string) => { setMessages(prev => prev.map(m => m.id === msgId ? { ...m, processExpanded: !(m.processExpanded ?? true) } : m)); }, []);
 
   // 当前项目（顶栏 F2：项目文件夹 + Git 分支信息）
   const currentProject = projects.find(p => p.projectId === currentProjectId) ?? null;
+  // 流式 UI 仅在「正在查看的会话 = 流式会话」时渲染（切换会话互不串扰）
+  const streamingVisible = isStreaming && currentSessionId === streamingSessionId;
 
   if (!showChatView) {
     return (
@@ -603,6 +709,7 @@ export default function ChatPage() {
           loading={loadingSessions}
           user={currentUser}
           onBackHome={backToHome}
+          streamingSessionId={streamingSessionId}
         />
         <ChatHomeView onStartNewChat={startNewChat} onSwitchTab={(tab) => setActiveTab(tab)} />
       </div>
@@ -628,12 +735,13 @@ export default function ChatPage() {
         loading={loadingSessions}
         user={currentUser}
         onBackHome={backToHome}
+        streamingSessionId={streamingSessionId}
       />
 
       {/* 右侧聊天区域 */}
       <div className="relative flex-1 flex flex-col h-full">
       {/* 任务流程卡片（S9 F5）：模型提交任务清单后右上角浮动展示 */}
-      {plan && <PlanCard title={plan.title} steps={plan.steps} streaming={isStreaming} />}
+      {plan && planSessionId === currentSessionId && <PlanCard title={plan.title} steps={plan.steps} streaming={streamingVisible} />}
       <header className="flex items-center justify-between px-6 py-4 border-b backdrop-blur-sm flex-shrink-0" style={{ background: 'rgba(8,18,17,0.5)', borderColor: 'rgba(0,184,148,0.08)' }}>
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400/20 to-tech-600/20 flex items-center justify-center flex-shrink-0">
@@ -668,7 +776,7 @@ export default function ChatPage() {
                 )
               )}
               {/* F3：会话文件更改 chip（点击展开/收起右侧编辑面板） */}
-              {fileChanges.length > 0 && currentSessionId && (
+              {fileChanges.length > 0 && currentSessionId && fileChangesSessionId === currentSessionId && (
                 <button onClick={() => setFilePanelOpen(prev => !prev)}
                   className={`inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[11px] border transition-all ${
                     filePanelOpen
@@ -698,48 +806,18 @@ export default function ChatPage() {
           <button className="p-2 text-ink-400 hover:text-tech-400 rounded-lg transition-all" aria-label="历史"><Clock className="w-4 h-4" /></button>
         </div>
       </header>
-      <div className="flex-1 overflow-y-auto scrollbar-thin px-6 py-6 space-y-5">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto scrollbar-thin px-6 py-6 space-y-5">
         {messages.map(msg => (
-          <div key={msg.id} className={`group flex gap-4 ${msg.role === 'user' ? 'justify-end' : ''} animate-fade-up`}>
-            {msg.role === 'ai' && <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-xs font-bold text-white">AI</span></div>}
-            {msg.role === 'ai' && msg.fromBackend && (
-              <button
-                onClick={() => regenerateMessage(msg.id)}
-                disabled={isStreaming || regeneratingId !== null}
-                className="self-start mt-1 p-1.5 text-ink-500 hover:text-tech-400 hover:bg-tech-500/10 rounded-md transition-all opacity-0 group-hover:opacity-100 disabled:opacity-30"
-                aria-label="重新生成"
-                title="以原始输入重新生成此回复"
-              ><RefreshCw className={`w-3.5 h-3.5 ${regeneratingId === msg.id ? 'animate-spin' : ''}`} /></button>
-            )}
-            <div className={`flex-1 max-w-3xl ${msg.role === 'user' ? 'flex flex-col items-end' : ''}`}>
-              {msg.role === 'ai' && msg.process && hasProcessActivity(msg.process) ? (
-                <>
-                  {/* 有过程事件：正文与操作行交错的时间线（zcode 风格），不再套气泡 */}
-                  <AIProcessTimeline items={msg.process} streaming={false} totalMs={msg.processMs} expanded={msg.processExpanded ?? true} onToggle={() => toggleProcess(msg.id)} />
-                  {msg.files && msg.files.length > 0 && (
-                    <div className="mt-2 space-y-2">
-                      {msg.files.map((f, i) => <FileCard key={i} file={f} />)}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <>
-                  <div className={`rounded-xl p-4 ${msg.role === 'ai' ? 'chat-bubble-ai rounded-tl-sm' : 'chat-bubble-user rounded-tr-sm'}`}>
-                    <MarkdownRenderer content={msg.content} />
-                    {msg.role === 'ai' && msg.files && msg.files.length > 0 && (
-                      <div className="mt-3 space-y-2">
-                        {msg.files.map((f, i) => <FileCard key={i} file={f} />)}
-                      </div>
-                    )}
-                  </div>
-                </>
-              )}
-              <span className="text-[11px] text-ink-500 mt-1.5 block">{msg.timestamp}</span>
-            </div>
-            {msg.role === 'user' && <div className="w-8 h-8 rounded-full bg-gradient-to-br from-tech-400 to-cyber-500 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-xs font-semibold text-white">张</span></div>}
-          </div>
+          <MessageItem
+            key={msg.id}
+            msg={msg}
+            isStreaming={isStreaming}
+            regeneratingId={regeneratingId}
+            onRegenerate={regenerateMessage}
+            onToggleProcess={toggleProcess}
+          />
         ))}
-        {isStreaming && process && hasProcessActivity(process.items) && (
+        {streamingVisible && process && hasProcessActivity(process.items) && (
           <div className="flex gap-4 animate-fade-up">
             <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-xs font-bold text-white">AI</span></div>
             <div className="flex-1 max-w-3xl">
@@ -752,7 +830,7 @@ export default function ChatPage() {
             </div>
           </div>
         )}
-        {isStreaming && (!process || !hasProcessActivity(process.items)) && (
+        {streamingVisible && (!process || !hasProcessActivity(process.items)) && (
           <div className="flex gap-4 animate-fade-up">
             <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-xs font-bold text-white">AI</span></div>
             <div className="flex-1 max-w-3xl"><div className="chat-bubble-ai rounded-xl rounded-tl-sm p-4">
@@ -783,9 +861,9 @@ export default function ChatPage() {
           <button className="px-3 py-1.5 text-xs rounded-full text-ink-300 border border-tech-500/10 hover:border-tech-500/25 transition-all" aria-label="引用上下文">🔗 引用上下文</button>
         </div>
         <div className="relative">
-          <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }} rows={2} placeholder="输入消息... (Enter 发送)" className="w-full px-4 py-3 border rounded-xl text-ink-100 placeholder-ink-500 focus:outline-none input-ink resize-none scrollbar-thin transition-all" style={{ background: 'rgba(21,40,38,0.5)', borderColor: 'rgba(0,184,148,0.1)' }} disabled={isStreaming} />
+          <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }} rows={2} placeholder="输入消息... (Enter 发送)" className="w-full px-4 py-3 border rounded-xl text-ink-100 placeholder-ink-500 focus:outline-none input-ink resize-none scrollbar-thin transition-all" style={{ background: 'rgba(21,40,38,0.5)', borderColor: 'rgba(0,184,148,0.1)' }} disabled={streamingVisible} />
           <div className="absolute bottom-3 right-3 flex items-center gap-2">
-            <button onClick={sendMessage} disabled={isStreaming || !input.trim()} className="p-2 btn-primary text-white rounded-lg disabled:opacity-50" aria-label="发送"><Send className="w-4 h-4" /></button>
+            <button onClick={sendMessage} disabled={streamingVisible || !input.trim()} className="p-2 btn-primary text-white rounded-lg disabled:opacity-50" aria-label="发送"><Send className="w-4 h-4" /></button>
           </div>
         </div>
         {/* 模型 / 智能体模式 / 思维方式 下拉选择 */}

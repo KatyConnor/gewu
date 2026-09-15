@@ -113,7 +113,7 @@ interface MarkdownRendererProps {
  * 支持代码语法高亮、表格、列表、引用等 GFM 格式，代码块支持一键复制。
  * 同时适用于完整的 AI 回复和流式实时输出场景。
  */
-export default function MarkdownRenderer({ content, isStreaming }: MarkdownRendererProps) {
+function MarkdownRendererImpl({ content, isStreaming }: MarkdownRendererProps) {
   // 在流式输出时，确保内容不为空时也能渲染
   const safeContent = useMemo(() => {
     if (!content || content.trim().length === 0) return '';
@@ -228,3 +228,7 @@ export default function MarkdownRenderer({ content, isStreaming }: MarkdownRende
     </div>
   );
 }
+
+// React.memo：content 未变化时不重渲染（react-markdown + syntax-highlighter 解析昂贵，
+// 是长会话输入/流式卡顿的主因，S9 性能修复）
+export default React.memo(MarkdownRendererImpl);

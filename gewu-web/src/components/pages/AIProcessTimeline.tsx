@@ -1,5 +1,5 @@
 'use client';
-import { useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   Brain, Search, Loader2, ChevronDown, ChevronRight,
   XCircle, ShieldCheck, Sparkles, Terminal, FileText, Pencil, Wrench,
@@ -87,18 +87,17 @@ export default function AIProcessTimeline({
     }
   }, [items, status, streaming, expanded]);
 
-  const toggleItem = (id: string, current: boolean) => {
-    setManual(prev => ({ ...prev, [id]: !current }));
-  };
+  const activeNow = (item: ProcessItem): number | undefined =>
+    streaming && item.kind === 'thinking' && item.status === 'active' ? now : undefined;
 
   // 条目是否展开：用户手动操作优先；否则流式中的"进行中"条目自动展开，已完成的自动收起
-  const isItemExpanded = (item: ProcessItem): boolean => {
-    if (item.id in manual) return manual[item.id];
-    if (item.kind === 'thinking') return item.status === 'active';
-    if (item.kind === 'tool') return item.status === 'executing' || item.status === 'pending';
-    if (item.kind === 'search') return item.status === 'executing' || item.status === 'verifying';
-    return false;
-  };
+  const isItemExpanded = (item: ProcessItem): boolean => expandedFor(item, manual);
+  // 稳定回调：按 id 切换展开态（避免每行内联箭头破坏行级 memo）
+  const toggleItemById = useCallback((id: string) => {
+    const item = items.find(i => i.id === id);
+    if (!item) return;
+    setManual(prev => ({ ...prev, [id]: !expandedFor(item, prev) }));
+  }, [items]);
 
   // 纯正文（无任何过程事件）不渲染时间线，交给常规气泡
   if (items.length === 0 || !hasProcessActivity(items)) return null;
@@ -128,12 +127,12 @@ export default function AIProcessTimeline({
               );
             }
             if (item.kind === 'thinking') {
-              return <ThinkingRow key={item.id} item={item} now={now} streaming={streaming} expanded={isItemExpanded(item)} onToggle={() => toggleItem(item.id, isItemExpanded(item))} />;
+              return <ThinkingRow key={item.id} item={item} now={activeNow(item)} streaming={streaming} expanded={isItemExpanded(item)} onToggle={toggleItemById} />;
             }
             if (item.kind === 'tool') {
-              return <ToolRow key={item.id} item={item} expanded={isItemExpanded(item)} onToggle={() => toggleItem(item.id, isItemExpanded(item))} />;
+              return <ToolRow key={item.id} item={item} expanded={isItemExpanded(item)} onToggle={toggleItemById} />;
             }
-            return <SearchRow key={item.id} item={item} expanded={isItemExpanded(item)} onToggle={() => toggleItem(item.id, isItemExpanded(item))} />;
+            return <SearchRow key={item.id} item={item} expanded={isItemExpanded(item)} onToggle={toggleItemById} />;
           })}
 
           {/* 实时阶段提示 */}
@@ -150,27 +149,38 @@ export default function AIProcessTimeline({
   );
 }
 
+/** 展开态判定（用户手动优先，否则进行中自动展开） */
+function expandedFor(item: ProcessItem, manual: Record<string, boolean>): boolean {
+  if (item.id in manual) return manual[item.id];
+  if (item.kind === 'content') return false;
+  if (item.kind === 'thinking') return item.status === 'active';
+  if (item.kind === 'tool') return item.status === 'executing' || item.status === 'pending';
+  if (item.kind === 'search') return item.status === 'executing' || item.status === 'verifying';
+  return false;
+}
+
 /** 单行尾部预览：截取流式内容最新一段（zcode 单行滚动效果，S9 F4） */
 function tailPreview(text: string, max = 64): string {
   const clean = text.replace(/\s+/g, ' ').trimEnd();
   return clean.length > max ? `…${clean.slice(-max)}` : clean;
 }
 
-/** 思考行：🧠 思考 · 持续了N秒，点击展开原文（暗色等宽块）；流式期间单行滚动显示最新思考内容 */
-function ThinkingRow({ item, now, streaming, expanded, onToggle }: {
+/** 思考行：🧠 思考 · 持续了N秒，点击展开原文；流式期间单行滚动显示最新思考内容。
+ * React.memo：now 仅在活跃行传入——已完成行不随 200ms 计时 tick 重渲染（S9 性能修复） */
+const ThinkingRow = React.memo(function ThinkingRow({ item, now, streaming, expanded, onToggle }: {
   item: Extract<ProcessItem, { kind: 'thinking' }>;
-  now: number;
+  now?: number;
   streaming: boolean;
   expanded: boolean;
-  onToggle: () => void;
+  onToggle: (id: string) => void;
 }) {
   const active = item.status === 'active';
-  const duration = active
+  const duration = active && now !== undefined
     ? humanizeDuration(now - item.startedAt)
     : humanizeDuration((item.endedAt ?? item.startedAt) - item.startedAt);
   return (
     <div>
-      <button onClick={onToggle} className="w-full flex items-center gap-2 py-1 text-left text-xs text-ink-500 hover:text-ink-300 transition-colors">
+      <button onClick={() => onToggle(item.id)} className="w-full flex items-center gap-2 py-1 text-left text-xs text-ink-500 hover:text-ink-300 transition-colors">
         <Brain className={`w-3.5 h-3.5 flex-shrink-0 ${active && streaming ? 'text-tech-400/90' : ''}`} />
         <span className="flex-shrink-0">思考</span>
         {/* 流式期间：单行视图滚动显示最新思考内容（完成后回落为持续时长） */}
@@ -194,19 +204,19 @@ function ThinkingRow({ item, now, streaming, expanded, onToggle }: {
       )}
     </div>
   );
-}
+});
 
-/** 工具行：动词化展示（终端/读取/编辑/查阅/工具名），点击展开参数与结果 */
-function ToolRow({ item, expanded, onToggle }: {
+/** 工具行：动词化展示（终端/读取/编辑/查阅/工具名），点击展开参数与结果。memo：完成后不再重渲染 */
+const ToolRow = React.memo(function ToolRow({ item, expanded, onToggle }: {
   item: Extract<ProcessItem, { kind: 'tool' }>;
   expanded: boolean;
-  onToggle: () => void;
+  onToggle: (id: string) => void;
 }) {
   const running = item.status === 'executing' || item.status === 'pending';
   const info = toolRowInfo(item.name, item.args);
   return (
     <div>
-      <button onClick={onToggle} className="w-full flex items-center gap-2 py-1 text-left text-xs text-ink-500 hover:text-ink-300 transition-colors">
+      <button onClick={() => onToggle(item.id)} className="w-full flex items-center gap-2 py-1 text-left text-xs text-ink-500 hover:text-ink-300 transition-colors">
         {running
           ? <Loader2 className="w-3.5 h-3.5 flex-shrink-0 text-tech-400 animate-spin" />
           : item.status === 'error'
@@ -244,20 +254,20 @@ function ToolRow({ item, expanded, onToggle }: {
       )}
     </div>
   );
-}
+});
 
-/** 网络搜索行：查阅 · N 条结果（含采纳/丢弃），点击展开来源列表 */
-function SearchRow({ item, expanded, onToggle }: {
+/** 网络搜索行：查阅 · N 条结果（含采纳/丢弃），点击展开来源列表。memo：静态行不重渲染 */
+const SearchRow = React.memo(function SearchRow({ item, expanded, onToggle }: {
   item: Extract<ProcessItem, { kind: 'search' }>;
   expanded: boolean;
-  onToggle: () => void;
+  onToggle: (id: string) => void;
 }) {
   const running = item.status === 'executing' || item.status === 'verifying';
   const adopted = item.results?.filter(r => r.adopted).length ?? 0;
   const discarded = item.results?.filter(r => r.discarded).length ?? 0;
   return (
     <div>
-      <button onClick={onToggle} className="w-full flex items-center gap-2 py-1 text-left text-xs text-ink-500 hover:text-ink-300 transition-colors">
+      <button onClick={() => onToggle(item.id)} className="w-full flex items-center gap-2 py-1 text-left text-xs text-ink-500 hover:text-ink-300 transition-colors">
         {running
           ? <Loader2 className="w-3.5 h-3.5 flex-shrink-0 text-tech-400 animate-spin" />
           : <Search className="w-3.5 h-3.5 flex-shrink-0" />}
@@ -304,7 +314,7 @@ function SearchRow({ item, expanded, onToggle }: {
       )}
     </div>
   );
-}
+});
 
 /** 参数 JSON 美化：解析失败时原样返回 */
 function prettyJson(raw: string): string {
