@@ -45,6 +45,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
@@ -294,6 +296,47 @@ class ReactAgentExecutorStreamTest {
         assertThat(last.getFinishReason()).isEqualTo("length");
         // 不静默：截断保留路径包含 STATUS 提示（而非直接 done）
         assertThat(events.stream().map(AgentEvent::getType)).doesNotContain("error");
+    }
+
+    @Test
+    @DisplayName("内置 plan_task 工具：计划事件透出 + done 携带快照（S9 F5）")
+    void planToolEmitsPlanEvents() {
+        // 第一轮：模型调用内置 plan_task 制定任务清单
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().toolCallDelta(LlmChunk.ToolCallDelta.builder()
+                        .id("call-1").name("plan_task").build()).build(),
+                LlmChunk.builder().toolCallDelta(LlmChunk.ToolCallDelta.builder()
+                        .arguments("{\"title\":\"编译修复\",\"steps\":[{\"id\":\"1\",\"text\":\"分析错误\",\"status\":\"in_progress\"},{\"id\":\"2\",\"text\":\"修复\",\"status\":\"pending\"}]}")
+                        .build()).build(),
+                LlmChunk.builder().finishReason("tool_calls").build()));
+        // 第二轮：按计划执行后给出最终回答
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().delta("已按计划执行").build(),
+                LlmChunk.builder().finishReason("stop").build()));
+
+        List<AgentEvent> events = executor.executeStream(task(2048))
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        List<String> types = events.stream().map(AgentEvent::getType).toList();
+        // 计划事件在工具结果之前发出（模型提交计划即更新卡片，不等外部执行）
+        assertThat(types).containsSubsequence("tool_call", "tool_executing",
+                "plan_created", "tool_result", "content", "done");
+        AgentEvent planEvent = events.stream()
+                .filter(e -> "plan_created".equals(e.getType())).findFirst().orElseThrow();
+        assertThat(planEvent.getPlanTitle()).isEqualTo("编译修复");
+        assertThat(planEvent.getPlan()).hasSize(2);
+        assertThat(planEvent.getPlan().get(0).getStatus()).isEqualTo("in_progress");
+        assertThat(planEvent.getPlan().get(1).getText()).isEqualTo("修复");
+        // done 携带最终计划快照（前端历史回放）
+        AgentEvent done = events.get(events.size() - 1);
+        assertThat(done.getPlan()).hasSize(2);
+        assertThat(done.getPlanTitle()).isEqualTo("编译修复");
+        // 工具定义透出：内置 plan_task 无需 DB 配置即可被模型调用
+        assertThat(llmClient.recordedRequests.get(0).getTools())
+                .anyMatch(t -> "plan_task".equals(t.getName()));
+        // 内置工具本地执行，不走外部 ToolExecutor
+        verify(toolExecutor, never()).execute(anyString(), anyString(), any(), any());
     }
 
     private TraceService noOpTraceService() {

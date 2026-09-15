@@ -41,7 +41,7 @@ public class EpisodicMemoryService {
      */
     public EpisodicEvent record(String tenantId, String userId, String sessionId, String eventType, String content, String metadata) {
         EpisodicEvent event = new EpisodicEvent();
-        event.setId(UUID.randomUUID().toString());
+        event.setId(com.gewu.common.ulid.Ulid.next());
         event.setTenantId(tenantId);
         event.setUserId(userId);
         event.setSessionId(sessionId);

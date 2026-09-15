@@ -10,7 +10,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.UUID;
 
 /**
  * 历史数据导入服务 — 将存量会话消息和工具定义批量导入记忆系统。
@@ -47,7 +46,7 @@ public class HistoryImportService {
         int count = 0;
         for (SessionMessageDTO msg : messages) {
             EpisodicEvent event = new EpisodicEvent();
-            event.setId(UUID.randomUUID().toString());
+            event.setId(com.gewu.common.ulid.Ulid.next());
             event.setTenantId(tenantId);
             event.setUserId(msg.getUserId());
             event.setSessionId(sessionId);

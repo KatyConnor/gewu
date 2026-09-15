@@ -19,6 +19,8 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 
+import java.util.List;
+
 /**
  * Agent 执行引擎 - 双引擎收敛后的统一入口。
  * <p>原先在此类内维护一套与 agent-engine 重复的 ReAct 循环（无安全/记忆/预算/路由能力），
@@ -272,6 +274,13 @@ public class AgentExecutionEngine {
                     .result(event.getToolResult().getResult())
                     .build();
         }
+        List<AgentChunk.PlanStepInfo> plan = null;
+        if (event.getPlan() != null) {
+            plan = event.getPlan().stream()
+                    .map(s -> AgentChunk.PlanStepInfo.builder()
+                            .id(s.getId()).text(s.getText()).status(s.getStatus()).build())
+                    .toList();
+        }
         return AgentChunk.builder()
                 .type(event.getType())
                 .content(event.getContent())
@@ -280,6 +289,8 @@ public class AgentExecutionEngine {
                 .toolResult(toolResultInfo)
                 .errorMessage(event.getErrorMessage())
                 .finishReason(event.getFinishReason())
+                .planTitle(event.getPlanTitle())
+                .plan(plan)
                 .build();
     }
 

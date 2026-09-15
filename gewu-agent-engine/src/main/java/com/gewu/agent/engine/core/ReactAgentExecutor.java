@@ -210,12 +210,14 @@ public class ReactAgentExecutor implements AgentExecutor {
                     .map(tc -> CompletableFuture.supplyAsync(() -> {
                         // OTel 追踪：每次工具执行包装 Span
                         Object toolSpan = traceService.startSpan(task.getSessionId(), tc.getName(), "tool_call");
-                        try {
-                            ToolResult r = toolExecutor.execute(tc.getName(), tc.getArguments(), toolContext,
-                                    toolConfigMap.get(tc.getName()));
-                            traceService.endSpan(toolSpan);
-                            return r;
-                        } catch (RuntimeException e) {
+                    try {
+                        ToolResult r = PLAN_TOOL_NAME.equals(tc.getName())
+                                ? executePlanToolSync(tc.getArguments(), toolContext)
+                                : toolExecutor.execute(tc.getName(), tc.getArguments(), toolContext,
+                                        toolConfigMap.get(tc.getName()));
+                        traceService.endSpan(toolSpan);
+                        return r;
+                    } catch (RuntimeException e) {
                             traceService.endSpanWithError(toolSpan, e);
                             throw e;
                         }
@@ -467,9 +469,7 @@ public class ReactAgentExecutor implements AgentExecutor {
                                     AgentEvent.builder().type(AgentEvent.EXPERIENCE_SAVED)
                                             .content("执行经验已沉淀至长期记忆")
                                             .build(),
-                                    AgentEvent.builder().type(AgentEvent.DONE)
-                                            .finishReason(finishReasonHolder[0])
-                                            .build());
+                                    doneEvent(toolContext, finishReasonHolder[0]));
                         }
                         // 经验沉淀通知 + 完成事件（T4.5：实际写入在流终止回调，
                         // 此事件告知前端本次交互将沉淀为长期记忆）
@@ -477,9 +477,7 @@ public class ReactAgentExecutor implements AgentExecutor {
                                 AgentEvent.builder().type(AgentEvent.EXPERIENCE_SAVED)
                                         .content("执行经验已沉淀至长期记忆")
                                         .build(),
-                                AgentEvent.builder().type(AgentEvent.DONE)
-                                        .finishReason(finishReasonHolder[0])
-                                        .build());
+                                doneEvent(toolContext, finishReasonHolder[0]));
                     }
 
                     List<AgentEvent> toolCallEvents = new ArrayList<>();
@@ -504,33 +502,130 @@ public class ReactAgentExecutor implements AgentExecutor {
                     return Flux.fromIterable(toolCallEvents)
                             .concatWith(Flux.fromIterable(executingEvents))
                             .concatWith(Flux.fromIterable(toolCalls)
-                                    .flatMap(tc -> Mono.fromFuture(CompletableFuture.supplyAsync(
-                                                    () -> toolExecutor.execute(tc.getName(), tc.getArguments(), toolContext,
-                                                            toolConfigMap.get(tc.getName())),
-                                                    config.getToolExecutor()))
-                                            .map(result -> {
-                                                String output = result.isSuccess() ? result.getOutput() : result.getError();
-                                                synchronized (messages) {
-                                                    messages.add(Message.builder()
-                                                            .role("tool")
-                                                            .content(output)
-                                                            .toolCallId(tc.getId())
-                                                            .name(tc.getName())
-                                                            .build());
-                                                }
-                                                return AgentEvent.builder()
-                                                        .type(AgentEvent.TOOL_RESULT)
-                                                        .toolResult(AgentEvent.ToolResultInfo.builder()
-                                                                .toolCallId(tc.getId())
-                                                                .name(tc.getName())
-                                                                .result(output)
-                                                                .build())
-                                                        .build();
-                                            }))
+                                    .flatMap(tc -> {
+                                        // 内置任务计划工具（S9 F5）：本地解析步骤、
+                                        // 发计划事件，不走 ToolExecutor 外部链路
+                                        if (PLAN_TOOL_NAME.equals(tc.getName())) {
+                                            return executePlanToolStream(tc, toolContext, messages);
+                                        }
+                                        return Mono.fromFuture(CompletableFuture.supplyAsync(
+                                                        () -> toolExecutor.execute(tc.getName(), tc.getArguments(), toolContext,
+                                                                toolConfigMap.get(tc.getName())),
+                                                        config.getToolExecutor()))
+                                                .map(result -> {
+                                                    String output = result.isSuccess() ? result.getOutput() : result.getError();
+                                                    appendToolMessage(messages, tc, output);
+                                                    return toolResultEvent(tc, output);
+                                                });
+                                    })
                                     .concatWith(Flux.defer(() ->
                                             streamRound(client, model, messages, tools, toolConfigMap,
                                                     toolContext, temperature, maxTokens, round + 1, truncationRetries, budget))));
                 }));
+    }
+
+    // ==================== 内置任务计划工具（S9 F5） ====================
+
+    /** 流式路径执行 plan_task：发计划事件（首次创建/后续更新）+ 工具结果事件，并回灌 tool 消息 */
+    private Flux<AgentEvent> executePlanToolStream(ToolCall tc, ToolContext toolContext, List<Message> messages) {
+        boolean firstCall;
+        try {
+            JsonNode root = objectMapper.readTree(tc.getArguments() != null ? tc.getArguments() : "{}");
+            ToolContext.PlanState state = planStateOf(toolContext);
+            firstCall = state.getSteps().isEmpty();
+            applyPlanState(state, root);
+            String output = "任务清单已更新：" + state.getSteps().size() + " 项步骤";
+            appendToolMessage(messages, tc, output);
+            return Flux.just(
+                    AgentEvent.builder()
+                            .type(firstCall ? AgentEvent.PLAN_CREATED : AgentEvent.PLAN_UPDATED)
+                            .planTitle(state.getTitle())
+                            .plan(state.getSteps())
+                            .build(),
+                    toolResultEvent(tc, output));
+        } catch (Exception e) {
+            log.warn("plan_task 解析失败: {}", e.getMessage());
+            String output = "计划解析失败: " + e.getMessage();
+            appendToolMessage(messages, tc, output);
+            return Flux.just(toolResultEvent(tc, output));
+        }
+    }
+
+    /** 同步路径执行 plan_task：仅更新计划状态并返回工具结果（同步无事件流） */
+    private ToolResult executePlanToolSync(String arguments, ToolContext toolContext) {
+        try {
+            JsonNode root = objectMapper.readTree(arguments != null ? arguments : "{}");
+            ToolContext.PlanState state = planStateOf(toolContext);
+            applyPlanState(state, root);
+            return ToolResult.builder().success(true)
+                    .output("任务清单已更新：" + state.getSteps().size() + " 项步骤")
+                    .build();
+        } catch (Exception e) {
+            return ToolResult.builder().success(false).error("计划解析失败: " + e.getMessage()).build();
+        }
+    }
+
+    private ToolContext.PlanState planStateOf(ToolContext toolContext) {
+        if (toolContext.getPlanState() == null) {
+            toolContext.setPlanState(new ToolContext.PlanState());
+        }
+        return toolContext.getPlanState();
+    }
+
+    private void applyPlanState(ToolContext.PlanState state, JsonNode root) {
+        List<AgentEvent.PlanStepInfo> steps = new ArrayList<>();
+        JsonNode stepsNode = root.path("steps");
+        if (stepsNode.isArray()) {
+            int i = 0;
+            for (JsonNode s : stepsNode) {
+                i++;
+                steps.add(AgentEvent.PlanStepInfo.builder()
+                        .id(s.path("id").asText(String.valueOf(i)))
+                        .text(s.path("text").asText(""))
+                        .status(s.path("status").asText("pending"))
+                        .build());
+            }
+        }
+        String title = root.path("title").asText("");
+        if (!title.isBlank()) {
+            state.setTitle(title);
+        }
+        state.setSteps(steps);
+    }
+
+    private void appendToolMessage(List<Message> messages, ToolCall tc, String output) {
+        synchronized (messages) {
+            messages.add(Message.builder()
+                    .role("tool")
+                    .content(output)
+                    .toolCallId(tc.getId())
+                    .name(tc.getName())
+                    .build());
+        }
+    }
+
+    private AgentEvent toolResultEvent(ToolCall tc, String output) {
+        return AgentEvent.builder()
+                .type(AgentEvent.TOOL_RESULT)
+                .toolResult(AgentEvent.ToolResultInfo.builder()
+                        .toolCallId(tc.getId())
+                        .name(tc.getName())
+                        .result(output)
+                        .build())
+                .build();
+    }
+
+    /** done 事件：携带 finishReason 与最终任务计划快照（S9 F5，前端历史回放用） */
+    private AgentEvent doneEvent(ToolContext toolContext, String finishReason) {
+        AgentEvent.AgentEventBuilder builder = AgentEvent.builder()
+                .type(AgentEvent.DONE)
+                .finishReason(finishReason);
+        ToolContext.PlanState state = toolContext != null ? toolContext.getPlanState() : null;
+        if (state != null && !state.getSteps().isEmpty()) {
+            builder.planTitle(state.getTitle())
+                    .plan(state.getSteps());
+        }
+        return builder.build();
     }
 
     // ==================== 辅助方法 ====================
@@ -638,19 +733,35 @@ public class ReactAgentExecutor implements AgentExecutor {
     }
 
     private List<ToolDefinition> buildToolDefinitions(String agentId, Map<String, ToolConfig> toolConfigMap) {
-        if (agentId == null || agentId.isBlank()) {
-            return new ArrayList<>();
+        List<ToolDefinition> definitions = new ArrayList<>();
+        if (agentId != null && !agentId.isBlank()) {
+            List<ToolConfig> tools = persistenceService.loadAgentTools(agentId);
+            tools.stream()
+                    .peek(tool -> toolConfigMap.put(tool.getToolName(), tool))
+                    .map(tool -> ToolDefinition.builder()
+                            .name(tool.getToolName())
+                            .description(tool.getDescription())
+                            .parameters(tool.getRequestSchema())
+                            .build())
+                    .forEach(definitions::add);
         }
-        List<ToolConfig> tools = persistenceService.loadAgentTools(agentId);
-        return tools.stream()
-                .peek(tool -> toolConfigMap.put(tool.getToolName(), tool))
-                .map(tool -> ToolDefinition.builder()
-                        .name(tool.getToolName())
-                        .description(tool.getDescription())
-                        .parameters(tool.getRequestSchema())
-                        .build())
-                .toList();
+        // 内置任务计划工具（S9 F5）：模型自主创建/更新任务清单，前端渲染任务流程卡片
+        definitions.add(ToolDefinition.builder()
+                .name(PLAN_TOOL_NAME)
+                .description(PLAN_TOOL_DESCRIPTION)
+                .parameters(PLAN_TOOL_SCHEMA)
+                .build());
+        return definitions;
     }
+
+    /** 内置任务计划工具名（S9 F5）：本地执行，不走 ToolExecutor 外部链路 */
+    private static final String PLAN_TOOL_NAME = "plan_task";
+    private static final String PLAN_TOOL_DESCRIPTION =
+            "创建或更新当前任务的任务清单。开始多步骤工作前调用一次以制定计划；"
+                    + "完成某步骤或计划变化时再次调用以更新整体状态（全量覆盖语义）。";
+    private static final String PLAN_TOOL_SCHEMA = """
+            {"type":"object","properties":{"title":{"type":"string","description":"任务清单标题"},"steps":{"type":"array","description":"任务步骤列表（全量提交，以本次调用为准整体覆盖）","items":{"type":"object","properties":{"id":{"type":"string","description":"步骤唯一标识"},"text":{"type":"string","description":"步骤内容"},"status":{"type":"string","enum":["pending","in_progress","done"],"description":"步骤状态"}},"required":["id","text","status"]}}},"required":["steps"]}
+            """;
 
     private ToolContext buildToolContext(AgentTask task, AgentSpec agent) {
         boolean sandboxEnabled = false;

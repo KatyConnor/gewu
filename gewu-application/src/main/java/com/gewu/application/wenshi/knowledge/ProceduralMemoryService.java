@@ -7,7 +7,6 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
-import java.util.UUID;
 
 /**
  * 程序记忆服务 — 管理工具、SOP（标准操作流程）、技能的程序化知识存储与检索。
@@ -43,7 +42,7 @@ public class ProceduralMemoryService {
      */
     public ProceduralMemory registerTool(String tenantId, String name, String description, String definition) {
         ProceduralMemory memory = new ProceduralMemory();
-        memory.setId(UUID.randomUUID().toString());
+        memory.setId(com.gewu.common.ulid.Ulid.next());
         memory.setTenantId(tenantId);
         memory.setType("TOOL");
         memory.setName(name);
@@ -71,7 +70,7 @@ public class ProceduralMemoryService {
      */
     public ProceduralMemory registerSOP(String tenantId, String name, String description, String definition) {
         ProceduralMemory memory = new ProceduralMemory();
-        memory.setId(UUID.randomUUID().toString());
+        memory.setId(com.gewu.common.ulid.Ulid.next());
         memory.setTenantId(tenantId);
         memory.setType("SOP");
         memory.setName(name);
@@ -100,7 +99,7 @@ public class ProceduralMemoryService {
      */
     public ProceduralMemory registerSkill(String tenantId, String name, String description, String definition, String learnedFrom) {
         ProceduralMemory memory = new ProceduralMemory();
-        memory.setId(UUID.randomUUID().toString());
+        memory.setId(com.gewu.common.ulid.Ulid.next());
         memory.setTenantId(tenantId);
         memory.setType("SKILL");
         memory.setName(name);

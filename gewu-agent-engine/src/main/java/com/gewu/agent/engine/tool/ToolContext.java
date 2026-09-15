@@ -1,9 +1,13 @@
 package com.gewu.agent.engine.tool;
 
+import com.gewu.agent.engine.core.event.AgentEvent;
 import lombok.AllArgsConstructor;
 import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
+
+import java.util.List;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * 工具执行上下文 - 携带执行时环境信息。
@@ -30,4 +34,25 @@ public class ToolContext {
     private String sandboxImage;
     /** 项目标识 */
     private String projectId;
+    /** 项目沙箱 ID（S9 F3 文件工具路由目标，null=用户默认工作空间） */
+    private String sandboxId;
+    /** 工作空间根目录（S9 F3 文件工具相对路径基准） */
+    private String workspaceRoot;
+    /** 任务计划状态（S9 F5）：内置 plan_task 工具写入，done 事件快照回传 */
+    @Builder.Default
+    private PlanState planState = new PlanState();
+
+    /**
+     * 任务计划状态（S9 F5）：跨工具轮次持有最新任务清单，
+     * 由内置 plan_task 工具更新、DONE 事件快照透出。
+     */
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PlanState {
+        /** 计划标题 */
+        private volatile String title = "";
+        /** 步骤列表（全量覆盖语义） */
+        private volatile List<AgentEvent.PlanStepInfo> steps = new CopyOnWriteArrayList<>();
+    }
 }

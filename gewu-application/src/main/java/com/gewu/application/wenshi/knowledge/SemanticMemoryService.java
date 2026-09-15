@@ -16,7 +16,6 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * 语义记忆服务 - 管理业务知识、事实、概念的向量化存储与语义检索。
@@ -72,7 +71,7 @@ public class SemanticMemoryService {
      */
     public SemanticFragment ingest(String tenantId, String userId, String content, String source, Map<String, Object> metadata) {
         SemanticFragment fragment = new SemanticFragment();
-        fragment.setId(UUID.randomUUID().toString());
+        fragment.setId(com.gewu.common.ulid.Ulid.next());
         fragment.setTenantId(tenantId);
         fragment.setOwnerUserId(userId);
         fragment.setContent(content);

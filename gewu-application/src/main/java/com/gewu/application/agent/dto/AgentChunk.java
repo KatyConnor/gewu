@@ -20,6 +20,22 @@ public class AgentChunk {
     private String errorMessage;
     /** LLM 完成原因（done 事件透传：stop / length 截断标记） */
     private String finishReason;
+    /** 任务计划标题（plan_created / plan_updated / done 事件携带，S9 F5） */
+    private String planTitle;
+    /** 任务计划步骤（plan_created / plan_updated / done 事件携带，S9 F5） */
+    private java.util.List<PlanStepInfo> plan;
+
+    /** 任务计划步骤（F5） */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PlanStepInfo {
+        private String id;
+        private String text;
+        /** pending / in_progress / done */
+        private String status;
+    }
 
     @Data
     @Builder

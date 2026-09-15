@@ -52,6 +52,22 @@ public class AgentEvent {
     private Map<String, Object> metadata;
     /** LLM 完成原因（done 事件透传：stop 正常结束 / length 截断，前端据此提示不完整） */
     private String finishReason;
+    /** 任务计划标题（plan_created / plan_updated / done 事件携带，S9 F5） */
+    private String planTitle;
+    /** 任务计划步骤列表（plan_created / plan_updated / done 事件携带，S9 F5） */
+    private java.util.List<PlanStepInfo> plan;
+
+    /** 任务计划步骤（F5）：模型经内置 plan_task 工具提交的结构化任务清单 */
+    @Data
+    @Builder
+    @NoArgsConstructor
+    @AllArgsConstructor
+    public static class PlanStepInfo {
+        private String id;
+        private String text;
+        /** pending / in_progress / done */
+        private String status;
+    }
 
     @Data
     @Builder
@@ -84,6 +100,12 @@ public class AgentEvent {
     public static final String ERROR = "error";
     /** 截断重试前置事件：通知调用方清空已累积的部分正文（S9，随重试整体重新生成） */
     public static final String CONTENT_RESET = "content_reset";
+
+    // ===== 任务计划事件（S9 F5：模型经内置 plan_task 工具自主维护任务清单） =====
+    /** 任务计划创建 */
+    public static final String PLAN_CREATED = "plan_created";
+    /** 任务计划更新（状态流转/增删步骤） */
+    public static final String PLAN_UPDATED = "plan_updated";
 
     // ===== 阶段二扩展事件类型 =====
     /** 预算告警（消耗达 70%/90%） */

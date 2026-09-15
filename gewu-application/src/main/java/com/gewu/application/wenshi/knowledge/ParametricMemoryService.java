@@ -9,7 +9,6 @@ import org.springframework.stereotype.Service;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.UUID;
 
 /**
  * 参数记忆服务 — 管理用户偏好设置与行为学习产生的参数化知识。
@@ -49,7 +48,7 @@ public class ParametricMemoryService {
             mapper.updateById(existing);
         } else {
             UserProfile profile = new UserProfile();
-            profile.setId(UUID.randomUUID().toString());
+            profile.setId(com.gewu.common.ulid.Ulid.next());
             profile.setTenantId(tenantId);
             profile.setUserId(userId);
             profile.setProfileKey(key);
@@ -117,7 +116,7 @@ public class ParametricMemoryService {
             mapper.updateById(existing);
         } else {
             UserProfile profile = new UserProfile();
-            profile.setId(UUID.randomUUID().toString());
+            profile.setId(com.gewu.common.ulid.Ulid.next());
             profile.setTenantId(tenantId);
             profile.setUserId(userId);
             profile.setProfileKey(behaviorKey);

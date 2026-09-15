@@ -9,7 +9,8 @@ import { Message } from '@/types';
 import AIProcessTimeline from './AIProcessTimeline';
 import ChatHomeView from './ChatHomeView';
 import SessionSidebar from './SessionSidebar';
-import { chatStream, regenerateMessageStream } from '@/lib/chat';
+import PlanCard from './PlanCard';
+import { chatStream, regenerateMessageStream, type PlanStepInfo } from '@/lib/chat';
 import { createProcessStreamHandler, hasProcessActivity, type ProcessSnapshot, type ProcessItem } from '@/lib/agentProcess';
 import { listActiveModels, type ModelConfig } from '@/lib/model-config';
 import { listAgents } from '@/lib/agent';
@@ -54,6 +55,8 @@ export default function ChatPage() {
   const [process, setProcess] = useState<ProcessSnapshot | null>(null);
   // 对话流式错误（持久提示框，替代一闪而过的 toast）
   const [chatError, setChatError] = useState<ChatErrorInfo | null>(null);
+  // 任务流程计划（S9 F5：模型经 plan_task 工具提交，右上角卡片渲染）
+  const [plan, setPlan] = useState<{ title: string; steps: PlanStepInfo[] } | null>(null);
   const [modelOptions, setModelOptions] = useState<{ value: string; label: string }[]>([]);
   const [selectedModel, setSelectedModel] = useState('');
   const [agentMode, setAgentMode] = useState('assistant');
@@ -196,11 +199,19 @@ export default function ChatPage() {
     setCurrentProjectId(session.projectId ?? null);
     setShowChatView(true);
     setShowArchived(false);
+    setPlan(null);
     try {
       const result = await listMessages(session.sessionId, 1, 100);
       const msgs: Message[] = (result.records || []).map(m => {
         // 解析 content 末尾的 <!--FILES:[...]--> 标记，恢复文件卡片
-        const parsed = parseFilesFromContent(m.content || '');
+        let parsed = parseFilesFromContent(m.content || '');
+        // 解析 content 末尾的 <!--PLAN:{...}--> 标记，恢复任务流程卡片（S9 F5）
+        const planParsed = parsePlanFromContent(parsed.content);
+        parsed = { ...parsed, content: planParsed.content };
+        if (planParsed.plan) {
+          // 最后一条带计划的 AI 消息恢复卡片（历史回放）
+          setPlan(planParsed.plan);
+        }
         return {
           id: m.messageId,
           fromBackend: true,
@@ -242,6 +253,10 @@ export default function ChatPage() {
           proc.tracker.resetContent();
         },
         onFile: (file) => { setStreamingFiles(prev => [...prev, file]); },
+        onPlan: (title, steps) => {
+          // 重发场景同样更新任务流程卡片
+          setPlan({ title, steps });
+        },
         onError: (msg) => {
           setChatError(classifyChatError(msg));
         },
@@ -340,6 +355,23 @@ export default function ChatPage() {
     }
   }
 
+  /** 解析 content 末尾的 <!--PLAN:{json}--> 标记，恢复任务流程卡片（S9 F5） */
+  function parsePlanFromContent(content: string): { content: string; plan?: { title: string; steps: PlanStepInfo[] } } {
+    const marker = '\n<!--PLAN:';
+    const idx = content.lastIndexOf(marker);
+    if (idx === -1) return { content };
+    const endIdx = content.lastIndexOf('-->');
+    if (endIdx === -1 || endIdx <= idx) return { content };
+    try {
+      const jsonStr = content.substring(idx + marker.length, endIdx);
+      const parsed = JSON.parse(jsonStr) as { title?: string; steps?: PlanStepInfo[] };
+      if (!Array.isArray(parsed.steps) || parsed.steps.length === 0) return { content };
+      return { content: content.substring(0, idx), plan: { title: parsed.title || '', steps: parsed.steps } };
+    } catch {
+      return { content };
+    }
+  }
+
   const sendMessage = async () => {
     if (!input.trim() || isStreaming) return;
     // 无会话时自动创建（缺陷修复：此前 sessionId 为空会导致后端不落库、
@@ -369,6 +401,7 @@ export default function ChatPage() {
     setStreamingFiles([]);
     setProcess(null);
     setChatError(null); // 新消息开始时清除上一次的错误提示
+    setPlan(null); // 新消息开始时清除上一次的任务计划
 
     // 处理过程时间线：思考/工具/搜索事件按发生顺序实时累积渲染
     const proc = createProcessStreamHandler(setProcess);
@@ -403,6 +436,10 @@ export default function ChatPage() {
           onFile: (file) => {
             accumulatedFiles = [...accumulatedFiles, file];
             setStreamingFiles(accumulatedFiles);
+          },
+          onPlan: (title, steps) => {
+            // 任务流程卡片（S9 F5）：plan_created/plan_updated/done 快照实时更新
+            setPlan({ title, steps });
           },
           onError: (error) => {
             if (completed) return;
@@ -567,7 +604,9 @@ export default function ChatPage() {
       />
 
       {/* 右侧聊天区域 */}
-      <div className="flex-1 flex flex-col h-full">
+      <div className="relative flex-1 flex flex-col h-full">
+      {/* 任务流程卡片（S9 F5）：模型提交任务清单后右上角浮动展示 */}
+      {plan && <PlanCard title={plan.title} steps={plan.steps} streaming={isStreaming} />}
       <header className="flex items-center justify-between px-6 py-4 border-b backdrop-blur-sm flex-shrink-0" style={{ background: 'rgba(8,18,17,0.5)', borderColor: 'rgba(0,184,148,0.08)' }}>
         <div className="flex items-center gap-3 min-w-0">
           <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400/20 to-tech-600/20 flex items-center justify-center flex-shrink-0">

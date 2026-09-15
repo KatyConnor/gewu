@@ -109,6 +109,13 @@ export interface FileInfo {
   source: string;
 }
 
+// 任务计划步骤（S9 F5：内置 plan_task 工具产生）
+export interface PlanStepInfo {
+  id: string;
+  text: string;
+  status: 'pending' | 'in_progress' | 'done';
+}
+
 // 流式事件
 export interface ChatStreamEvent {
   type: string;
@@ -129,6 +136,10 @@ export interface ChatStreamEvent {
   errorMessage?: string;
   /** LLM 完成原因（done 事件携带：stop 正常 / length 截断） */
   finishReason?: string;
+  /** 任务计划标题（plan_created / plan_updated / done 事件携带） */
+  planTitle?: string;
+  /** 任务计划步骤（plan_created / plan_updated / done 事件携带） */
+  plan?: PlanStepInfo[];
 }
 
 // 模型信息
@@ -191,6 +202,8 @@ export interface ChatStreamCallbacks {
   onExperienceSaved?: (note: string) => void;
   /** 失败已记录通知（进入失败案例库） */
   onFailureRecorded?: (reason: string) => void;
+  /** 任务计划更新（S9 F5）：模型经内置 plan_task 工具提交的任务清单 */
+  onPlan?: (title: string, steps: PlanStepInfo[]) => void;
   onError?: (error: string) => void;
   /** 完成回调，携带 LLM finishReason（length=回复可能被截断） */
   onComplete?: (finishReason?: string) => void;
@@ -305,8 +318,12 @@ async function consumeChatSse(
 
           try {
             const event: ChatStreamEvent = JSON.parse(dataStr);
-            // done 事件触发完成并终止读取（透传 finishReason 供截断提示）
+            // done 事件触发完成并终止读取（透传 finishReason 供截断提示；
+            // done 携带最终计划快照时先回调 onPlan 再完成）
             if (event.type === 'done') {
+              if (event.plan && callbacks.onPlan) {
+                callbacks.onPlan(event.planTitle || '', event.plan);
+              }
               safeComplete(event.finishReason);
               return;
             }
@@ -359,26 +376,7 @@ async function consumeChatSse(
  */
 function handleStreamEvent(
   event: ChatStreamEvent,
-  callbacks: {
-    onContent: (text: string) => void;
-    onThinking?: (text: string) => void;
-    onStatus?: (status: string) => void;
-    onContentReset?: (note: string) => void;
-    onToolCall?: (toolCall: { id: string; name: string; arguments: string }) => void;
-    onToolExecuting?: (toolCall: { id: string; name: string; arguments: string }) => void;
-    onToolResult?: (result: { toolCallId: string; output: string }) => void;
-    onWebSearchStart?: (status: string) => void;
-    onWebSearchResult?: (info: WebSearchInfo) => void;
-    onWebVerifying?: (status: string) => void;
-    onWebVerdict?: (verdict: VerifyInfo) => void;
-    onFile?: (file: FileInfo) => void;
-    /** 执行经验沉淀通知（完成后写入长期记忆） */
-    onExperienceSaved?: (note: string) => void;
-    /** 失败已记录通知（进入失败案例库） */
-    onFailureRecorded?: (reason: string) => void;
-    onError?: (error: string) => void;
-    onComplete?: () => void;
-  }
+  callbacks: ChatStreamCallbacks
 ): void {
   switch (event.type) {
     case 'content':
@@ -445,6 +443,13 @@ function handleStreamEvent(
     case 'failure_recorded':
       if (callbacks.onFailureRecorded) {
         callbacks.onFailureRecorded(event.content || '失败已记录');
+      }
+      break;
+    case 'plan_created':
+    case 'plan_updated':
+      // 任务计划（S9 F5）：模型经内置 plan_task 工具提交的任务清单
+      if (event.plan && callbacks.onPlan) {
+        callbacks.onPlan(event.planTitle || '', event.plan);
       }
       break;
     case 'file':

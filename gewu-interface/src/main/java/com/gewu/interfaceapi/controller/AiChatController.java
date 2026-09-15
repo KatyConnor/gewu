@@ -161,6 +161,8 @@ public class AiChatController {
         }
 
         // 累积 content 和 file 事件用于会话持久化
+        final java.util.concurrent.atomic.AtomicReference<String> planJsonRef =
+                new java.util.concurrent.atomic.AtomicReference<>(null);
         final Flux<ChatStreamEvent> eventFlux = baseFlux.doOnNext(event -> {
             if ("content".equals(event.getType()) && event.getContent() != null) {
                 accumulated.get().append(event.getContent());
@@ -171,6 +173,16 @@ public class AiChatController {
             }
             if ("file".equals(event.getType()) && event.getFile() != null) {
                 fileEvents.add(event.getFile());
+            }
+            // 任务计划最终快照（S9 F5）：done 事件携带，落库供历史回放
+            if ("done".equals(event.getType()) && event.getPlan() != null && !event.getPlan().isEmpty()) {
+                try {
+                    planJsonRef.set(objectMapper.writeValueAsString(
+                            java.util.Map.of("title", event.getPlanTitle() != null ? event.getPlanTitle() : "",
+                                    "steps", event.getPlan())));
+                } catch (Exception e) {
+                    log.debug("计划快照序列化失败: {}", e.getMessage());
+                }
             }
         });
 
@@ -269,6 +281,10 @@ public class AiChatController {
                     if (!fileEvents.isEmpty()) {
                         String filesJson = objectMapper.writeValueAsString(fileEvents);
                         assistantContent = assistantContent + "\n<!--FILES:" + filesJson + "-->";
+                    }
+                    // 任务计划快照同样以注释嵌入（S9 F5：前端加载时恢复任务流程卡片）
+                    if (planJsonRef.get() != null) {
+                        assistantContent = assistantContent + "\n<!--PLAN:" + planJsonRef.get() + "-->";
                     }
                     if (!assistantContent.isBlank()) {
                         sessionContextService.appendChatInteraction(
@@ -392,6 +408,13 @@ public class AiChatController {
                     .output(chunk.getToolResult().getResult())
                     .build();
         }
+        java.util.List<ChatStreamEvent.PlanStepInfo> plan = null;
+        if (chunk.getPlan() != null) {
+            plan = chunk.getPlan().stream()
+                    .map(s -> ChatStreamEvent.PlanStepInfo.builder()
+                            .id(s.getId()).text(s.getText()).status(s.getStatus()).build())
+                    .toList();
+        }
         return ChatStreamEvent.builder()
                 .type(chunk.getType())
                 .content(chunk.getContent())
@@ -400,6 +423,8 @@ public class AiChatController {
                 .toolResult(toolResultInfo)
                 .errorMessage(chunk.getErrorMessage())
                 .finishReason(chunk.getFinishReason())
+                .planTitle(chunk.getPlanTitle())
+                .plan(plan)
                 .build();
     }
 
