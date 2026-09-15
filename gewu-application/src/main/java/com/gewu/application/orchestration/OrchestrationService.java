@@ -11,6 +11,8 @@ import com.gewu.agent.engine.orchestration.model.AutonomousGoal;
 import com.gewu.agent.engine.orchestration.model.OrchestrationContext;
 import com.gewu.agent.engine.orchestration.model.OrchestrationGraph;
 import com.gewu.agent.engine.orchestration.model.OrchestrationResult;
+import com.gewu.common.result.BusinessException;
+import com.gewu.common.result.ResultCode;
 import com.gewu.common.ulid.Ulid;
 import com.gewu.domain.orchestration.ApprovalRequestEntity;
 import com.gewu.domain.orchestration.OrchestrationExecutionEntity;
@@ -64,6 +66,10 @@ public class OrchestrationService {
      */
     public OrchestrationGraphEntity createGraph(String name, String graphDefinitionJson,
                                                  String graphType, String mode, String userId) {
+        // 空定义不允许入库：执行时 deserializeGraph 对 null 抛 IAE 且 SSE 请求会 406
+        if (graphDefinitionJson == null || graphDefinitionJson.isBlank()) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "编排图定义不能为空");
+        }
         OrchestrationGraphEntity entity = new OrchestrationGraphEntity();
         entity.setId(Ulid.next());
         entity.setGraphName(name);
@@ -105,6 +111,10 @@ public class OrchestrationService {
         OrchestrationGraphEntity entity = graphMapper.selectById(graphId);
         if (entity == null) {
             throw new IllegalArgumentException("编排图不存在: " + graphId);
+        }
+        if (entity.getGraphDefinition() == null || entity.getGraphDefinition().isBlank()) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID,
+                    "编排图定义为空，不能激活。请先编辑保存编排图: " + graphId);
         }
         entity.setStatus("active");
         entity.setUpdatedBy(userId);
@@ -505,8 +515,15 @@ public class OrchestrationService {
     }
 
     private OrchestrationGraph deserializeGraph(OrchestrationGraphEntity entity) {
+        String definition = entity.getGraphDefinition();
+        if (definition == null || definition.isBlank()) {
+            // 空定义图（创建后未保存内容）直接对 null 调 readValue 会抛 IAE，
+            // 以可读业务错误返回（SSE 路径经全局处理器转错误帧可达前端）
+            throw BusinessException.of(ResultCode.PARAM_INVALID,
+                    "编排图定义为空，请先编辑保存编排图后再执行: " + entity.getId());
+        }
         try {
-            return objectMapper.readValue(entity.getGraphDefinition(), OrchestrationGraph.class);
+            return objectMapper.readValue(definition, OrchestrationGraph.class);
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("编排图定义反序列化失败: " + entity.getId(), e);
         }

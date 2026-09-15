@@ -280,7 +280,11 @@ public class SandboxService {
             auditLog.setId(com.gewu.common.ulid.Ulid.next());
             auditLog.setSandboxId(sandboxId);
             auditLog.setAction(action);
-            auditLog.setUserId(UserContext.currentUserId());
+            // 沙箱内部线程可能无 UserContext（internal-key 调用），置 system 兜底
+            String userId = UserContext.currentUserId();
+            auditLog.setUserId(userId != null ? userId : "system");
+            auditLog.setResource("sandbox");
+            auditLog.setResult("SUCCESS");
             auditLog.setDetails(details);
             auditLog.setTimestamp(Instant.now().toEpochMilli());
             auditLog.setCreatedAt(Instant.now().toEpochMilli());

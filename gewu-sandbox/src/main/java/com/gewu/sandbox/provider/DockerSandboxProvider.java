@@ -122,7 +122,13 @@ public class DockerSandboxProvider implements SandboxProvider {
 
     @Override
     public void start(Sandbox sandbox) {
-        dockerClient.startContainerCmd(sandbox.getContainerId()).exec();
+        try {
+            dockerClient.startContainerCmd(sandbox.getContainerId()).exec();
+        } catch (com.github.dockerjava.api.exception.NotModifiedException e) {
+            // 304：容器已在运行（DB 状态滞后或并发恢复触发重复 start），幂等视为成功
+            log.info("容器已在运行，start 幂等返回: sandboxId={}, containerId={}",
+                    sandbox.getId(), sandbox.getContainerId());
+        }
         sandbox.setStatus(SandboxStatus.RUNNING.getCode());
         log.info("启动沙箱: sandboxId={}, containerId={}", sandbox.getId(), sandbox.getContainerId());
     }
