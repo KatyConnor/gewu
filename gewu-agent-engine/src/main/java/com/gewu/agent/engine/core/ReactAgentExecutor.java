@@ -362,13 +362,17 @@ public class ReactAgentExecutor implements AgentExecutor {
             recordMetricSafe("agent.budget.exceeded", 1, Map.of(
                     "agentId", toolContext.getAgentId() != null ? toolContext.getAgentId() : "unknown",
                     "reason", "stream_loop"));
-            return Flux.just(AgentEvent.builder()
-                    .type(AgentEvent.BUDGET_EXCEEDED)
-                    .errorMessage("预算耗尽: token=" + budget.getTokenConsumed() + "/" + budget.getTokenBudget())
-                    .metadata(java.util.Map.of("tokenConsumed", budget.getTokenConsumed(),
-                            "tokenBudget", budget.getTokenBudget(),
-                            "elapsedMs", budget.getElapsedMs()))
-                    .build());
+            // 熔断后补发 done（finishReason=budget）保证前端生命周期完整：
+            // 此前流静默结束且 budget_exceeded 被前端忽略，表现为「无报错无结果地断开」
+            return Flux.just(
+                    AgentEvent.builder()
+                            .type(AgentEvent.BUDGET_EXCEEDED)
+                            .errorMessage("预算耗尽: token=" + budget.getTokenConsumed() + "/" + budget.getTokenBudget())
+                            .metadata(java.util.Map.of("tokenConsumed", budget.getTokenConsumed(),
+                                    "tokenBudget", budget.getTokenBudget(),
+                                    "elapsedMs", budget.getElapsedMs()))
+                            .build(),
+                    AgentEvent.builder().type(AgentEvent.DONE).finishReason("budget").build());
         }
 
         // 预算告警（首次达到 70% 或 90%）
@@ -789,8 +793,17 @@ public class ReactAgentExecutor implements AgentExecutor {
         task.setIntent(intent);
         // 复杂度路由：意图 + 描述特征 -> System 1/2 决策
         ComplexityRouter.ComplexityResult complexity = complexityRouter.route(task.getMessage(), intent);
+        // 会话对话的复杂度预算下限（用户实报 199s/30s=665% 熔断）：路由按消息文本评分，
+        // 「继续执行未完成的任务」这类短消息会被判 L1（30s 时间预算），但多轮会话
+        // 携带完整任务上下文且带工具循环，实际是重任务——session 非空时至少 L2。
+        // L1 只保留给无会话的裸轻量调用。
+        String budgetLevel = complexity.getLevel();
+        if (task.getSessionId() != null && !task.getSessionId().isBlank() && "L1".equals(budgetLevel)) {
+            budgetLevel = "L2";
+            log.info("复杂度预算下限提升: 会话任务 L1 -> L2 (sessionId={})", task.getSessionId());
+        }
         // 按复杂度等级创建预算
-        BudgetContext budget = budgetController.createBudget(complexity.getLevel());
+        BudgetContext budget = budgetController.createBudget(budgetLevel);
         // 模型路由：调用方未显式指定模型时按复杂度/预算选择最优模型
         String[] routed = routeModelIfApplicable(task, pm, complexity, budget);
         return new ExecutionPlan(intent, complexity, budget, routed[0], routed[1]);

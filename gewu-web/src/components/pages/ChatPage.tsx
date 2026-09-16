@@ -358,6 +358,19 @@ export default function ChatPage() {
           setPlan({ title, steps });
           setPlanSessionId(targetSession);
         },
+        onBudgetExceeded: (message) => {
+          if (currentSessionIdRef.current === targetSession) {
+            setChatError({
+              raw: message,
+              title: '任务预算已用尽，执行已中止（已保留部分进度）',
+              category: '预算熔断',
+              cause: '本轮执行的时间/上下文预算达到上限。',
+              suggestion: '已生成的部分内容已保存。可重发继续未完成的任务。',
+              time: Date.now(),
+              level: 'warning',
+            });
+          }
+        },
         onError: (msg) => {
           setChatError(classifyChatError(msg));
         },
@@ -555,6 +568,20 @@ export default function ChatPage() {
             // 任务流程卡片（S9 F5）：plan_created/plan_updated/done 快照实时更新
             setPlan({ title, steps });
             setPlanSessionId(sessionIdForTurn);
+          },
+          onBudgetExceeded: (message) => {
+            // 预算熔断可见化（S9）：仅当前查看的会话提示；后台完成照常落库
+            if (currentSessionIdRef.current === sessionIdForTurn) {
+              setChatError({
+                raw: message,
+                title: '任务预算已用尽，执行已中止（已保留部分进度）',
+                category: '预算熔断',
+                cause: '本轮执行的时间/上下文预算达到上限（短消息触发轻量级预算配置，而会话任务是长程形态）。',
+                suggestion: '已生成的部分内容已保存。点击重发可继续未完成的任务；会话任务的预算下限已提升，复发率将显著降低。',
+                time: Date.now(),
+                level: 'warning',
+              });
+            }
           },
           onError: (error) => {
             if (completed) return;

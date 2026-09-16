@@ -300,6 +300,67 @@ class ReactAgentExecutorStreamTest {
     }
 
     @Test
+    @DisplayName("会话任务的预算下限：L1 提升为 L2，无 session 保持 L1（用户实报 199s/30s 熔断）")
+    void sessionTaskBudgetFloorPromotesL1ToL2() {
+        List<String> levels = new java.util.concurrent.CopyOnWriteArrayList<>();
+        BudgetController recording = new BudgetController(81920, 300000, 10) {
+            @Override
+            public com.gewu.agent.engine.budget.BudgetContext createBudget(String taskLevel) {
+                levels.add(taskLevel);
+                return super.createBudget(taskLevel);
+            }
+        };
+        executor = new ReactAgentExecutor(
+                new LlmClientRegistry(List.of(llmClient), null, objectMapper,
+                        HttpClient.newHttpClient(), new LlmRequestBodyBuilder(objectMapper)),
+                toolExecutor,
+                new DefaultMessageBuilder(new SystemPromptComposer()),
+                new NoOpSessionContextService(),
+                new NoOpPersistenceService(),
+                AgentEngineConfig.builder()
+                        .maxToolRounds(3)
+                        .defaultMaxTokens(8192)
+                        .defaultTemperature(0.7)
+                        .toolExecutor(toolExecutorPool)
+                        .defaultHistoryLimit(50)
+                        .build(),
+                objectMapper,
+                new NoOpMemoryRouter(),
+                new NoOpMemoryStore(),
+                recording,
+                new NoOpPerceptionEngine(),
+                new ComplexityRouter(new DualSystemRouter()),
+                noOpTraceService(),
+                noOpMetricService(),
+                new ResponseCache() {
+                },
+                new PromptInjectionDetector(),
+                new OutputSanitizer(),
+                noOpModelSelector(),
+                null);
+
+        // 带会话的短消息任务：路由判 L1，应提升为 L2
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().delta("ok").build(),
+                LlmChunk.builder().finishReason("stop").build()));
+        executor.executeStream(task(1024)).collectList().block();
+        assertThat(levels).containsExactly("L2");
+
+        // 无 session 的裸调用：保持 L1
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().delta("ok").build(),
+                LlmChunk.builder().finishReason("stop").build()));
+        AgentTask noSession = AgentTask.builder()
+                .userId("user-1")
+                .message("北京今天天气怎么样")
+                .modelProvider("test")
+                .modelName("test-model")
+                .build();
+        executor.executeStream(noSession).collectList().block();
+        assertThat(levels).containsExactly("L2", "L1");
+    }
+
+    @Test
     @DisplayName("内置 plan_task 工具：计划事件透出 + done 携带快照（S9 F5）")
     void planToolEmitsPlanEvents() {
         // 第一轮：模型调用内置 plan_task 制定任务清单
