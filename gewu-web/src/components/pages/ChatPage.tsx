@@ -57,7 +57,7 @@ const MessageItem = React.memo(function MessageItem({ msg, isStreaming, regenera
         {msg.role === 'ai' && msg.process && hasProcessActivity(msg.process) ? (
           <>
             {/* 有过程事件：正文与操作行交错的时间线（zcode 风格），不再套气泡 */}
-            <AIProcessTimeline items={msg.process} streaming={false} totalMs={msg.processMs} expanded={msg.processExpanded ?? true} onToggle={() => onToggleProcess(msg.id)} />
+            <AIProcessTimeline items={msg.process} streaming={false} totalMs={msg.processMs} expanded={msg.processExpanded ?? false} onToggle={() => onToggleProcess(msg.id)} />
             {msg.files && msg.files.length > 0 && (
               <div className="mt-2 space-y-2">
                 {msg.files.map((f, i) => <FileCard key={i} file={f} />)}
@@ -272,7 +272,7 @@ export default function ChatPage() {
       process: processItems.length > 0 ? processItems : undefined,
       processMs: processItems.length > 0 ? processMs : undefined,
       files: files && files.length > 0 ? files : undefined,
-      processExpanded: true,
+      processExpanded: false,
     }]);
   };
 
@@ -683,7 +683,7 @@ export default function ChatPage() {
     }
   };
   const backToHome = () => { setShowChatView(false); setMessages([]); dispatch(setPage('dashboard')); };
-  const toggleProcess = useCallback((msgId: string) => { setMessages(prev => prev.map(m => m.id === msgId ? { ...m, processExpanded: !(m.processExpanded ?? true) } : m)); }, []);
+  const toggleProcess = useCallback((msgId: string) => { setMessages(prev => prev.map(m => m.id === msgId ? { ...m, processExpanded: !(m.processExpanded ?? false) } : m)); }, []);
 
   // 当前项目（顶栏 F2：项目文件夹 + Git 分支信息）
   const currentProject = projects.find(p => p.projectId === currentProjectId) ?? null;

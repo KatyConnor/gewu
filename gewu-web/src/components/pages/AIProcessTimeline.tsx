@@ -149,13 +149,9 @@ export default function AIProcessTimeline({
   );
 }
 
-/** 展开态判定（用户手动优先，否则进行中自动展开） */
+/** 展开态判定（S9 反馈）：默认收起，用户手动点击优先——流式过程不再自动展开占屏 */
 function expandedFor(item: ProcessItem, manual: Record<string, boolean>): boolean {
   if (item.id in manual) return manual[item.id];
-  if (item.kind === 'content') return false;
-  if (item.kind === 'thinking') return item.status === 'active';
-  if (item.kind === 'tool') return item.status === 'executing' || item.status === 'pending';
-  if (item.kind === 'search') return item.status === 'executing' || item.status === 'verifying';
   return false;
 }
 
