@@ -56,8 +56,12 @@ const MessageItem = React.memo(function MessageItem({ msg, isStreaming, regenera
       <div className={`flex-1 max-w-3xl ${msg.role === 'user' ? 'flex flex-col items-end' : ''}`}>
         {msg.role === 'ai' && msg.process && hasProcessActivity(msg.process) ? (
           <>
-            {/* 有过程事件：正文与操作行交错的时间线（zcode 风格），不再套气泡 */}
-            <AIProcessTimeline items={msg.process} streaming={false} totalMs={msg.processMs} expanded={msg.processExpanded ?? false} onToggle={() => onToggleProcess(msg.id)} />
+            {/* 完成态（zcode 形态）：过程行折叠可查 + 完整正文渲染在过程之后——
+                正文不再藏进时间线（折叠时结果不可见的缺陷修复） */}
+            <AIProcessTimeline items={msg.process} streaming={false} totalMs={msg.processMs} expanded={msg.processExpanded ?? false} onToggle={() => onToggleProcess(msg.id)} hideContentSegments />
+            <div className="mt-3">
+              <MarkdownRenderer content={msg.content} />
+            </div>
             {msg.files && msg.files.length > 0 && (
               <div className="mt-2 space-y-2">
                 {msg.files.map((f, i) => <FileCard key={i} file={f} />)}
@@ -118,6 +122,9 @@ export default function ChatPage() {
   const [fileChangesSessionId, setFileChangesSessionId] = useState<string | null>(null);
   // 回调内读取「当前正在查看的会话」需绕过闭包陈旧值，用 ref 镜像（effect 在 state 声明后绑定）
   const currentSessionIdRef = useRef<string | null>(null);
+  // 流式会话本地现场（S9 修复）：切走流式会话时保存消息列表，切回时恢复——
+  // 后端此刻尚未落库，从后端重载会用中间态冲掉本地已显示的用户消息
+  const streamingMessagesCache = useRef<Map<string, Message[]>>(new Map());
   // 会话文件变更（S9 F3：流结束后拉取，驱动「更改」chip 与右侧编辑面板）
   const [fileChanges, setFileChanges] = useState<FileChangeDTO[]>([]);
   const [filePanelOpen, setFilePanelOpen] = useState(false);
@@ -288,6 +295,27 @@ export default function ChatPage() {
   }, [messages, streamText, process]);
 
   const loadConversation = async (session: SessionDTO) => {
+    // 切走流式会话前保存本地现场（用户消息/本地渲染尚未落库的部分）
+    const leavingSessionId = currentSessionIdRef.current;
+    if (leavingSessionId && leavingSessionId === streamingSessionId) {
+      streamingMessagesCache.current.set(leavingSessionId, messages);
+    }
+
+    // 目标会话正在后台流式生成：不从后端重载（后端是未落库中间态），恢复本地现场，
+    // 流式 UI（streamText/process/plan）由后台流继续实时更新
+    if (session.sessionId === streamingSessionId) {
+      setCurrentTitle(session.title);
+      setCurrentSessionId(session.sessionId);
+      setCurrentProjectId(session.projectId ?? null);
+      setShowChatView(true);
+      setShowArchived(false);
+      const cached = streamingMessagesCache.current.get(session.sessionId);
+      if (cached) {
+        setMessages(cached);
+      }
+      return;
+    }
+
     setCurrentTitle(session.title);
     setCurrentSessionId(session.sessionId);
     setCurrentProjectId(session.projectId ?? null);
@@ -309,12 +337,35 @@ export default function ChatPage() {
           // 最后一条带计划的 AI 消息恢复卡片（历史回放）
           setPlan(planParsed.plan);
         }
+        // 还原过程时间线（S9 问题3修复）：metadata.process → msg.process，
+        // 历史消息获得与 zcode 一致的「过程折叠 + 结果正文」形态
+        let process: ProcessItem[] | undefined;
+        if (m.metadata) {
+          try {
+            const meta = JSON.parse(m.metadata) as {
+              process?: Array<{ k: string; s?: number; e?: number; t?: string; n?: string; a?: string; r?: string; id?: string }>;
+            };
+            if (Array.isArray(meta.process) && meta.process.length > 0) {
+              process = meta.process.map((p, i) => p.k === 'tool'
+                ? {
+                    kind: 'tool' as const, id: p.id || `tool-h${i}`, name: p.n || 'tool',
+                    args: p.a, result: p.r, status: 'done' as const,
+                    startedAt: p.s || 0, endedAt: p.e,
+                  }
+                : {
+                    kind: 'thinking' as const, id: `think-h${i}`, text: p.t || '',
+                    status: 'done' as const, startedAt: p.s || 0, endedAt: p.e,
+                  });
+            }
+          } catch { /* metadata 解析失败按无过程处理 */ }
+        }
         return {
           id: m.messageId,
           fromBackend: true,
           role: m.messageType === 'assistant' ? 'ai' as const : 'user' as const,
           content: parsed.content,
           files: parsed.files,
+          process,
           timestamp: m.createdAt ? new Date(m.createdAt).toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) : '',
         };
       });

@@ -180,6 +180,15 @@ public class SessionContextService {
     @Transactional
     public void appendChatInteraction(String sessionId, String userId, String userContent,
                                       String assistantContent, String clientId) {
+        appendChatInteraction(sessionId, userId, userContent, assistantContent, clientId, null);
+    }
+
+    /**
+     * 带助手消息元数据的交互落库（S9）：metadata 携带过程时间线摘要 JSON，
+     * 供前端历史消息还原折叠过程视图。
+     */
+    public void appendChatInteraction(String sessionId, String userId, String userContent,
+                                      String assistantContent, String clientId, String assistantMetadata) {
         Session session = sessionMapper.selectById(sessionId);
         if (session == null) {
             log.warn("会话不存在，跳过持久化: sessionId={}", sessionId);
@@ -213,6 +222,7 @@ public class SessionContextService {
             aiMsg.setSenderId("agent");
             aiMsg.setMessageType("assistant");
             aiMsg.setContent(assistantContent);
+            aiMsg.setMetadata(assistantMetadata);
             aiMsg.setEdited(0);
             messageAppender.appendWithRetry(aiMsg);
             inserted++;

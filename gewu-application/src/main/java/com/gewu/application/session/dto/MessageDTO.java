@@ -17,4 +17,6 @@ public class MessageDTO {
     private Integer seq;
     private Integer edited;
     private Long createdAt;
+    /** 助手消息元数据 JSON（过程时间线摘要，S9） */
+    private String metadata;
 }

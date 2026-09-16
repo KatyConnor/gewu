@@ -163,6 +163,13 @@ public class AiChatController {
         // 累积 content 和 file 事件用于会话持久化
         final java.util.concurrent.atomic.AtomicReference<String> planJsonRef =
                 new java.util.concurrent.atomic.AtomicReference<>(null);
+        // 过程时间线摘要（S9 问题3修复）：轻量累积供 metadata 持久化，
+        // 前端历史消息据此还原折叠过程视图。条目截断控制体积。
+        final java.util.List<java.util.Map<String, Object>> processSummary = new java.util.ArrayList<>();
+        final long[] thinkStart = {0};
+        final StringBuilder thinkSnippet = new StringBuilder();
+        final java.util.Map<String, java.util.Map<String, Object>> openTools = new java.util.LinkedHashMap<>();
+        final long streamStartMs = System.currentTimeMillis();
         final Flux<ChatStreamEvent> eventFlux = baseFlux.doOnNext(event -> {
             if ("content".equals(event.getType()) && event.getContent() != null) {
                 accumulated.get().append(event.getContent());
@@ -182,6 +189,50 @@ public class AiChatController {
                                     "steps", event.getPlan())));
                 } catch (Exception e) {
                     log.debug("计划快照序列化失败: {}", e.getMessage());
+                }
+            }
+            // 过程时间线摘要累积（S9 问题3修复）：thinking 段/工具调用轻量记录
+            long nowMs = System.currentTimeMillis();
+            if ("thinking".equals(event.getType()) && event.getReasoning() != null) {
+                if (thinkStart[0] == 0) {
+                    thinkStart[0] = nowMs;
+                    thinkSnippet.setLength(0);
+                }
+                if (thinkSnippet.length() < 500) {
+                    thinkSnippet.append(event.getReasoning());
+                }
+            } else if ("content".equals(event.getType()) || "tool_call".equals(event.getType())
+                    || "budget_exceeded".equals(event.getType()) || "error".equals(event.getType())) {
+                // 思考段被正文/工具打断：闭合思考段
+                if (thinkStart[0] > 0) {
+                    java.util.Map<String, Object> seg = new java.util.LinkedHashMap<>();
+                    seg.put("k", "thinking");
+                    seg.put("s", thinkStart[0] - streamStartMs);
+                    seg.put("e", nowMs - streamStartMs);
+                    seg.put("t", thinkSnippet.toString());
+                    if (processSummary.size() < 100) {
+                        processSummary.add(seg);
+                    }
+                    thinkStart[0] = 0;
+                }
+            }
+            if ("tool_call".equals(event.getType()) && event.getToolCall() != null && processSummary.size() < 100) {
+                java.util.Map<String, Object> tool = new java.util.LinkedHashMap<>();
+                tool.put("k", "tool");
+                tool.put("s", nowMs - streamStartMs);
+                tool.put("n", event.getToolCall().getName());
+                String args = event.getToolCall().getArguments();
+                tool.put("a", args != null && args.length() > 200 ? args.substring(0, 200) : args);
+                tool.put("id", event.getToolCall().getId());
+                processSummary.add(tool);
+                openTools.put(event.getToolCall().getId(), tool);
+            }
+            if ("tool_result".equals(event.getType()) && event.getToolResult() != null) {
+                java.util.Map<String, Object> tool = openTools.remove(event.getToolResult().getToolCallId());
+                if (tool != null) {
+                    tool.put("e", nowMs - streamStartMs);
+                    String output = event.getToolResult().getOutput();
+                    tool.put("r", output != null && output.length() > 200 ? output.substring(0, 200) : output);
                 }
             }
         });
@@ -323,9 +374,20 @@ public class AiChatController {
                     if (planJsonRef.get() != null) {
                         assistantContent = assistantContent + "\n<!--PLAN:" + planJsonRef.get() + "-->";
                     }
+                    // 过程时间线摘要写入 metadata（S9 问题3修复：前端历史还原折叠过程视图）
+                    String assistantMetadata = null;
+                    if (!processSummary.isEmpty()) {
+                        try {
+                            assistantMetadata = objectMapper.writeValueAsString(
+                                    java.util.Map.of("process", processSummary));
+                        } catch (Exception e) {
+                            log.debug("过程摘要序列化失败: {}", e.getMessage());
+                        }
+                    }
                     if (!assistantContent.isBlank()) {
                         sessionContextService.appendChatInteraction(
-                                sessionId, userId, userMessage, assistantContent, request.getClientId());
+                                sessionId, userId, userMessage, assistantContent, request.getClientId(),
+                                assistantMetadata);
                     }
                 } catch (Exception e) {
                     log.error("保存会话交互记录失败: sessionId={}", sessionId, e);

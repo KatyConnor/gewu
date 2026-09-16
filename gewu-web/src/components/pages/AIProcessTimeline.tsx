@@ -56,7 +56,7 @@ function toolRowInfo(name: string, args?: string): { icon: 'terminal' | 'read' |
 }
 
 export default function AIProcessTimeline({
-  items, status, streaming, totalMs, startAt, expanded, onToggle,
+  items, status, streaming, totalMs, startAt, expanded, onToggle, hideContentSegments,
 }: {
   items: ProcessItem[];
   /** 流式期间的后端阶段提示（如"正在继续推理..."） */
@@ -68,6 +68,8 @@ export default function AIProcessTimeline({
   startAt?: number;
   expanded: boolean;
   onToggle: () => void;
+  /** 完成态模式：隐藏交错在时间线中的正文段（正文由 msg.content 独立渲染在时间线之后，zcode 形态） */
+  hideContentSegments?: boolean;
 }) {
   const [now, setNow] = useState(Date.now());
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -120,6 +122,8 @@ export default function AIProcessTimeline({
         <div ref={bodyRef} className="mt-0.5">
           {items.map((item, idx) => {
             if (item.kind === 'content') {
+              // 完成态隐藏正文段：正文由 msg.content 完整渲染在时间线之后
+              if (hideContentSegments) return null;
               return (
                 <div key={item.id} className="my-2">
                   <MarkdownRenderer content={item.text} isStreaming={streaming && idx === lastContentIdx} />

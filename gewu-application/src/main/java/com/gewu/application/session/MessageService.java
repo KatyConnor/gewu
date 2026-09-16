@@ -193,6 +193,7 @@ public class MessageService {
                 .seq(message.getSeq())
                 .edited(message.getEdited())
                 .createdAt(message.getCreatedAt())
+                .metadata(message.getMetadata())
                 .build();
     }
 }

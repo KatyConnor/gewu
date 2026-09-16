@@ -58,6 +58,8 @@ export interface MessageDTO {
   seq: number;
   edited: number;
   createdAt: number;
+  /** 助手消息元数据 JSON（过程时间线摘要，S9） */
+  metadata?: string;
 }
 
 /** 发送消息请求 */
