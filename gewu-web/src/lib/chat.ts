@@ -206,6 +206,8 @@ export interface ChatStreamCallbacks {
   onPlan?: (title: string, steps: PlanStepInfo[]) => void;
   /** 任务预算熔断（时间/上下文超限）：已保留部分进度，需重发继续 */
   onBudgetExceeded?: (message: string) => void;
+  /** 预算告警（70%/90%/续期）：非阻塞提示剩余预算 */
+  onBudgetWarning?: (message: string) => void;
   onError?: (error: string) => void;
   /** 完成回调，携带 LLM finishReason（length=回复可能被截断） */
   onComplete?: (finishReason?: string) => void;
@@ -481,6 +483,12 @@ function handleStreamEvent(
       // 预算熔断（S9）：此前被静默忽略，表现为「无报错无结果地断开」
       if (callbacks.onBudgetExceeded) {
         callbacks.onBudgetExceeded(event.errorMessage || '任务预算已用尽');
+      }
+      break;
+    case 'budget_warning':
+      // 预算告警（S9 方案A）：70%/90% 阈值与时间滚动续期的非阻塞提示
+      if (event.content && callbacks.onBudgetWarning) {
+        callbacks.onBudgetWarning(event.content);
       }
       break;
     case 'file':

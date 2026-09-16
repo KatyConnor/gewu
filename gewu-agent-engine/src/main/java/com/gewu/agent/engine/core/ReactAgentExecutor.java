@@ -153,7 +153,9 @@ public class ReactAgentExecutor implements AgentExecutor {
         int truncationRetries = 0;
 
         for (int round = 0; round < config.getMaxToolRounds(); round++) {
-            // 预算检查：熔断则终止
+            // 时间预算滚动续期（S9 方案A）：时间满额但 Token/轮次健康 → 续期不终止
+            budgetController.renewTimeBudget(plan.budget);
+            // 预算检查：熔断则终止（仅 Token/轮次）
             if (budgetController.shouldStop(plan.budget)) {
                 log.warn("预算熔断: tokenUtil={}, timeUtil={}, round={}",
                         plan.budget.getTokenUtilization(), plan.budget.getTimeUtilization(), round);
@@ -311,18 +313,24 @@ public class ReactAgentExecutor implements AgentExecutor {
 
         StringBuilder contentTracker = new StringBuilder();
         int maxTokens = resolveMaxTokens(task);
+        // 账本准确性（S9 方案A）：预算熔断的运行不算成功，且部分内容不沉淀经验
+        java.util.concurrent.atomic.AtomicBoolean budgetStopped = new java.util.concurrent.atomic.AtomicBoolean(false);
         return Flux.defer(() -> streamRound(client, plan.model, messages, tools, toolConfigMap, toolContext, temperature, maxTokens, 0, 0, plan.budget))
                 .doOnNext(event -> {
                     if (AgentEvent.CONTENT.equals(event.getType()) && event.getContent() != null) {
                         contentTracker.append(event.getContent());
                     }
-                    // 预算告警事件透传
                     if (AgentEvent.BUDGET_EXCEEDED.equals(event.getType())) {
-                        storeExperience(task, contentTracker.toString());
+                        budgetStopped.set(true);
                     }
                 })
                 .doFinally(signal -> {
                     if (signal == reactor.core.publisher.SignalType.ON_COMPLETE) {
+                        if (budgetStopped.get()) {
+                            // 预算熔断：记失败账本，部分内容不沉淀经验（避免不完整回复污染记忆）
+                            recordFailure(task, "BUDGET_EXCEEDED: 预算耗尽，已保留部分进度");
+                            return;
+                        }
                         // 输出安全层：PII 脱敏后再持久化经验
                         storeExperience(task, outputSanitizer.checkOutput(contentTracker.toString()));
                         recordSuccess(task, plan.budget);
@@ -355,7 +363,18 @@ public class ReactAgentExecutor implements AgentExecutor {
                     .build());
         }
 
-        // 预算熔断检查
+        // 时间预算滚动续期（S9 方案A）：时间满额但 Token/轮次健康 → 续期并发告警事件，
+        // 不终止——持续健康推进的长任务（马拉松思考/多轮工具）不再被墙钟误杀
+        java.util.List<AgentEvent> budgetHeadEvents = new ArrayList<>();
+        if (budget.getTimeUtilization() >= 1.0 && budgetController.renewTimeBudget(budget)) {
+            budgetHeadEvents.add(AgentEvent.builder()
+                    .type(AgentEvent.BUDGET_WARNING)
+                    .content(String.format("执行时间较长，已自动续期时间预算（累计 %d 秒），任务继续推进中",
+                            budget.getElapsedMs() / 1000))
+                    .build());
+        }
+
+        // 预算熔断检查（仅 Token 超限 / 轮次超限阻断）
         if (budgetController.shouldStop(budget)) {
             log.warn("预算熔断(流式): tokenUtil={}, timeUtil={}, round={}",
                     budget.getTokenUtilization(), budget.getTimeUtilization(), round);
@@ -364,21 +383,28 @@ public class ReactAgentExecutor implements AgentExecutor {
                     "reason", "stream_loop"));
             // 熔断后补发 done（finishReason=budget）保证前端生命周期完整：
             // 此前流静默结束且 budget_exceeded 被前端忽略，表现为「无报错无结果地断开」
-            return Flux.just(
-                    AgentEvent.builder()
-                            .type(AgentEvent.BUDGET_EXCEEDED)
-                            .errorMessage("预算耗尽: token=" + budget.getTokenConsumed() + "/" + budget.getTokenBudget())
-                            .metadata(java.util.Map.of("tokenConsumed", budget.getTokenConsumed(),
-                                    "tokenBudget", budget.getTokenBudget(),
-                                    "elapsedMs", budget.getElapsedMs()))
-                            .build(),
-                    AgentEvent.builder().type(AgentEvent.DONE).finishReason("budget").build());
+            budgetHeadEvents.add(AgentEvent.builder()
+                    .type(AgentEvent.BUDGET_EXCEEDED)
+                    .errorMessage("预算耗尽: token=" + budget.getTokenConsumed() + "/" + budget.getTokenBudget())
+                    .metadata(java.util.Map.of("tokenConsumed", budget.getTokenConsumed(),
+                            "tokenBudget", budget.getTokenBudget(),
+                            "elapsedMs", budget.getElapsedMs()))
+                    .build());
+            budgetHeadEvents.add(AgentEvent.builder().type(AgentEvent.DONE).finishReason("budget").build());
+            return Flux.fromIterable(budgetHeadEvents);
         }
 
-        // 预算告警（首次达到 70% 或 90%）
+        // 预算告警（70%/90% 阈值，budget_warning 事件对用户可见）
         BudgetStatus status = budgetController.check(budget);
-        if (status == BudgetStatus.ALERT && round > 0) {
-            log.info("预算告警(流式): tokenUtil={}", budget.getTokenUtilization());
+        if ((status == BudgetStatus.ALERT || status == BudgetStatus.DEGRADE)) {
+            log.info("预算告警(流式): tokenUtil={}, timeUtil={}, round={}",
+                    budget.getTokenUtilization(), budget.getTimeUtilization(), round);
+            budgetHeadEvents.add(AgentEvent.builder()
+                    .type(AgentEvent.BUDGET_WARNING)
+                    .content(String.format("任务预算使用率已达 %d%%（token %d%% / 时间滚动续期中）",
+                            (int) Math.round(Math.max(budget.getTokenUtilization(), budget.getTimeUtilization()) * 100),
+                            (int) Math.round(budget.getTokenUtilization() * 100)))
+                    .build());
         }
 
         LlmRequest llmRequest = LlmRequest.builder()
@@ -393,9 +419,10 @@ public class ReactAgentExecutor implements AgentExecutor {
         StringBuilder contentBuilder = new StringBuilder();
         Map<String, ToolCallAccumulator> toolCallAccumulators = new LinkedHashMap<>();
         String[] finishReasonHolder = {null};
+        long[] reasoningChars = {0};
 
         // OTel 追踪：流式 LLM 调用包装 Span（订阅时开启，流终止时结束）
-        return Flux.defer(() -> {
+        Flux<AgentEvent> roundFlux = Flux.defer(() -> {
                     Object llmSpan = traceService.startSpan(toolContext.getSessionId(), toolContext.getAgentId(), "llm_call_stream");
                     return client.chatStream(llmRequest)
                             .doFinally(signal -> {
@@ -414,6 +441,7 @@ public class ReactAgentExecutor implements AgentExecutor {
                     }
                     List<AgentEvent> events = new ArrayList<>(2);
                     if (chunk.getReasoning() != null && !chunk.getReasoning().isEmpty()) {
+                        reasoningChars[0] += chunk.getReasoning().length();
                         events.add(AgentEvent.builder()
                                 .type(AgentEvent.THINKING)
                                 .reasoning(chunk.getReasoning())
@@ -439,6 +467,17 @@ public class ReactAgentExecutor implements AgentExecutor {
                 .concatWith(Flux.defer(() -> {
                     String content = contentBuilder.toString();
                     List<ToolCall> toolCalls = assembleToolCalls(toolCallAccumulators);
+
+                    // 流式 Token 记账（S9 方案A）：流式路径此前从不 consume，Token 预算
+                    // 形同虚设（tokenUtil 恒 0）；按字符量估算本轮消耗（CJK 约 3 字符/token）
+                    {
+                        long chars = reasoningChars[0] + content.length();
+                        for (Message m : messages) {
+                            chars += m.getContent() != null ? m.getContent().length() : 0;
+                        }
+                        long estimated = Math.max(1, chars / 3);
+                        budgetController.consume(budget, estimated, estimated * 0.00001);
+                    }
 
                     messages.add(Message.builder()
                             .role("assistant")
@@ -557,6 +596,10 @@ public class ReactAgentExecutor implements AgentExecutor {
                                             streamRound(client, model, messages, tools, toolConfigMap,
                                                     toolContext, temperature, maxTokens, round + 1, truncationRetries, budget))));
                 }));
+        // 轮次头产生的预算事件（续期/告警/熔断）前置到本轮流输出
+        return budgetHeadEvents.isEmpty()
+                ? roundFlux
+                : Flux.concat(Flux.fromIterable(budgetHeadEvents), roundFlux);
     }
 
     // ==================== 内置工具执行（S9：plan_task / 文件工具） ====================

@@ -105,6 +105,10 @@ public class BudgetController {
 
     /**
      * 检查预算状态。
+     * <p>阻断语义（S9 重构）：仅 Token 超限与轮次超限触发 BLOCK——它们直接度量
+     * 工作量与循环失控；时间维度降级为告警信号（不阻断）：墙钟会误杀健康的
+     * 马拉松任务（深度思考/长工具执行），真正的卡死由模型层空闲看门狗负责。
+     * DEGRADE/ALERT 信号仍取两者最大值供模型降级决策。
      */
     public BudgetStatus check(BudgetContext ctx) {
         if (ctx == null) return BudgetStatus.NORMAL;
@@ -113,7 +117,7 @@ public class BudgetController {
         double timeUtil = ctx.getTimeUtilization();
         double maxUtil = Math.max(tokenUtil, timeUtil);
 
-        if (maxUtil >= BLOCK_THRESHOLD || ctx.getCurrentRound() >= ctx.getMaxRounds()) {
+        if (tokenUtil >= BLOCK_THRESHOLD || ctx.getCurrentRound() >= ctx.getMaxRounds()) {
             return BudgetStatus.BLOCK;
         } else if (maxUtil >= DEGRADE_THRESHOLD) {
             return BudgetStatus.DEGRADE;
@@ -121,6 +125,26 @@ public class BudgetController {
             return BudgetStatus.ALERT;
         }
         return BudgetStatus.NORMAL;
+    }
+
+    /**
+     * 时间预算滚动续期（S9 方案A）：时间到达上限但 Token/轮次仍健康时，
+     * 续一个新的时间片而不是终止——持续健康推进的任务永不因墙钟被杀。
+     *
+     * @return true 表示发生了续期（调用方应发预算告警事件）
+     */
+    public boolean renewTimeBudget(BudgetContext ctx) {
+        if (ctx == null || ctx.getTimeBudgetMs() <= 0) {
+            return false;
+        }
+        long elapsed = ctx.getElapsedMs();
+        if (elapsed < ctx.getTimeBudgetMs()) {
+            return false;
+        }
+        long slice = Math.max(ctx.getTimeBudgetMs() / 2, 30_000L);
+        ctx.setTimeBudgetMs(elapsed + slice);
+        log.info("时间预算滚动续期: elapsed={}ms, newBudget={}ms (任务仍在健康推进)", elapsed, ctx.getTimeBudgetMs());
+        return true;
     }
 
     /**

@@ -355,7 +355,7 @@ public class AgentEngineAutoConfiguration {
         quotas.setL3TimeMultiplier(b.getL3TimeMultiplier());
         quotas.setL3RoundsMultiplier(b.getL3RoundsMultiplier());
         return new BudgetController(
-                e.getDefaultMaxTokens() * 10L,
+                b.getTokenBudget(),
                 b.getTimeBudgetMs(),
                 e.getMaxToolRounds(),
                 quotas);

@@ -72,6 +72,8 @@ public class AgentEngineProperties {
 
     @Data
     public static class Budget {
+        /** Token 预算基线（L2；L1=除以 divisor、L3=乘以 multiplier）。S9 配置化，替代 defaultMaxTokens×10 硬推导 */
+        private long tokenBudget = 81_920;
         /** L2（默认等级）时间预算（毫秒） */
         private long timeBudgetMs = 300_000;
         /** L1（轻量任务）token 预算除数 */

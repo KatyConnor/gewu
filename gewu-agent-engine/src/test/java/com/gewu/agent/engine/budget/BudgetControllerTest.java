@@ -92,6 +92,34 @@ class BudgetControllerTest {
     }
 
     @Test
+    @DisplayName("时间超限不再 BLOCK：仅告警信号，滚动续期后恢复 NORMAL（S9 方案A）")
+    void timeExhaustedDoesNotBlock() {
+        BudgetContext ctx = controller.createBudget(null);
+        ctx.setTokenConsumed(0);
+        ctx.setTimeBudgetMs(300_000);
+        // 模拟时间耗尽：startTimeMs 回拨，使 elapsed=300s
+        ctx.setStartTimeMs(System.currentTimeMillis() - 300_000);
+        // 时间维度单独超限：不 BLOCK
+        assertThat(controller.check(ctx)).isNotEqualTo(BudgetStatus.BLOCK);
+        // 滚动续期：新时间预算 = elapsed + max(base/2, 30s)，恢复 NORMAL
+        assertThat(controller.renewTimeBudget(ctx)).isTrue();
+        assertThat(ctx.getTimeBudgetMs()).isGreaterThan(300_000);
+        assertThat(controller.check(ctx)).isEqualTo(BudgetStatus.NORMAL);
+        // 时间未满时续期是空操作
+        assertThat(controller.renewTimeBudget(ctx)).isFalse();
+    }
+
+    @Test
+    @DisplayName("Token 超限仍然 BLOCK（时间续期不影响 Token 阻断）")
+    void tokenExhaustedStillBlocksAfterRenewal() {
+        BudgetContext ctx = controller.createBudget(null);
+        ctx.setStartTimeMs(System.currentTimeMillis() - 300_000);
+        controller.renewTimeBudget(ctx);
+        ctx.setTokenConsumed(100_000);
+        assertThat(controller.check(ctx)).isEqualTo(BudgetStatus.BLOCK);
+    }
+
+    @Test
     @DisplayName("consume 记账：累加 token/成本并推进轮次")
     void consumeAccounting() {
         BudgetContext ctx = controller.createBudget(null);

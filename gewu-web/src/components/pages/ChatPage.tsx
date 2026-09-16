@@ -358,6 +358,11 @@ export default function ChatPage() {
           setPlan({ title, steps });
           setPlanSessionId(targetSession);
         },
+        onBudgetWarning: (message) => {
+          if (currentSessionIdRef.current === targetSession) {
+            toast(message, 'info');
+          }
+        },
         onBudgetExceeded: (message) => {
           if (currentSessionIdRef.current === targetSession) {
             setChatError({
@@ -568,6 +573,12 @@ export default function ChatPage() {
             // 任务流程卡片（S9 F5）：plan_created/plan_updated/done 快照实时更新
             setPlan({ title, steps });
             setPlanSessionId(sessionIdForTurn);
+          },
+          onBudgetWarning: (message) => {
+            // 预算告警（S9 方案A）：非阻塞 toast，仅当前查看的会话提示
+            if (currentSessionIdRef.current === sessionIdForTurn) {
+              toast(message, 'info');
+            }
           },
           onBudgetExceeded: (message) => {
             // 预算熔断可见化（S9）：仅当前查看的会话提示；后台完成照常落库
