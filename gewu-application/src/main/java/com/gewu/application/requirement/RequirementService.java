@@ -14,6 +14,7 @@ import static com.gewu.common.enums.RequirementPermission.*;
 import com.gewu.domain.requirement.*;
 import com.gewu.domain.user.UserAccount;
 import com.gewu.infrastructure.mapper.*;
+import com.gewu.infrastructure.storage.MinioStorageService;
 import com.gewu.infrastructure.util.ULIDUtil;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -35,7 +36,9 @@ public class RequirementService {
     private final RequirementReviewMapper reviewMapper;
     private final RequirementTaskMapper taskMapper;
     private final RequirementCommentMapper commentMapper;
+    private final RequirementFileMapper requirementFileMapper;
     private final UserAccountMapper userAccountMapper;
+    private final MinioStorageService storageService;
 
     // 需求编号计数器（年份 -> 计数器）
     private static final ConcurrentHashMap<String, AtomicInteger> CODE_COUNTERS = new ConcurrentHashMap<>();
@@ -123,6 +126,20 @@ public class RequirementService {
         checkEditable(req);
         // 权限检查：创建人或管理员权限
         PermissionChecker.checkRequirementEditPermission(req.getCreatedBy());
+
+        // 级联清理需求文件：删 MinIO 对象 + 逻辑删行 + 项目需求前缀兜底
+        List<RequirementFile> files = requirementFileMapper.selectList(
+                new LambdaQueryWrapper<RequirementFile>().eq(RequirementFile::getRequirementId, id));
+        for (RequirementFile file : files) {
+            if (file.getObjectKey() != null && !file.getObjectKey().isBlank()) {
+                storageService.deleteObject(file.getObjectKey());
+            }
+            requirementFileMapper.deleteById(file.getId());
+        }
+        if (req.getProjectId() != null && !req.getProjectId().isBlank()) {
+            storageService.deleteWorkspacePath("projects/" + req.getProjectId() + "/requirements/" + id + "/");
+        }
+
         req.setDeleted(1);
         req.setUpdatedAt(System.currentTimeMillis());
         req.setUpdatedBy(currentUserId());

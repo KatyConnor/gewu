@@ -8,9 +8,16 @@ import com.gewu.common.dto.PageQuery;
 import com.gewu.common.result.BusinessException;
 import com.gewu.common.result.PageResult;
 import com.gewu.common.result.ResultCode;
+import com.gewu.domain.agent.AgentExecution;
 import com.gewu.domain.session.Session;
+import com.gewu.domain.session.SessionFileChange;
+import com.gewu.domain.session.SessionFileChangeEvent;
 import com.gewu.domain.session.SessionMember;
+import com.gewu.domain.session.SessionMessage;
 import com.gewu.domain.workspace.Workspace;
+import com.gewu.infrastructure.mapper.AgentExecutionMapper;
+import com.gewu.infrastructure.mapper.SessionFileChangeEventMapper;
+import com.gewu.infrastructure.mapper.SessionFileChangeMapper;
 import com.gewu.infrastructure.mapper.SessionMapper;
 import com.gewu.infrastructure.mapper.SessionMemberMapper;
 import com.gewu.infrastructure.mapper.SessionMessageMapper;
@@ -31,6 +38,9 @@ public class SessionService {
     private final SessionMapper sessionMapper;
     private final SessionMemberMapper sessionMemberMapper;
     private final SessionMessageMapper sessionMessageMapper;
+    private final SessionFileChangeMapper sessionFileChangeMapper;
+    private final SessionFileChangeEventMapper sessionFileChangeEventMapper;
+    private final AgentExecutionMapper agentExecutionMapper;
     private final WorkspaceMapper workspaceMapper;
 
     @Transactional
@@ -229,6 +239,19 @@ public class SessionService {
             throw BusinessException.of(ResultCode.SESSION_NOT_FOUND);
         }
         checkMembership(sessionId, userId);
+
+        // 级联清理从属数据（有 @TableLogic 的实体自动逻辑删除，无 deleted 列的物理删除）
+        sessionMessageMapper.delete(new LambdaQueryWrapper<SessionMessage>()
+                .eq(SessionMessage::getSessionId, sessionId));
+        sessionMemberMapper.delete(new LambdaQueryWrapper<SessionMember>()
+                .eq(SessionMember::getSessionId, sessionId));
+        sessionFileChangeMapper.delete(new LambdaQueryWrapper<SessionFileChange>()
+                .eq(SessionFileChange::getSessionId, sessionId));
+        sessionFileChangeEventMapper.delete(new LambdaQueryWrapper<SessionFileChangeEvent>()
+                .eq(SessionFileChangeEvent::getSessionId, sessionId));
+        agentExecutionMapper.delete(new LambdaQueryWrapper<AgentExecution>()
+                .eq(AgentExecution::getSessionId, sessionId));
+
         sessionMapper.deleteById(sessionId);
     }
 

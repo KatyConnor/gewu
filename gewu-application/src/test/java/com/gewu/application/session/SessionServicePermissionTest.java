@@ -37,13 +37,23 @@ class SessionServicePermissionTest {
     private SessionMessageMapper sessionMessageMapper;
 
     @Mock
+    private com.gewu.infrastructure.mapper.SessionFileChangeMapper sessionFileChangeMapper;
+
+    @Mock
+    private com.gewu.infrastructure.mapper.SessionFileChangeEventMapper sessionFileChangeEventMapper;
+
+    @Mock
+    private com.gewu.infrastructure.mapper.AgentExecutionMapper agentExecutionMapper;
+
+    @Mock
     private WorkspaceMapper workspaceMapper;
 
     private SessionService sessionService;
 
     @BeforeEach
     void setUp() throws Exception {
-        sessionService = new SessionService(sessionMapper, sessionMemberMapper, sessionMessageMapper, workspaceMapper);
+        sessionService = new SessionService(sessionMapper, sessionMemberMapper, sessionMessageMapper,
+                sessionFileChangeMapper, sessionFileChangeEventMapper, agentExecutionMapper, workspaceMapper);
     }
 
     @Test

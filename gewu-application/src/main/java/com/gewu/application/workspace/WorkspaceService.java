@@ -430,23 +430,26 @@ public class WorkspaceService {
         WorkspaceFile wf = getFileEntity(fileId, workspaceId);
         Workspace ws = getMyWorkspaceEntity();
 
-        long freedBytes = deleteFileRecursive(wf, workspaceId);
+        long[] freed = deleteFileRecursive(wf, workspaceId);
 
-        ws.setUsedBytes(Math.max(0, ws.getUsedBytes() - freedBytes));
-        ws.setFileCount(Math.max(0, ws.getFileCount() - 1));
+        ws.setUsedBytes(Math.max(0, ws.getUsedBytes() - freed[0]));
+        ws.setFileCount(Math.max(0, ws.getFileCount() - (int) freed[1]));
         workspaceMapper.updateById(ws);
     }
 
-    /** 递归删除文件及其子节点 */
-    private long deleteFileRecursive(WorkspaceFile wf, String workspaceId) {
+    /** 递归删除文件及其子节点，返回 [释放字节数, 删除节点数] */
+    private long[] deleteFileRecursive(WorkspaceFile wf, String workspaceId) {
         long freedBytes = 0;
+        long nodes = 1;
 
         if (wf.getFileType() == 1) {
             // 目录: 递归删除子节点
             List<WorkspaceFile> children = fileMapper.selectList(
                     new LambdaQueryWrapper<WorkspaceFile>().eq(WorkspaceFile::getParentId, wf.getId()));
             for (WorkspaceFile child : children) {
-                freedBytes += deleteFileRecursive(child, workspaceId);
+                long[] childResult = deleteFileRecursive(child, workspaceId);
+                freedBytes += childResult[0];
+                nodes += childResult[1];
             }
         } else {
             // 文件: 删 MinIO 对象
@@ -457,7 +460,7 @@ public class WorkspaceService {
         }
 
         fileMapper.deleteById(wf.getId());
-        return freedBytes;
+        return new long[]{freedBytes, nodes};
     }
 
     /** 下载文件（返回预签名 URL） */

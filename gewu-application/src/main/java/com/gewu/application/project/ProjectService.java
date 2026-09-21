@@ -8,6 +8,7 @@ import com.gewu.application.project.dto.ProjectMemberDTO;
 import com.gewu.application.project.dto.ProjectQuery;
 import com.gewu.application.project.dto.UpdateProjectCommand;
 import com.gewu.application.sandbox.SandboxClient;
+import com.gewu.application.workspace.DevWorkspaceService;
 import com.gewu.common.context.UserContext;
 import com.gewu.common.dto.PageQuery;
 import com.gewu.common.result.BusinessException;
@@ -19,6 +20,7 @@ import com.gewu.domain.user.UserAccount;
 import com.gewu.infrastructure.mapper.ProjectMapper;
 import com.gewu.infrastructure.mapper.ProjectMemberMapper;
 import com.gewu.infrastructure.mapper.UserAccountMapper;
+import com.gewu.infrastructure.storage.MinioStorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -43,6 +45,8 @@ public class ProjectService {
     private final ProjectPhaseService projectPhaseService;
     private final SandboxClient sandboxClient;
     private final ProjectCodeGenerator projectCodeGenerator;
+    private final MinioStorageService storageService;
+    private final DevWorkspaceService devWorkspaceService;
 
     @Transactional
     public ProjectDTO createProject(CreateProjectCommand command) {
@@ -158,8 +162,30 @@ public class ProjectService {
         checkOwnership(project);
 
         destroyProjectSandboxes(projectId);
+        cleanupProjectArtifacts(project, projectId);
 
         projectMapper.deleteById(project.getId());
+    }
+
+    /**
+     * 级联清理项目产物：MinIO projects/{pid}/ 前缀对象（需求文件+阶段文档）
+     * 与 dev 卷内项目仓库目录。失败不阻断项目删除（仅告警）；关联会话保留（用户数据）。
+     */
+    private void cleanupProjectArtifacts(Project project, String projectId) {
+        try {
+            storageService.deleteWorkspacePath("projects/" + projectId + "/");
+        } catch (Exception e) {
+            log.warn("项目 MinIO 产物清理失败: projectId={}, error={}", projectId, e.getMessage());
+        }
+        if (project.getRepoLocalPath() == null || project.getRepoLocalPath().isBlank()) {
+            return;
+        }
+        try {
+            devWorkspaceService.deleteWorkspaceDir(project.getRepoLocalPath());
+        } catch (Exception e) {
+            log.warn("项目仓库目录清理失败: projectId={}, path={}, error={}",
+                    projectId, project.getRepoLocalPath(), e.getMessage());
+        }
     }
 
     public List<ProjectMemberDTO> getProjectMembers(String projectId) {

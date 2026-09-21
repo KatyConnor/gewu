@@ -123,9 +123,20 @@ public class OrchestrationService {
     }
 
     /**
-     * 删除编排图（逻辑删除）。
+     * 删除编排图（逻辑删除），并级联逻辑删除其执行实例与审批请求。
      */
     public void deleteGraph(String graphId) {
+        List<OrchestrationExecutionEntity> executions = executionMapper.selectList(
+                new LambdaQueryWrapper<OrchestrationExecutionEntity>()
+                        .eq(OrchestrationExecutionEntity::getGraphId, graphId));
+        if (!executions.isEmpty()) {
+            List<String> executionIds = executions.stream()
+                    .map(OrchestrationExecutionEntity::getId).toList();
+            approvalMapper.delete(new LambdaQueryWrapper<ApprovalRequestEntity>()
+                    .in(ApprovalRequestEntity::getExecutionId, executionIds));
+        }
+        executionMapper.delete(new LambdaQueryWrapper<OrchestrationExecutionEntity>()
+                .eq(OrchestrationExecutionEntity::getGraphId, graphId));
         graphMapper.deleteById(graphId);
         log.info("删除编排图: id={}", graphId);
     }

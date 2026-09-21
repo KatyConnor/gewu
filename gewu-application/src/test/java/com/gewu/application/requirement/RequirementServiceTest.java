@@ -42,6 +42,12 @@ class RequirementServiceTest {
     @Mock
     private UserAccountMapper userAccountMapper;
 
+    @Mock
+    private RequirementFileMapper requirementFileMapper;
+
+    @Mock
+    private com.gewu.infrastructure.storage.MinioStorageService storageService;
+
     @InjectMocks
     private RequirementService requirementService;
 
@@ -192,6 +198,7 @@ class RequirementServiceTest {
         // 准备
         when(requirementMapper.selectById("test-req-id")).thenReturn(testRequirement);
         when(requirementMapper.updateById(any(Requirement.class))).thenReturn(1);
+        when(requirementFileMapper.selectList(any(LambdaQueryWrapper.class))).thenReturn(List.of());
 
         // 执行
         requirementService.deleteRequirement("test-req-id");

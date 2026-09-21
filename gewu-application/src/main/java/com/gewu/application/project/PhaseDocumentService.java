@@ -143,6 +143,15 @@ public class PhaseDocumentService {
     @Transactional
     public void deleteDocument(String documentId) {
         PhaseDocument doc = getOrThrow(documentId);
+        // 级联清理各版本对应的 MinIO 对象（file_url 即 objectName）
+        List<PhaseDocumentVersion> versions = versionMapper.selectList(
+                new LambdaQueryWrapper<PhaseDocumentVersion>()
+                        .eq(PhaseDocumentVersion::getDocumentId, documentId));
+        for (PhaseDocumentVersion version : versions) {
+            if (version.getFileUrl() != null && !version.getFileUrl().isBlank()) {
+                storageService.deleteObject(version.getFileUrl());
+            }
+        }
         versionMapper.delete(new LambdaQueryWrapper<PhaseDocumentVersion>()
                 .eq(PhaseDocumentVersion::getDocumentId, documentId));
         documentMapper.deleteById(documentId);
