@@ -34,6 +34,7 @@ import org.springframework.web.multipart.MultipartFile;
 import java.io.IOException;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 /**
  * 开发工作空间服务 - 面向 DEV/TEST 角色的云端开发环境.
@@ -191,8 +192,9 @@ public class DevWorkspaceService {
     /** 列出目录内容（通过 exec ls） */
     public String listFiles(String path) {
         String sandboxId = ensureRunningSandbox();
-        String target = path != null && !path.isBlank() ? path : "";
-        String cmd = "ls -la --time-style=+%s" + (target.isEmpty() ? " /workspace" : " /workspace/" + target);
+        String target = path != null && !path.isBlank() ? sanitizeWorkspaceRel(path) : "";
+        String cmd = "ls -la --time-style=+%s "
+                + shellQuote(target.isEmpty() ? "/workspace" : "/workspace/" + target);
         ExecCommandResponse resp = sandboxClient.execCommand(sandboxId, cmd, 10);
         return resp.getStdout();
     }
@@ -201,7 +203,7 @@ public class DevWorkspaceService {
     public String readFile(String filePath) {
         String sandboxId = ensureRunningSandbox();
         ExecCommandResponse resp = sandboxClient.execCommand(
-                sandboxId, "cat /workspace/" + filePath, 10);
+                sandboxId, "cat " + shellQuote("/workspace/" + sanitizeWorkspaceRel(filePath)), 10);
         return resp.getStdout();
     }
 
@@ -226,7 +228,14 @@ public class DevWorkspaceService {
     /** 删除文件/目录（通过 exec rm） */
     public void deleteFile(String path) {
         String sandboxId = ensureRunningSandbox();
-        sandboxClient.execCommand(sandboxId, "rm -rf /workspace/" + path, 10);
+        sandboxClient.execCommand(sandboxId, "rm -rf " + shellQuote("/workspace/" + sanitizeWorkspaceRel(path)), 10);
+    }
+
+    /** 删除 dev 卷内指定相对路径（净化后 rm -rf），供项目删除等跨场景清理复用 */
+    public void deleteWorkspaceDir(String relativePath) {
+        String sandboxId = ensureRunningSandbox();
+        sandboxClient.execCommand(sandboxId,
+                "rm -rf " + shellQuote("/workspace/" + sanitizeWorkspaceRel(relativePath)), 15);
     }
 
     /** 执行命令（开发模式，宽松校验） */
@@ -242,13 +251,15 @@ public class DevWorkspaceService {
     public WorkspaceProject cloneRepo(CloneRepoCommand command) {
         Workspace ws = getOrCreateDevWorkspace();
         String sandboxId = ensureRunningSandbox();
-        String localPath = "projects/" + command.getProjectName();
-        String branch = command.getRepoBranch() != null ? command.getRepoBranch() : "main";
+        String projectName = validateProjectName(command.getProjectName());
+        String repoUrl = validateRepoUrl(command.getRepoUrl());
+        String branch = validateBranch(command.getRepoBranch() != null ? command.getRepoBranch() : "main");
+        String localPath = "projects/" + projectName;
 
         WorkspaceProject project = new WorkspaceProject();
         project.setWorkspaceId(ws.getId());
-        project.setProjectName(command.getProjectName());
-        project.setRepoUrl(command.getRepoUrl());
+        project.setProjectName(projectName);
+        project.setRepoUrl(repoUrl);
         project.setRepoBranch(branch);
         project.setLocalPath(localPath);
         project.setCloneStatus("cloning");
@@ -256,17 +267,17 @@ public class DevWorkspaceService {
         workspaceProjectMapper.insert(project);
 
         // 创建父目录
-        sandboxClient.execCommand(sandboxId, "mkdir -p /workspace/" + localPath, 5);
+        sandboxClient.execCommand(sandboxId, "mkdir -p " + shellQuote("/workspace/" + localPath), 5);
 
         // 执行 git clone
-        String cloneCmd = String.format("git clone --branch %s %s /workspace/%s",
-                branch, command.getRepoUrl(), localPath);
+        String cloneCmd = "git clone --branch " + shellQuote(branch) + " " + shellQuote(repoUrl)
+                + " " + shellQuote("/workspace/" + localPath);
         ExecCommandResponse resp = sandboxClient.execCommand(sandboxId, cloneCmd, 120);
 
         if (resp.getExitCode() != null && resp.getExitCode() == 0) {
             project.setCloneStatus("ready");
             ExecCommandResponse headResp = sandboxClient.execCommand(
-                    sandboxId, "git -C /workspace/" + localPath + " rev-parse HEAD", 10);
+                    sandboxId, "git -C " + shellQuote("/workspace/" + localPath) + " rev-parse HEAD", 10);
             project.setHeadCommit(headResp.getStdout().trim());
         } else {
             project.setCloneStatus("failed");
@@ -291,11 +302,12 @@ public class DevWorkspaceService {
         WorkspaceProject project = getProjectEntity(projectId);
         String sandboxId = ensureRunningSandbox();
 
+        String dir = "/workspace/" + sanitizeWorkspaceRel(project.getLocalPath());
         sandboxClient.execCommand(sandboxId,
-                "git -C /workspace/" + project.getLocalPath() + " pull origin " + project.getRepoBranch(), 60);
+                "git -C " + shellQuote(dir) + " pull origin " + shellQuote(project.getRepoBranch()), 60);
 
         ExecCommandResponse headResp = sandboxClient.execCommand(
-                sandboxId, "git -C /workspace/" + project.getLocalPath() + " rev-parse HEAD", 10);
+                sandboxId, "git -C " + shellQuote(dir) + " rev-parse HEAD", 10);
         project.setHeadCommit(headResp.getStdout().trim());
         project.setLastSyncAt(System.currentTimeMillis());
         workspaceProjectMapper.updateById(project);
@@ -309,16 +321,14 @@ public class DevWorkspaceService {
             throw BusinessException.of(ResultCode.NOT_FOUND, "项目仓库未初始化");
         }
         String sandboxId = ensureRunningSandbox();
-        String dir = "/workspace/" + project.getRepoLocalPath();
+        String dir = "/workspace/" + sanitizeWorkspaceRel(project.getRepoLocalPath());
 
-        String safeMsg = message.replace("\"", "\\\"").replace("$", "\\$");
-
-        sandboxClient.execCommand(sandboxId, "git -C " + dir + " add .", 10);
+        sandboxClient.execCommand(sandboxId, "git -C " + shellQuote(dir) + " add .", 10);
         sandboxClient.execCommand(sandboxId,
-                "git -C " + dir + " commit -m \"" + safeMsg + "\"", 30);
+                "git -C " + shellQuote(dir) + " commit -m " + shellQuote(message != null ? message : ""), 30);
         String branch = project.getRepoBranch() != null ? project.getRepoBranch() : "main";
         ExecCommandResponse pushResp = sandboxClient.execCommand(
-                sandboxId, "git -C " + dir + " push origin " + branch, 60);
+                sandboxId, "git -C " + shellQuote(dir) + " push origin " + shellQuote(branch), 60);
 
         return pushResp.getStdout() + (pushResp.getStderr().isEmpty() ? "" : "\n" + pushResp.getStderr());
     }
@@ -331,7 +341,8 @@ public class DevWorkspaceService {
         }
         String sandboxId = ensureRunningSandbox();
         return sandboxClient.execCommand(sandboxId,
-                "cd /workspace/" + project.getRepoLocalPath() + " && " + buildCmd, 300);
+                "cd " + shellQuote("/workspace/" + sanitizeWorkspaceRel(project.getRepoLocalPath()))
+                        + " && " + buildCmd, 300);
     }
 
     /** 运行项目（基于项目仓库路径） */
@@ -342,7 +353,77 @@ public class DevWorkspaceService {
         }
         String sandboxId = ensureRunningSandbox();
         return sandboxClient.execCommand(sandboxId,
-                "cd /workspace/" + project.getRepoLocalPath() + " && " + runCmd, 600);
+                "cd " + shellQuote("/workspace/" + sanitizeWorkspaceRel(project.getRepoLocalPath()))
+                        + " && " + runCmd, 600);
+    }
+
+    // ==================== 路径与命令安全 ====================
+
+    /** 项目名白名单：仅字母/数字/点/下划线/连字符（防路径拼接与 shell 注入） */
+    private static final Pattern SAFE_NAME = Pattern.compile("^[A-Za-z0-9._-]+$");
+
+    /** Git 分支名白名单 */
+    private static final Pattern SAFE_BRANCH = Pattern.compile("^[A-Za-z0-9._/-]+$");
+
+    /** Git 主机名白名单（用于拼接 git config 键，不允许 shell 元字符） */
+    private static final Pattern SAFE_HOST = Pattern.compile("^[A-Za-z0-9._-]+(:\\d{1,5})?$");
+
+    /** 路径中禁止的 shell 元字符 */
+    private static final Pattern UNSAFE_PATH_CHARS = Pattern.compile("[`;&|$<>()\\{\\}\\\\\\r\\n]");
+
+    /**
+     * 工作空间内相对路径净化：拒空、拒 .. 越界与 shell 元字符，返回去首尾斜杠的相对路径。
+     * 前导 / 视为相对路径剥除——调用点统一自行拼接 /workspace/ 前缀。
+     */
+    public static String sanitizeWorkspaceRel(String raw) {
+        if (raw == null || raw.isBlank()) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "工作空间路径不能为空");
+        }
+        String p = raw.trim();
+        while (p.startsWith("/")) {
+            p = p.substring(1);
+        }
+        while (p.endsWith("/")) {
+            p = p.substring(0, p.length() - 1);
+        }
+        if (p.isEmpty() || p.contains("..") || UNSAFE_PATH_CHARS.matcher(p).find()) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "非法工作空间路径: " + raw);
+        }
+        return p;
+    }
+
+    /** shell 单引号安全包裹：内部 ' 转义为 '\''（关闭-转义-重开），替代旧的删除式处理 */
+    static String shellQuote(String s) {
+        return "'" + s.replace("'", "'\\''") + "'";
+    }
+
+    static String validateProjectName(String name) {
+        if (name == null || name.isBlank() || !SAFE_NAME.matcher(name).matches()) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "项目名仅允许字母/数字/._-");
+        }
+        return name;
+    }
+
+    static String validateRepoUrl(String url) {
+        if (url == null || !(url.startsWith("https://") || url.startsWith("http://")
+                || url.startsWith("git@") || url.startsWith("ssh://"))) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "仓库地址仅支持 http(s)/ssh 协议");
+        }
+        return url;
+    }
+
+    static String validateBranch(String branch) {
+        if (branch == null || branch.isBlank() || !SAFE_BRANCH.matcher(branch).matches()) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "分支名非法");
+        }
+        return branch;
+    }
+
+    static String validateGitHost(String host) {
+        if (host == null || !SAFE_HOST.matcher(host).matches()) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "Git 主机名非法: " + host);
+        }
+        return host;
     }
 
     // ==================== Git 凭证管理 ====================
@@ -402,7 +483,7 @@ public class DevWorkspaceService {
                     sandboxClient.execCommand(sandboxId, "chmod 600 /root/.ssh/id_rsa", 5);
                 } else if ("token".equals(cred.getCredType())) {
                     String token = cryptoService.decrypt(cred.getCredValue());
-                    String host = cred.getGitHost() != null ? cred.getGitHost() : "github.com";
+                    String host = validateGitHost(cred.getGitHost() != null ? cred.getGitHost() : "github.com");
                     sandboxClient.execCommand(sandboxId,
                             "git config --global credential.https://" + host + ".username token", 5);
                     sandboxClient.writeFile(sandboxId,

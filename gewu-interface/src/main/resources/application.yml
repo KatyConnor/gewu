@@ -26,6 +26,12 @@ spring:
       # 小时级是合法形态，30 分钟墙钟会误杀；2h 帽仅防病态僵尸连接
       request-timeout: 7200000
 
+  # 文件上传限制（Spring 默认单文件 1MB 会截断工作空间/沙箱上传）
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 120MB
+
   # 数据库配置
   datasource:
     url: jdbc:mysql://localhost:3306/gewu_dev?useUnicode=true&characterEncoding=utf-8&useSSL=false&serverTimezone=Asia/Shanghai&allowPublicKeyRetrieval=true
@@ -217,14 +223,14 @@ gewu:
   sandbox:
     type: docker
     runtime: runc
-    image: gewu/sandbox:latest
+    image: gewu/sandbox-base:latest
     api:
       url: http://localhost:8082/api/v1/sandboxes
       internal-key: ${GEWU_INTERNAL_API_KEY:gewu-dev-internal-key-change-me}
     # 开发工作空间沙箱（S9 F3 文件工具路由目标）；
-    # 默认 alpine（Docker cp 读写 + ls 即可支撑文件工具），可按部署环境覆盖
+    # dev-base 预装 git/maven/node 等，与沙箱服务侧默认对齐（镜像白名单含 gewu/dev- 前缀）
     dev:
-      image: ${GEWU_DEV_IMAGE:alpine:latest}
+      image: ${GEWU_DEV_IMAGE:gewu/dev-base:latest}
 
   ai:
     gateway:

@@ -22,6 +22,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.io.ByteArrayOutputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -77,7 +78,8 @@ public class DockerSandboxProvider implements SandboxProvider {
                 .withSecurityOpts(List.of("no-new-privileges:true"))
                 .withCapDrop(com.github.dockerjava.api.model.Capability.ALL)
                 .withReadonlyRootfs(true)
-                .withTmpFs(java.util.Map.of("/tmp", "rw,noexec,nosuid,size=64m"));
+                .withTmpFs(java.util.Map.of("/tmp", "rw,noexec,nosuid,size=64m"))
+                .withPidsLimit(256L);
 
         // 工作空间卷挂载: 将用户持久化目录挂载到 /workspace
         if (command.getWorkspaceId() != null && !command.getWorkspaceId().isBlank()) {
@@ -172,29 +174,32 @@ public class DockerSandboxProvider implements SandboxProvider {
         ByteArrayOutputStream stderrStream = new ByteArrayOutputStream();
 
         long startTime = System.currentTimeMillis();
-
+        boolean completed = false;
         try {
-            dockerClient.execStartCmd(execCreate.getId())
+            completed = dockerClient.execStartCmd(execCreate.getId())
                     .exec(new ExecStartResultCallback(stdoutStream, stderrStream))
                     .awaitCompletion(timeout, TimeUnit.SECONDS);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.warn("沙箱命令执行被中断: sandboxId={}", sandbox.getId());
         }
-
         long duration = System.currentTimeMillis() - startTime;
 
-        // 获取真实退出码
-        int exitCode = 0;
-        try {
-            com.github.dockerjava.api.command.InspectExecResponse execInspect =
-                    dockerClient.inspectExecCmd(execCreate.getId()).exec();
-            if (execInspect.getExitCodeLong() != null) {
-                exitCode = execInspect.getExitCodeLong().intValue();
+        // 超时/中断不再落入"默认 0"：固定 124（GNU timeout 惯例），调用方可区分超时与成功。
+        // docker exec 无单会话 kill API——非 agent 沙箱的超时进程将继续运行（已知限制，warn 留痕）；
+        // agent 一次性沙箱直接销毁容器兜底。
+        boolean timedOut = !completed;
+        if (timedOut) {
+            stderrStream.writeBytes(("\n[gewu] 命令超时(" + timeout + "s)，进程可能仍在容器内继续运行")
+                    .getBytes(StandardCharsets.UTF_8));
+            log.warn("沙箱命令执行超时: sandboxId={}, timeout={}s, source={}",
+                    sandbox.getId(), timeout, sandbox.getSource());
+            if ("agent".equals(sandbox.getSource())) {
+                log.info("agent 沙箱超时，销毁容器兜底: sandboxId={}", sandbox.getId());
+                destroy(sandbox);
             }
-        } catch (Exception e) {
-            log.debug("获取退出码失败，默认 0: {}", e.getMessage());
         }
+        int exitCode = resolveExitCode(completed, timedOut ? null : inspectExitCode(execCreate.getId()));
 
         return ExecCommandResponse.builder()
                 .exitCode(exitCode)
@@ -202,6 +207,23 @@ public class DockerSandboxProvider implements SandboxProvider {
                 .stderr(stderrStream.toString())
                 .duration(duration)
                 .build();
+    }
+
+    /** 退出码语义：完成→inspect 真实码（取不到按 0）；超时/中断→124（GNU timeout 惯例） */
+    static int resolveExitCode(boolean completed, Integer inspectedExitCode) {
+        return completed ? (inspectedExitCode != null ? inspectedExitCode : 0) : 124;
+    }
+
+    /** 仅在命令正常完成后调用：inspect 获取真实退出码，inspect 失败返回 null（按 0 处理） */
+    private Integer inspectExitCode(String execId) {
+        try {
+            com.github.dockerjava.api.command.InspectExecResponse execInspect =
+                    dockerClient.inspectExecCmd(execId).exec();
+            return execInspect.getExitCodeLong() != null ? execInspect.getExitCodeLong().intValue() : null;
+        } catch (Exception e) {
+            log.debug("获取退出码失败: {}", e.getMessage());
+            return null;
+        }
     }
 
     @Override

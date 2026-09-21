@@ -50,25 +50,25 @@ public class SandboxProxyController {
         return Result.success(sandboxClient.createSandbox(command));
     }
 
-    @GetMapping("/glm-5.3_common")
+    @GetMapping("/{id}")
     @Operation(summary = "获取沙箱详情")
     public Result<SandboxDTO> getSandbox(@PathVariable String id) {
         return Result.success(sandboxClient.getSandbox(id));
     }
 
-    @PostMapping("/glm-5.3_common/start")
+    @PostMapping("/{id}/start")
     @Operation(summary = "启动沙箱")
     public Result<SandboxDTO> startSandbox(@PathVariable String id) {
         return Result.success(sandboxClient.startSandbox(id));
     }
 
-    @PostMapping("/glm-5.3_common/stop")
+    @PostMapping("/{id}/stop")
     @Operation(summary = "停止沙箱")
     public Result<SandboxDTO> stopSandbox(@PathVariable String id) {
         return Result.success(sandboxClient.stopSandbox(id));
     }
 
-    @DeleteMapping("/glm-5.3_common")
+    @DeleteMapping("/{id}")
     @Operation(summary = "销毁沙箱")
     public Result<Void> deleteSandbox(@PathVariable String id) {
         sandboxClient.deleteSandbox(id);
@@ -79,7 +79,7 @@ public class SandboxProxyController {
      * 续期沙箱。兼容三种请求体：
      * { expireSeconds }（相对秒数）、{ expireAt }（绝对毫秒时间戳）、{ ttlDays }（天数）。
      */
-    @PutMapping("/glm-5.3_common/expire")
+    @PutMapping("/{id}/expire")
     @Operation(summary = "续期沙箱", description = "更新沙箱的过期时间")
     public Result<SandboxDTO> renewExpire(@PathVariable String id, @RequestBody Map<String, Object> body) {
         RenewExpireRequest request = new RenewExpireRequest();
