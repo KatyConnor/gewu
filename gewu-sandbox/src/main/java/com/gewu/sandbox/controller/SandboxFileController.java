@@ -39,6 +39,16 @@ public class SandboxFileController {
     public Result<Void> writeFile(@PathVariable String id, @RequestBody WriteFileRequest request) {
         Sandbox sandbox = getSandboxEntity(id);
         containerFileService.writeTextFile(sandbox.getContainerId(), request.getPath(), request.getContent());
+        sandboxService.recordFileActivity(id, "WRITE", request.getPath());
+        return Result.success();
+    }
+
+    @PostMapping("/{id}/files/delete")
+    @Operation(summary = "删除容器内文件", description = "会话撤销新建文件时移除工作空间中的文件")
+    public Result<Void> deleteFile(@PathVariable String id, @RequestBody DeleteFileRequest request) {
+        Sandbox sandbox = getSandboxEntity(id);
+        containerFileService.deleteFile(sandbox.getContainerId(), request.getPath());
+        sandboxService.recordFileActivity(id, "DELETE", request.getPath());
         return Result.success();
     }
 
@@ -47,6 +57,7 @@ public class SandboxFileController {
     public ResponseEntity<String> readFile(@PathVariable String id, @RequestParam String path) {
         Sandbox sandbox = getSandboxEntity(id);
         String content = containerFileService.readTextFile(sandbox.getContainerId(), path);
+        sandboxService.recordFileActivity(id, "READ", path);
         return ResponseEntity.ok().contentType(MediaType.TEXT_PLAIN).body(content);
     }
 
@@ -60,6 +71,7 @@ public class SandboxFileController {
         byte[] data = file.getBytes();
         String fileName = file.getOriginalFilename() != null ? file.getOriginalFilename() : "upload";
         containerFileService.uploadFile(sandbox.getContainerId(), path, data, fileName);
+        sandboxService.recordFileActivity(id, "UPLOAD", path + "/" + fileName);
         return Result.success();
     }
 
@@ -68,6 +80,7 @@ public class SandboxFileController {
     public ResponseEntity<byte[]> downloadFile(@PathVariable String id, @RequestParam String path) {
         Sandbox sandbox = getSandboxEntity(id);
         byte[] data = containerFileService.downloadFile(sandbox.getContainerId(), path);
+        sandboxService.recordFileActivity(id, "DOWNLOAD", path);
         String fileName = path.contains("/") ? path.substring(path.lastIndexOf('/') + 1) : path;
         return ResponseEntity.ok()
                 .contentType(MediaType.APPLICATION_OCTET_STREAM)
@@ -88,5 +101,10 @@ public class SandboxFileController {
     public static class WriteFileRequest {
         private String path;
         private String content;
+    }
+
+    @lombok.Data
+    public static class DeleteFileRequest {
+        private String path;
     }
 }

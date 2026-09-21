@@ -19,6 +19,8 @@ public final class SandboxConstants {
     public static final List<String> ALLOWED_IMAGE_PREFIXES = List.of(
         "harbor.internal:5000/gewu/sandbox/",
         "gewu/sandbox-",
+        "gewu/sandbox:",
+        "gewu/dev-",
         "python:",
         "node:",
         "openjdk:",

@@ -8,10 +8,13 @@ import com.gewu.domain.sandbox.Sandbox;
 import com.gewu.domain.sandbox.SandboxAuditLog;
 import com.gewu.infrastructure.mapper.SandboxAuditLogMapper;
 import com.gewu.common.dto.sandbox.*;
+import com.gewu.sandbox.audit.SandboxAuditWriter;
+import com.gewu.sandbox.constant.SandboxConstants;
 import com.gewu.sandbox.mapper.SandboxMapper;
 import com.gewu.sandbox.provider.SandboxProvider;
 import com.gewu.sandbox.provider.SandboxProviderFactory;
 import com.gewu.sandbox.template.SandboxTemplateMatcher;
+import com.gewu.sandbox.validator.SandboxValidator;
 import com.gewu.sandbox.template.SandboxTemplateMatcher.SandboxTemplate;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -31,6 +34,8 @@ public class SandboxService {
     private final SandboxAuditLogMapper auditLogMapper;
     private final SandboxProviderFactory providerFactory;
     private final SandboxTemplateMatcher templateMatcher;
+    private final SandboxAuditWriter auditWriter;
+    private final SandboxValidator sandboxValidator;
 
     @Value("${gewu.sandbox.lifecycle.manual-ttl-days:7}")
     private int manualTtlDays;
@@ -60,8 +65,19 @@ public class SandboxService {
             throw BusinessException.of(ResultCode.PARAM_INVALID, "镜像或模板不能同时为空");
         }
 
+        // 服务端准入校验：镜像白名单 + 资源上限（严于 DTO @Max，见 SandboxConstants）
+        sandboxValidator.validateImage(command.getImage());
+        sandboxValidator.validateResourceLimits(command.getCpuCores(), command.getMemoryMb(),
+                command.getDiskMb(), command.getTimeout());
+
         SandboxProvider provider = providerFactory.getDefaultProvider();
-        Sandbox sandbox = provider.create(command);
+        Sandbox sandbox;
+        try {
+            sandbox = provider.create(command);
+        } catch (Exception e) {
+            logAudit(command.getSandboxName(), "CREATE", "容器创建失败: " + e.getMessage(), "FAIL");
+            throw e;
+        }
         sandbox.setSandboxName(command.getSandboxName());
         sandbox.setCreatedBy(UserContext.currentUserId());
         sandbox.setSource(source);
@@ -81,7 +97,12 @@ public class SandboxService {
         sandboxMapper.insert(sandbox);
         sandbox.setLastUsedAt(Instant.now().toEpochMilli());
 
-        provider.start(sandbox);
+        try {
+            provider.start(sandbox);
+        } catch (Exception e) {
+            logAudit(sandbox.getId(), "CREATE", "沙箱启动失败: " + e.getMessage(), "FAIL");
+            throw e;
+        }
         sandbox.setStartedAt(Instant.now().toEpochMilli());
         sandboxMapper.updateById(sandbox);
 
@@ -97,7 +118,12 @@ public class SandboxService {
             throw BusinessException.of(ResultCode.SANDBOX_EXPIRED);
         }
         SandboxProvider provider = providerFactory.getDefaultProvider();
-        provider.start(sandbox);
+        try {
+            provider.start(sandbox);
+        } catch (Exception e) {
+            logAudit(sandboxId, "START", "启动失败: " + e.getMessage(), "FAIL");
+            throw e;
+        }
         sandbox.setStartedAt(Instant.now().toEpochMilli());
         sandbox.setLastUsedAt(Instant.now().toEpochMilli());
         sandboxMapper.updateById(sandbox);
@@ -110,7 +136,12 @@ public class SandboxService {
     public SandboxDTO stopSandbox(String sandboxId) {
         Sandbox sandbox = getSandboxEntity(sandboxId);
         SandboxProvider provider = providerFactory.getDefaultProvider();
-        provider.stop(sandbox);
+        try {
+            provider.stop(sandbox);
+        } catch (Exception e) {
+            logAudit(sandboxId, "STOP", "停止失败: " + e.getMessage(), "FAIL");
+            throw e;
+        }
         sandbox.setStoppedAt(Instant.now().toEpochMilli());
         sandboxMapper.updateById(sandbox);
 
@@ -122,7 +153,12 @@ public class SandboxService {
     public void destroySandbox(String sandboxId) {
         Sandbox sandbox = getSandboxEntity(sandboxId);
         SandboxProvider provider = providerFactory.getDefaultProvider();
-        provider.destroy(sandbox);
+        try {
+            provider.destroy(sandbox);
+        } catch (Exception e) {
+            logAudit(sandboxId, "DESTROY", "销毁失败: " + e.getMessage(), "FAIL");
+            throw e;
+        }
         sandboxMapper.updateById(sandbox);
 
         logAudit(sandboxId, "DESTROY", "销毁沙箱");
@@ -150,7 +186,12 @@ public class SandboxService {
         logAudit(sandboxId, "COMMAND", "执行命令: " + command);
 
         SandboxProvider provider = providerFactory.getDefaultProvider();
-        return provider.exec(sandbox, command, timeoutSeconds);
+        try {
+            return provider.exec(sandbox, command, timeoutSeconds);
+        } catch (Exception e) {
+            logAudit(sandboxId, "COMMAND", "命令执行异常: " + command, "FAIL");
+            throw e;
+        }
     }
 
     public List<SandboxAuditDTO> getSandboxLogs(String sandboxId) {
@@ -167,7 +208,8 @@ public class SandboxService {
         SandboxTemplate template = templateMatcher.resolveTemplate(request.getLanguage());
         SandboxTemplateMatcher.CreateTemplateResult tplResult = templateMatcher.createFromTemplate(template);
 
-        int timeout = request.getTimeout() != null ? request.getTimeout() : 30;
+        int timeout = Math.min(request.getTimeout() != null ? request.getTimeout() : 30,
+                SandboxConstants.MAX_TIMEOUT_SECONDS);
 
         CreateSandboxCommand command = new CreateSandboxCommand();
         command.setSandboxName("agent-exec-" + System.currentTimeMillis());
@@ -197,6 +239,9 @@ public class SandboxService {
         ExecCommandResponse response;
         try {
             response = provider.exec(sandbox, request.getCode(), timeout);
+        } catch (Exception e) {
+            logAudit(sandbox.getId(), "EXECUTE_CODE", "Agent 代码执行异常: " + e.getMessage(), "FAIL");
+            throw e;
         } finally {
             try {
                 provider.destroy(sandbox);
@@ -244,6 +289,7 @@ public class SandboxService {
                 sandboxMapper.updateById(sandbox);
                 logAudit(sandbox.getId(), "DESTROY", "项目沙箱销毁 projectId=" + projectId);
             } catch (Exception e) {
+                logAudit(sandbox.getId(), "DESTROY", "项目沙箱销毁失败: " + e.getMessage(), "FAIL");
                 log.warn("项目沙箱销毁失败: sandboxId={}", sandbox.getId(), e);
             }
         }
@@ -275,23 +321,22 @@ public class SandboxService {
     }
 
     private void logAudit(String sandboxId, String action, String details) {
-        try {
-            SandboxAuditLog auditLog = new SandboxAuditLog();
-            auditLog.setId(com.gewu.common.ulid.Ulid.next());
-            auditLog.setSandboxId(sandboxId);
-            auditLog.setAction(action);
-            // 沙箱内部线程可能无 UserContext（internal-key 调用），置 system 兜底
-            String userId = UserContext.currentUserId();
-            auditLog.setUserId(userId != null ? userId : "system");
-            auditLog.setResource("sandbox");
-            auditLog.setResult("SUCCESS");
-            auditLog.setDetails(details);
-            auditLog.setTimestamp(Instant.now().toEpochMilli());
-            auditLog.setCreatedAt(Instant.now().toEpochMilli());
-            auditLogMapper.insert(auditLog);
-        } catch (Exception e) {
-            log.error("沙箱审计日志写入失败: sandboxId={}, action={}", sandboxId, action, e);
-        }
+        logAudit(sandboxId, action, details, "SUCCESS");
+    }
+
+    /** 审计统一写入方（result: SUCCESS/FAIL；SM3 哈希链与脱敏在 SandboxAuditWriter 内维护） */
+    private void logAudit(String sandboxId, String action, String details, String result) {
+        // 沙箱内部线程可能无 UserContext（internal-key 调用），置 system 兜底
+        String userId = UserContext.currentUserId();
+        auditWriter.append(sandboxId, action, userId != null ? userId : "system", details, result);
+    }
+
+    /** 文件端点统一入口：文件操作计入活跃时间（防纯文件操作被误判空闲）+ FILE_ACCESS 审计 */
+    public void recordFileActivity(String sandboxId, String accessType, String filePath) {
+        Sandbox sandbox = getSandboxEntity(sandboxId);
+        sandbox.setLastUsedAt(Instant.now().toEpochMilli());
+        sandboxMapper.updateById(sandbox);
+        logAudit(sandboxId, "FILE_ACCESS", accessType + ": " + filePath);
     }
 
     private Sandbox getSandboxEntity(String sandboxId) {

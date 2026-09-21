@@ -3,9 +3,11 @@ package com.gewu.common.crypto;
 import jakarta.annotation.PostConstruct;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.core.env.Environment;
 import org.springframework.stereotype.Component;
 
 import java.nio.charset.StandardCharsets;
+import java.util.Set;
 
 /**
  * API Key 等敏感数据加密服务 — 基于 SM4-GCM.
@@ -19,10 +21,21 @@ public class ApiKeyCryptoService {
 
     private static final String CIPHER_PREFIX = "{SM4}";
 
+    /** 仓库/示例文件中出现过的公开默认密钥——prod profile 命中时告警 */
+    private static final Set<String> KNOWN_WEAK_SECRETS = Set.of(
+            "0123456789abcdef0123456789abcdef",
+            "13b4a0eab2f1f1093f87d0552fddca1f");
+
     @Value("${gewu.crypto.api-key-secret:}")
     private String secretHex;
 
+    private final Environment environment;
+
     private byte[] key;
+
+    public ApiKeyCryptoService(Environment environment) {
+        this.environment = environment;
+    }
 
     @PostConstruct
     public void init() {
@@ -35,7 +48,19 @@ public class ApiKeyCryptoService {
                     "敏感数据加密密钥长度错误：需为 32 位十六进制字符串，当前长度=" + secretHex.length());
         }
         this.key = SM4Util.hexToBytes(secretHex);
+        if (KNOWN_WEAK_SECRETS.contains(secretHex) && isProdProfile()) {
+            log.warn("GEWU_CRYPTO_API_KEY_SECRET 使用了公开的示例默认值，生产环境必须替换为随机生成的 32 位十六进制密钥");
+        }
         log.info("API Key 加密服务已初始化");
+    }
+
+    private boolean isProdProfile() {
+        for (String profile : environment.getActiveProfiles()) {
+            if ("prod".equals(profile)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     /**

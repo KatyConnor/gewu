@@ -3,6 +3,7 @@ package com.gewu.common.crypto;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.springframework.mock.env.MockEnvironment;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.util.ReflectionTestUtils;
@@ -17,7 +18,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 @TestPropertySource(properties = "gewu.crypto.api-key-secret=0123456789abcdef0123456789abcdef")
 class ApiKeyCryptoServiceTest {
 
-    private final ApiKeyCryptoService service = new ApiKeyCryptoService();
+    private final ApiKeyCryptoService service = new ApiKeyCryptoService(new MockEnvironment());
 
     @org.junit.jupiter.api.BeforeEach
     void init() {
@@ -65,7 +66,7 @@ class ApiKeyCryptoServiceTest {
     @Test
     @DisplayName("非法密钥长度应启动失败")
     void invalidKeyLengthFailsOnInit() {
-        ApiKeyCryptoService bad = new ApiKeyCryptoService();
+        ApiKeyCryptoService bad = new ApiKeyCryptoService(new MockEnvironment());
         ReflectionTestUtils.setField(bad, "secretHex", "tooshort");
         assertThatThrownBy(bad::init)
                 .isInstanceOf(IllegalStateException.class)

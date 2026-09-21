@@ -30,6 +30,12 @@ spring:
     time-zone: Asia/Shanghai
     default-property-inclusion: non_null
 
+  # 文件上传限制（Docker cp 通道沙箱侧入站，Spring 默认单文件 1MB 会截断大文件）
+  servlet:
+    multipart:
+      max-file-size: 100MB
+      max-request-size: 120MB
+
 mybatis-plus:
   mapper-locations: classpath*:mapper/**/*.xml
   type-aliases-package: com.gewu.domain
@@ -72,8 +78,8 @@ gewu:
       memory-mb: 4096
       disk-mb: 20480
       network-enabled: true
+      # dev 沙箱空闲阈值（SandboxScheduler 按 source 分档读取；误导性的 manual-ttl-days 死配置已移除）
       idle-timeout-minutes: 120
-      manual-ttl-days: 30
   crypto:
     api-key-secret: ${GEWU_CRYPTO_API_KEY_SECRET:13b4a0eab2f1f1093f87d0552fddca1f}
 

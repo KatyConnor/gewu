@@ -1,24 +1,28 @@
+# 沙箱组件网络策略——此前 podSelector 使用 app: gewu-platform 标签，
+# 与 helm 实际标签（app.kubernetes.io/name 等）不匹配导致策略从未生效。
+# 本清单对齐 sandbox 组件标签并补齐其真实流量面；未经集群实测，启用前请先在测试环境验证。
 apiVersion: networking.k8s.io/v1
 kind: NetworkPolicy
 metadata:
-  name: gewu-platform-network-policy
+  name: gewu-sandbox-network-policy
   namespace: gewu
 spec:
   podSelector:
     matchLabels:
-      app: gewu-platform
+      app.kubernetes.io/name: gewu-platform
+      app.kubernetes.io/component: sandbox
   policyTypes:
     - Ingress
     - Egress
   ingress:
-    # 允许来自 Ingress Controller 的流量
+    # 允许同命名空间内其他 gewu 组件（interface/gateway）调用沙箱 API :8082
     - from:
-        - namespaceSelector:
+        - podSelector:
             matchLabels:
-              kubernetes.io/metadata.name: ingress-nginx
+              app.kubernetes.io/name: gewu-platform
       ports:
         - protocol: TCP
-          port: 8080
+          port: 8082
     # 允许 Prometheus 抓取
     - from:
         - namespaceSelector:
@@ -26,24 +30,13 @@ spec:
               kubernetes.io/metadata.name: monitoring
       ports:
         - protocol: TCP
-          port: 8080
+          port: 8082
   egress:
-    # 允许访问 MySQL
+    # 允许访问同命名空间内基础设施（MySQL/Redis/MinIO 等）
     - to:
         - namespaceSelector:
             matchLabels:
               kubernetes.io/metadata.name: gewu
-      ports:
-        - protocol: TCP
-          port: 3306
-    # 允许访问 Redis
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: gewu
-      ports:
-        - protocol: TCP
-          port: 6379
     # 允许访问 DNS
     - to:
         - namespaceSelector: {}
@@ -52,10 +45,12 @@ spec:
           port: 53
         - protocol: TCP
           port: 53
-    # 允许访问外部 HTTPS
+    # 允许访问外部 HTTPS/SSH（git clone、依赖下载）
     - to:
         - ipBlock:
             cidr: 0.0.0.0/0
       ports:
         - protocol: TCP
           port: 443
+        - protocol: TCP
+          port: 22
