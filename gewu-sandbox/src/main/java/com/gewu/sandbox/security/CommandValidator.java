@@ -27,7 +27,7 @@ public class CommandValidator {
     // 危险命令
     private static final String[] DANGEROUS_COMMANDS = {
             "rm", "mkfs", "dd", "shutdown", "reboot", "halt", "poweroff",
-            "init", "kill", "pkill", "killall", "su", "sudo"
+            "init", "kill", "pkill", "killall", "su", "sudo", "xargs"
     };
 
     /**

@@ -32,17 +32,23 @@ public class SandboxScheduler {
     @Value("${gewu.sandbox.lifecycle.agent-max-lifetime-seconds:300}")
     private int agentMaxLifetimeSeconds;
 
+    @Value("${gewu.sandbox.dev.idle-timeout-minutes:120}")
+    private int devIdleTimeoutMinutes;
+
     @Scheduled(fixedRate = 300000)
     public void autoStopIdleSandboxes() {
         if (!autoStopEnabled) return;
 
-        long idleThreshold = Instant.now().minus(java.time.Duration.ofMinutes(idleTimeoutMinutes)).toEpochMilli();
+        // dev 沙箱空闲阈值独立分档（dev.idle-timeout-minutes，默认 120 分钟），其余用默认档
+        long now = Instant.now().toEpochMilli();
         List<Sandbox> runningSandboxes = sandboxMapper.selectList(
                 new LambdaQueryWrapper<Sandbox>()
                         .eq(Sandbox::getStatus, SandboxStatus.RUNNING.getCode())
                         .ne(Sandbox::getSource, "agent")
-                        .isNotNull(Sandbox::getLastUsedAt)
-                        .lt(Sandbox::getLastUsedAt, idleThreshold));
+                        .isNotNull(Sandbox::getLastUsedAt))
+                .stream()
+                .filter(s -> s.getLastUsedAt() < now - idleThresholdOf(s.getSource()))
+                .toList();
 
         if (runningSandboxes.isEmpty()) return;
 
@@ -60,6 +66,12 @@ public class SandboxScheduler {
                 log.warn("空闲自动停止失败: sandboxId={}, error={}", sandbox.getId(), e.getMessage());
             }
         }
+    }
+
+    /** 空闲判定阈值（毫秒）：dev 沙箱走独立档位，其余用默认档 */
+    private long idleThresholdOf(String source) {
+        long minutes = "dev".equals(source) ? devIdleTimeoutMinutes : idleTimeoutMinutes;
+        return java.time.Duration.ofMinutes(minutes).toMillis();
     }
 
     @Scheduled(fixedRate = 3600000)
