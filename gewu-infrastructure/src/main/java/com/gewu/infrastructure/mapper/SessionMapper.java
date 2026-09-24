@@ -34,6 +34,13 @@ public interface SessionMapper extends BaseMapper<Session> {
                               @Param("lastMessageAt") long lastMessageAt);
 
     /**
+     * 逻辑删除消息后同步扣减会话消息计数（不动 last_message_at，避免删除影响排序）.
+     */
+    @Update("UPDATE session SET message_count = GREATEST(COALESCE(message_count, 0) - #{delta}, 0) " +
+            "WHERE id = #{sessionId} AND deleted = 0")
+    int decrementMessageCount(@Param("sessionId") String sessionId, @Param("delta") int delta);
+
+    /**
      * 原子累计会话 token 用量与成本（T4.1 成本回填）.
      */
     @Update("UPDATE session SET tokens_input = COALESCE(tokens_input, 0) + #{inputTokens}, " +

@@ -53,23 +53,34 @@ public class PipelineModeHandler implements ModeHandler {
     private final GraphNodeExecutor nodeExecutor;
     /** 执行控制（null 时暂停/取消信号不生效） */
     private final ExecutionControl executionControl;
+    /** 目标分解器（null 时 PLAN 节点报错；PLAN 节点动态规划为并行波次子图内联执行） */
+    private final com.gewu.agent.engine.orchestration.GoalPlanner goalPlanner;
     private final RouteConditionEvaluator routeEvaluator = new RouteConditionEvaluator();
 
     /** HUMAN 节点默认审批超时（秒） */
     private static final int DEFAULT_APPROVAL_TIMEOUT_SECONDS = 1800;
     /** 审批摘要最大长度 */
     private static final int SUMMARY_MAX_LENGTH = 500;
+    /** PLAN 节点嵌套深度上限（子图内不再允许再嵌 PLAN，防递归失控） */
+    private static final int MAX_PLAN_DEPTH = 1;
 
     public PipelineModeHandler(AgentExecutor executor, HitlGateway hitlGateway) {
-        this(executor, hitlGateway, null, null);
+        this(executor, hitlGateway, null, null, null);
     }
 
     public PipelineModeHandler(AgentExecutor executor, HitlGateway hitlGateway,
                                GraphNodeExecutor nodeExecutor, ExecutionControl executionControl) {
+        this(executor, hitlGateway, nodeExecutor, executionControl, null);
+    }
+
+    public PipelineModeHandler(AgentExecutor executor, HitlGateway hitlGateway,
+                               GraphNodeExecutor nodeExecutor, ExecutionControl executionControl,
+                               com.gewu.agent.engine.orchestration.GoalPlanner goalPlanner) {
         this.executor = executor;
         this.hitlGateway = hitlGateway;
         this.nodeExecutor = nodeExecutor;
         this.executionControl = executionControl;
+        this.goalPlanner = goalPlanner;
     }
 
     @Override
@@ -88,6 +99,12 @@ public class PipelineModeHandler implements ModeHandler {
         final Map<String, Map<String, String>> mergeInputs; // mergeNodeId -> (fromNodeId, output)
         final AtomicInteger activePaths = new AtomicInteger(0);
         final AtomicReference<String> finalOutput = new AtomicReference<>("");
+        /** PLAN 子图遍历：全部路径结束后回调宿主（父 Walk 继续 PLAN 节点后继）；null=正常收尾 */
+        Runnable completionCallback;
+        /** PLAN 节点嵌套深度（子图继承父深度+1，达到上限拒绝再嵌） */
+        int planDepth;
+        /** 失败节点登记（nodeId → 原因）：终态判定与 best-effort 级联防重 */
+        final Map<String, String> failedNodes = new LinkedHashMap<>();
         boolean terminal = false;
         boolean paused = false;
 
@@ -156,6 +173,9 @@ public class PipelineModeHandler implements ModeHandler {
 
     /** 访问一个节点：按类型分派，完成后沿出边继续 */
     private void visit(Walk walk, GraphNode node, StringBuilder input) {
+        if (walk.terminal) {
+            return; // 图已失败/完成，短路后续分派（失败传播守卫）
+        }
         // 协作式控制信号检查（节点开始前生效；当前节点执行完毕后暂停/取消）
         if (executionControl != null) {
             ExecutionControl.Signal signal = executionControl.signalOf(walk.ctx.getExecutionId());
@@ -181,21 +201,60 @@ public class PipelineModeHandler implements ModeHandler {
             case ROUTER -> executeRouter(walk, node);
             case PARALLEL -> executeParallel(walk, node, input);
             case MERGE -> arriveMerge(walk, node, node.getNodeId(), "");
+            case PLAN -> executePlanNode(walk, node, input);
             default -> executeAgentNode(walk, node, input);
         }
     }
 
     /** AGENT 节点：LLM 流式执行，产出累积后传递给后继 */
     private void executeAgentNode(Walk walk, GraphNode node, StringBuilder input) {
-        AgentTask task = AgentTask.builder()
+        // inputs 变量模板（B-3）：约定键 message 覆盖前驱输出，其余键以参考段追加；
+        // 由此 PLAN/MERGE 后的节点可分别引用任意上游节点产出（变量 key=节点 ID）
+        String message = input != null ? input.toString() : "";
+        if (node.getInputs() != null && !node.getInputs().isEmpty()) {
+            Map<String, String> extra = new LinkedHashMap<>();
+            for (Map.Entry<String, Object> entry : node.getInputs().entrySet()) {
+                String rendered = com.gewu.agent.engine.orchestration.VariableTemplates.render(
+                        entry.getValue() != null ? String.valueOf(entry.getValue()) : "", walk.ctx);
+                if ("message".equals(entry.getKey())) {
+                    message = rendered;
+                } else {
+                    extra.put(entry.getKey(), rendered);
+                }
+            }
+            if (!extra.isEmpty()) {
+                StringBuilder sb = new StringBuilder(message);
+                for (Map.Entry<String, String> e : extra.entrySet()) {
+                    sb.append("\n\n## 参考：").append(e.getKey()).append("\n").append(e.getValue());
+                }
+                message = sb.toString();
+            }
+        }
+        AgentTask.AgentTaskBuilder taskBuilder = AgentTask.builder()
                 .agentId(node.getRefId())
                 .sessionId(walk.ctx.getSessionId())
                 .userId(walk.ctx.getUserId())
-                .message(input.toString())
-                .build();
+                .message(message);
+        // 模型回退：节点未绑定 Agent（refId 为空）时，允许图变量 modelProvider/modelName 兜底解析，
+        // 使 GoalPlanner 动态生成的图无需预置 Agent 配置即可执行
+        if ((node.getRefId() == null || node.getRefId().isBlank())) {
+            Object provider = walk.ctx.getVariable("modelProvider");
+            Object modelName = walk.ctx.getVariable("modelName");
+            if (provider != null && modelName != null) {
+                taskBuilder.modelProvider(String.valueOf(provider))
+                        .modelName(String.valueOf(modelName));
+            }
+        }
+        AgentTask task = taskBuilder.build();
         StringBuilder accumulated = new StringBuilder();
         executor.executeStream(task).subscribe(
                 event -> {
+                    // 失败传播（docs/design/47 问题一）：执行器把异常转为 error 事件而非 Flux error，
+                    // 必须在此识别，否则失败被伪装成成功继续推进（冒烟实证）
+                    if (AgentEvent.ERROR.equals(event.getType())) {
+                        handleAgentFailure(walk, node, event.getErrorMessage());
+                        return;
+                    }
                     walk.sink.next(AgentEvent.builder()
                             .type(event.getType())
                             .content(event.getContent())
@@ -212,6 +271,153 @@ public class PipelineModeHandler implements ModeHandler {
                 },
                 walk.sink::error,
                 () -> nodeCompleted(walk, node, accumulated.toString()));
+    }
+
+    /**
+     * AGENT 节点失败处理（docs/design/47 问题一）。
+     * <p>默认 fail-fast：整图 FAILED 终止，与 TOOL/PLAN/HUMAN 失败语义对齐；
+     * 图变量或节点 config 设 {@code continueOnFailure=true} 时转为 best-effort：
+     * 失败节点不发 node_complete、不写产出，向下游传播失败占位（MERGE 到账空产出、
+     * 非 MERGE 后继级联跳过），整图终态仍如实判 FAILED。
+     */
+    private void handleAgentFailure(Walk walk, GraphNode node, String errorMessage) {
+        if (walk.terminal || walk.failedNodes.containsKey(node.getNodeId())) {
+            return;
+        }
+        String reason = node.getNodeId() + " 执行失败: "
+                + (errorMessage == null || errorMessage.isBlank() ? "未知错误" : errorMessage);
+        walk.failedNodes.put(node.getNodeId(), reason);
+        // 透传 error 事件（带 nodeId）：前端据此把失败节点标红
+        walk.sink.next(AgentEvent.builder()
+                .type(AgentEvent.ERROR)
+                .errorMessage(errorMessage)
+                .nodeId(node.getNodeId())
+                .role(node.getRoleCode())
+                .build());
+        if (!isContinueOnFailure(walk, node)) {
+            failGraph(walk, reason);
+            return;
+        }
+        log.warn("AGENT 节点失败（best-effort 继续）: {}", reason);
+        propagateFailure(walk, node, reason, new java.util.HashSet<>());
+    }
+
+    /** 失败传播：出边目标为 MERGE 则到账空产出占位；非 MERGE 后继级联跳过；原路径计数转移后归还 */
+    private void propagateFailure(Walk walk, GraphNode node, String reason, java.util.Set<String> visited) {
+        visited.add(node.getNodeId());
+        List<GraphEdge> edges = walk.outgoing.get(node.getNodeId());
+        if (edges == null || edges.isEmpty()) {
+            pathEnded(walk, "");
+            return;
+        }
+        for (GraphEdge edge : edges) {
+            GraphNode target = nodeById(walk, edge.getToNode());
+            walk.activePaths.incrementAndGet();
+            if (target == null) {
+                log.warn("失败传播出边指向不存在的节点: {}", edge.getToNode());
+                pathEnded(walk, "");
+                continue;
+            }
+            if (target.getType() == NodeType.MERGE) {
+                arriveMerge(walk, target, node.getNodeId(), "");
+                continue;
+            }
+            if (!walk.failedNodes.containsKey(target.getNodeId()) && visited.add(target.getNodeId())) {
+                walk.sink.next(AgentEvent.builder()
+                        .type(AgentEvent.ERROR)
+                        .nodeId(target.getNodeId())
+                        .role(target.getRoleCode())
+                        .errorMessage("因上游 " + node.getNodeId() + " 失败跳过执行")
+                        .build());
+                walk.failedNodes.put(target.getNodeId(),
+                        target.getNodeId() + " 因上游 " + node.getNodeId() + " 失败跳过");
+            }
+            propagateFailure(walk, target, reason, visited);
+        }
+        // 原失败节点路径计数已转移给各传播分支，归还自身
+        pathEnded(walk, "");
+    }
+
+    /** 失败语义开关：节点 config 优先，其次图变量（variables 已并入执行上下文），默认 fail-fast */
+    private boolean isContinueOnFailure(Walk walk, GraphNode node) {
+        if (node.getConfig() != null
+                && Boolean.parseBoolean(String.valueOf(node.getConfig().get("continueOnFailure")))) {
+            return true;
+        }
+        Object flag = walk.ctx.getVariable("continueOnFailure");
+        return flag != null && Boolean.parseBoolean(String.valueOf(flag));
+    }
+
+    /**
+     * PLAN 节点（"汇总→规划→派发实施"闭环核心）：输入（通常是 MERGE 汇总产出）
+     * 经 {@link com.gewu.agent.engine.orchestration.GoalPlanner} 动态分解为计划图，
+     * 经 {@link com.gewu.agent.engine.orchestration.model.ExecutionGraph#fromPlanGraph}
+     * 映射为并行波次子图，在当前上下文上内联执行；子图最终产出作为本节点输出继续父图遍历。
+     */
+    private void executePlanNode(Walk walk, GraphNode node, StringBuilder input) {
+        if (goalPlanner == null) {
+            failGraph(walk, "PLAN 节点需要 GoalPlanner（未配置）: " + node.getNodeId());
+            return;
+        }
+        if (walk.planDepth >= MAX_PLAN_DEPTH) {
+            failGraph(walk, "PLAN 节点嵌套深度超限（上限 " + MAX_PLAN_DEPTH + "）: " + node.getNodeId());
+            return;
+        }
+        String goalText = input != null ? input.toString() : "";
+        Object goalType = node.getConfig() != null ? node.getConfig().get("goalType") : null;
+        com.gewu.agent.engine.orchestration.model.AutonomousGoal goal =
+                com.gewu.agent.engine.orchestration.model.AutonomousGoal.builder()
+                        .goalId("plan-" + walk.ctx.getExecutionId() + "-" + node.getNodeId())
+                        .description(goalText)
+                        .type(goalType != null ? String.valueOf(goalType) : "FEATURE")
+                        .build();
+        com.gewu.agent.engine.orchestration.model.PlanGraph plan;
+        try {
+            plan = goalPlanner.plan(goal, walk.ctx);
+        } catch (Exception e) {
+            log.error("PLAN 节点规划失败: {}", node.getNodeId(), e);
+            failGraph(walk, "PLAN 节点规划失败: " + node.getNodeId() + " - " + e.getMessage());
+            return;
+        }
+        // 计划可见性：发 PLAN_CREATED（步骤清单随事件透出，前端 PlanCard 可渲染）
+        List<AgentEvent.PlanStepInfo> planSteps = new ArrayList<>();
+        if (plan.getSteps() != null) {
+            for (var step : plan.getSteps()) {
+                planSteps.add(AgentEvent.PlanStepInfo.builder()
+                        .id(step.getStepId())
+                        .text(step.getDescription())
+                        .status("pending")
+                        .build());
+            }
+        }
+        walk.sink.next(AgentEvent.builder()
+                .type(AgentEvent.PLAN_CREATED)
+                .nodeId(node.getNodeId())
+                .planTitle(plan.getGoal() != null ? plan.getGoal() : "PLAN 节点计划")
+                .plan(planSteps)
+                .build());
+
+        // 计划图 -> 并行波次执行图 -> 子图内联执行（复用 PIPELINE 全部节点能力）
+        var execGraph = com.gewu.agent.engine.orchestration.model.ExecutionGraph.fromPlanGraph(plan, null);
+        OrchestrationGraph subGraph = OrchestrationGraph.builder()
+                .graphId(execGraph.getExecutionGraphId())
+                .name("plan-" + node.getNodeId())
+                .type(com.gewu.agent.engine.orchestration.model.GraphType.GOAL_DECOMPOSED)
+                .mode(com.gewu.agent.engine.orchestration.model.OrchestrationMode.PIPELINE)
+                .nodes(execGraph.getNodes())
+                .edges(execGraph.getEdges())
+                .variables(walk.ctx.getVariables())
+                .build();
+        Walk subWalk = new Walk(subGraph, walk.ctx, walk.sink);
+        subWalk.planDepth = walk.planDepth + 1;
+        subWalk.completionCallback = () -> {
+            // 子图收尾：最终产出写回 PLAN 节点变量并沿父图出边继续
+            nodeCompleted(walk, node, subWalk.finalOutput.get());
+        };
+        List<GraphNode> subNodes = subGraph.getNodes();
+        GraphNode subStart = selectStartNode(subWalk, subNodes);
+        subWalk.activePaths.incrementAndGet();
+        visit(subWalk, subStart, new StringBuilder(goalText));
     }
 
     /** TOOL 节点：模板渲染参数 -> 安全管线执行 -> 产出传递后继 */
@@ -232,7 +438,8 @@ public class PipelineModeHandler implements ModeHandler {
 
     /** ROUTER 节点：条件求值选择唯一后继 */
     private void executeRouter(Walk walk, GraphNode node) {
-        GraphEdge selected = routeEvaluator.selectEdge(walk.outgoing.get(node.getNodeId()), walk.ctx);
+        List<GraphEdge> outgoing = walk.outgoing.get(node.getNodeId());
+        GraphEdge selected = routeEvaluator.selectEdge(outgoing, walk.ctx);
         walk.sink.next(AgentEvent.builder()
                 .type(AgentEvent.NODE_COMPLETE)
                 .nodeId(node.getNodeId())
@@ -243,8 +450,59 @@ public class PipelineModeHandler implements ModeHandler {
             failGraph(walk, "ROUTER 节点无可命中出边: " + node.getNodeId());
             return;
         }
+        // 被跳过分支下游的 MERGE 永远等不到对应入边：修正静态期待计数，
+        // 否则汇聚到不齐、图以部分产出 SUCCESS 收尾（静默丢分支）
+        if (outgoing != null && outgoing.size() > 1) {
+            adjustMergeExpectForSkipped(walk, outgoing, selected);
+        }
         log.info("ROUTER 路由: nodeId={} -> {}", node.getNodeId(), selected.getToNode());
         continueTo(walk, selected.getToNode(), "");
+    }
+
+    /**
+     * ROUTER 跳过分支后修正下游 MERGE 的期待入边数。
+     * <p>从每个被跳过分支的起点做可达性遍历（不展开 MERGE 节点）：
+     * 遍历中遇到的每条指向 MERGE 的边即为"永不到达的入边"，将其从 mergeExpect 扣除。
+     * 若某 MERGE 的全部入边均来自被跳过子树，其期待数归零后永不开闸——其下游节点
+     * 本就不可达（只能经由该 MERGE），语义一致。
+     */
+    private void adjustMergeExpectForSkipped(Walk walk, List<GraphEdge> outgoing, GraphEdge selected) {
+        java.util.ArrayDeque<String> stack = new java.util.ArrayDeque<>();
+        java.util.Set<String> visited = new HashSet<>();
+        for (GraphEdge skipped : outgoing) {
+            if (skipped == selected) {
+                continue;
+            }
+            stack.push(skipped.getToNode());
+        }
+        while (!stack.isEmpty()) {
+            String nodeId = stack.pop();
+            if (nodeId == null || !visited.add(nodeId)) {
+                continue;
+            }
+            GraphNode node = nodeById(walk, nodeId);
+            if (node == null) {
+                continue;
+            }
+            if (node.getType() == NodeType.MERGE) {
+                // 位于被跳过子树内的 MERGE：不展开其下游（其产出不可达）
+                continue;
+            }
+            List<GraphEdge> outs = walk.outgoing.get(nodeId);
+            if (outs == null) {
+                continue;
+            }
+            for (GraphEdge e : outs) {
+                GraphNode target = nodeById(walk, e.getToNode());
+                if (target != null && target.getType() == NodeType.MERGE) {
+                    walk.mergeExpect.merge(e.getToNode(), -1, Integer::sum);
+                    walk.mergeExpect.computeIfPresent(e.getToNode(),
+                            (k, v) -> Math.max(0, v));
+                } else {
+                    stack.push(e.getToNode());
+                }
+            }
+        }
     }
 
     /** PARALLEL 节点：全部出边目标作为并发分支（自身路径转移给分支后结束） */
@@ -295,6 +553,9 @@ public class PipelineModeHandler implements ModeHandler {
 
     /** 节点完成：发事件并沿唯一出边继续（多出边取第一条；无出边则路径结束） */
     private void nodeCompleted(Walk walk, GraphNode node, String output) {
+        if (walk.terminal) {
+            return; // 图已失败/完成后到达的迟来回调，不产生 node_complete（失败传播守卫）
+        }
         walk.sink.next(AgentEvent.builder()
                 .type(AgentEvent.NODE_COMPLETE)
                 .nodeId(node.getNodeId())
@@ -326,7 +587,7 @@ public class PipelineModeHandler implements ModeHandler {
         visit(walk, next, new StringBuilder(output != null ? output : ""));
     }
 
-    /** 路径结束：全部路径结束后图完成 */
+    /** 路径结束：全部路径结束后图完成（或回调宿主 PLAN 子图收尾） */
     private void pathEnded(Walk walk, String output) {
         if (output != null && !output.isBlank()) {
             walk.finalOutput.set(output);
@@ -335,8 +596,20 @@ public class PipelineModeHandler implements ModeHandler {
             if (walk.paused) {
                 return; // 暂停时由 pauseHere 负责收尾
             }
-            completeGraph(walk.sink, walk.ctx, "SUCCESS",
-                    Map.of("output", walk.finalOutput.get()));
+            if (walk.completionCallback != null) {
+                // PLAN 子图：不结束整图，把子图最终产出交回宿主 Walk 继续父图遍历
+                walk.completionCallback.run();
+                return;
+            }
+            // 失败终态判定（docs/design/47 问题一）：存在失败节点时整图如实判 FAILED
+            if (!walk.failedNodes.isEmpty()) {
+                completeGraph(walk.sink, walk.ctx, "FAILED",
+                        Map.of("reason", String.join("; ", walk.failedNodes.values()),
+                                "output", walk.finalOutput.get()));
+            } else {
+                completeGraph(walk.sink, walk.ctx, "SUCCESS",
+                        Map.of("output", walk.finalOutput.get()));
+            }
             if (executionControl != null) {
                 executionControl.unregister(walk.ctx.getExecutionId());
             }

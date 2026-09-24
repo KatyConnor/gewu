@@ -55,6 +55,9 @@ class SessionContextServiceCompressionTest {
                 messageAppender,
                 titleService
         );
+        // 配置注入（用户实报修复：阈值/保留策略已配置化），测试用低阈值便于触发压缩
+        sessionContextService.contextCompactThresholdTokens = 100;
+        sessionContextService.contextCompactKeepRecent = 2;
     }
 
     @Test

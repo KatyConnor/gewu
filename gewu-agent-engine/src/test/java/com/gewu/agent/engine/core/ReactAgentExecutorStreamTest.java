@@ -46,6 +46,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -119,6 +120,9 @@ class ReactAgentExecutorStreamTest {
                 new PromptInjectionDetector(),
                 new OutputSanitizer(),
                 noOpModelSelector(),
+                null,
+                null,
+                null,
                 null);
     }
 
@@ -337,6 +341,9 @@ class ReactAgentExecutorStreamTest {
                 new PromptInjectionDetector(),
                 new OutputSanitizer(),
                 noOpModelSelector(),
+                null,
+                null,
+                null,
                 null);
 
         // 带会话的短消息任务：路由判 L1，应提升为 L2
@@ -433,7 +440,10 @@ class ReactAgentExecutorStreamTest {
                 new PromptInjectionDetector(),
                 new OutputSanitizer(),
                 noOpModelSelector(),
-                fake);
+                fake,
+                null,
+                null,
+                null);
 
         // 第一轮：模型创建文件（同轮工具并行执行，依赖前序结果的编辑应在下一轮）
         llmClient.scriptedRounds.add(Flux.just(
@@ -501,6 +511,444 @@ class ReactAgentExecutorStreamTest {
                                     String action, String detail) {
             }
         };
+    }
+
+    @Test
+    @DisplayName("轮次超限回退路径（limit-summary 关闭）：ERROR 带 metadata.reason + DONE(rounds)，账本记失败")
+    void streamToolRoundsExceededEmitsErrorAndDone() {
+        // 账本观测：捕获指标名（轮次超限应记 agent.task.failure，不再误记成功）
+        List<String> metricNames = new CopyOnWriteArrayList<>();
+        MetricService recordingMetrics = (name, value, tags) -> metricNames.add(name);
+
+        // 重建执行器：闸门等级感知后轮次上限取预算账本 maxRounds=2（L2）；
+        // 关闭优雅降级，验证回退终止序列（优化1 的失败兜底行为）
+        executor = new ReactAgentExecutor(
+                new LlmClientRegistry(List.of(llmClient), null, objectMapper,
+                        HttpClient.newHttpClient(), new LlmRequestBodyBuilder(objectMapper)),
+                toolExecutor,
+                new DefaultMessageBuilder(new SystemPromptComposer()),
+                new NoOpSessionContextService(),
+                new NoOpPersistenceService(),
+                AgentEngineConfig.builder()
+                        .maxToolRounds(5)
+                        .defaultMaxTokens(8192)
+                        .defaultTemperature(0.7)
+                        .toolExecutor(toolExecutorPool)
+                        .defaultHistoryLimit(50)
+                        .limitSummaryEnabled(false)
+                        // 本用例验证轮次超限的回退终止序列，关闭滚动扩容保持闸门语义
+                        .roundsRenewEnabled(false)
+                        .build(),
+                objectMapper,
+                new NoOpMemoryRouter(),
+                new NoOpMemoryStore(),
+                new BudgetController(81920, 300000, 2),
+                new NoOpPerceptionEngine(),
+                new ComplexityRouter(new DualSystemRouter()),
+                noOpTraceService(),
+                recordingMetrics,
+                new ResponseCache() {
+                },
+                new PromptInjectionDetector(),
+                new OutputSanitizer(),
+                noOpModelSelector(),
+                null,
+                null,
+                null,
+                null);
+
+        // 两轮均请求工具：round 0/1 执行完回灌，round 2 入口 round=2 >= maxRounds=2 触发超限
+        for (int i = 0; i < 2; i++) {
+            llmClient.scriptedRounds.add(Flux.just(
+                    LlmChunk.builder().toolCallDelta(LlmChunk.ToolCallDelta.builder()
+                            .id("call-" + i).name("query_weather").build()).build(),
+                    LlmChunk.builder().finishReason("tool_calls").build()));
+        }
+        when(toolExecutor.execute(eq("query_weather"), anyString(), any(), any()))
+                .thenReturn(ToolResult.builder().success(true).output("晴").build());
+
+        List<AgentEvent> events = executor.executeStream(task(2048))
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        // 最后两个事件：ERROR（带 metadata.reason）→ DONE(finishReason=rounds)，
+        // 前端生命周期完整（此前 ERROR 后流静默结束，表现为"无声中断"）
+        AgentEvent errorEvent = events.get(events.size() - 2);
+        AgentEvent doneEvent = events.get(events.size() - 1);
+        assertThat(errorEvent.getType()).isEqualTo("error");
+        assertThat(errorEvent.getErrorMessage()).isEqualTo("工具调用轮次超限");
+        assertThat(errorEvent.getMetadata()).containsEntry("reason", "tool_rounds_exceeded");
+        assertThat(doneEvent.getType()).isEqualTo("done");
+        assertThat(doneEvent.getFinishReason()).isEqualTo("rounds");
+        // 账本语义对齐预算熔断：轮次超限记失败，部分进度不沉淀经验
+        assertThat(metricNames).contains("agent.task.failure");
+        assertThat(metricNames).doesNotContain("agent.task.success");
+    }
+
+    @Test
+    @DisplayName("轮次超限优雅降级（优化1）：WARNING+STATUS 后总结收尾，DONE(rounds)，账本记失败")
+    void streamToolRoundsExceededDegradesToSummary() {
+        List<String> metricNames = new CopyOnWriteArrayList<>();
+        MetricService recordingMetrics = (name, value, tags) -> metricNames.add(name);
+
+        executor = new ReactAgentExecutor(
+                new LlmClientRegistry(List.of(llmClient), null, objectMapper,
+                        HttpClient.newHttpClient(), new LlmRequestBodyBuilder(objectMapper)),
+                toolExecutor,
+                new DefaultMessageBuilder(new SystemPromptComposer()),
+                new NoOpSessionContextService(),
+                new NoOpPersistenceService(),
+                AgentEngineConfig.builder()
+                        .maxToolRounds(5)
+                        .defaultMaxTokens(8192)
+                        .defaultTemperature(0.7)
+                        .toolExecutor(toolExecutorPool)
+                        .defaultHistoryLimit(50)
+                        // 本用例验证轮次超限的优雅降级总结，关闭滚动扩容保持闸门语义
+                        .roundsRenewEnabled(false)
+                        .build(),
+                objectMapper,
+                new NoOpMemoryRouter(),
+                new NoOpMemoryStore(),
+                new BudgetController(81920, 300000, 2),
+                new NoOpPerceptionEngine(),
+                new ComplexityRouter(new DualSystemRouter()),
+                noOpTraceService(),
+                recordingMetrics,
+                new ResponseCache() {
+                },
+                new PromptInjectionDetector(),
+                new OutputSanitizer(),
+                noOpModelSelector(),
+                null,
+                null,
+                null,
+                null);
+
+        // 两轮工具调用触发轮次超限，第 3 次调用为总结响应
+        for (int i = 0; i < 2; i++) {
+            llmClient.scriptedRounds.add(Flux.just(
+                    LlmChunk.builder().toolCallDelta(LlmChunk.ToolCallDelta.builder()
+                            .id("call-" + i).name("query_weather").build()).build(),
+                    LlmChunk.builder().finishReason("tool_calls").build()));
+        }
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().delta("已完成查询，结果为晴天").build(),
+                LlmChunk.builder().finishReason("stop").build()));
+        when(toolExecutor.execute(eq("query_weather"), anyString(), any(), any()))
+                .thenReturn(ToolResult.builder().success(true).output("晴").build());
+
+        List<AgentEvent> events = executor.executeStream(task(2048))
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        List<String> types = events.stream().map(AgentEvent::getType).toList();
+        // 优雅降级序列：WARNING（达上限提示）→ STATUS（总结中）→ ... → CONTENT（总结正文）→ DONE(rounds)
+        assertThat(types).containsSubsequence("budget_warning", "status", "content", "done");
+        assertThat(events).anyMatch(e -> "budget_warning".equals(e.getType())
+                && e.getContent() != null && e.getContent().contains("已达工具调用轮次上限"));
+        assertThat(events).anyMatch(e -> "content".equals(e.getType())
+                && "已完成查询，结果为晴天".equals(e.getContent()));
+        // 无 ERROR 事件——降级完成而非裸报错
+        assertThat(types).doesNotContain("error");
+        AgentEvent last = events.get(events.size() - 1);
+        assertThat(last.getType()).isEqualTo("done");
+        assertThat(last.getFinishReason()).isEqualTo("rounds");
+        // 总结请求的 maxTokens 取配置上限（默认 8192），不随当轮任务级 maxTokens（2048）缩小
+        assertThat(llmClient.recordedRequests).hasSize(3);
+        assertThat(llmClient.recordedRequests.get(2).getMaxTokens()).isEqualTo(8192);
+        // 账本语义不变：超限仍记失败、不沉淀经验
+        assertThat(metricNames).contains("agent.task.failure");
+        assertThat(metricNames).doesNotContain("agent.task.success");
+    }
+
+    @Test
+    @DisplayName("轮次滚动扩容：到顶且无死循环迹象时扩容续跑，DONE 携带执行统计 metadata")
+    void streamRoundsExhaustedAutoRenewsWhenProgressing() {
+        // 定制执行器：maxRounds=2（L2）；round 2 闸门触发扩容 +10 → 12 轮，
+        // 第 3 次 LLM 调用给出最终回答（默认 roundsRenewEnabled=true）
+        executor = new ReactAgentExecutor(
+                new LlmClientRegistry(List.of(llmClient), null, objectMapper,
+                        HttpClient.newHttpClient(), new LlmRequestBodyBuilder(objectMapper)),
+                toolExecutor,
+                new DefaultMessageBuilder(new SystemPromptComposer()),
+                new NoOpSessionContextService(),
+                new NoOpPersistenceService(),
+                AgentEngineConfig.builder()
+                        .maxToolRounds(5)
+                        .defaultMaxTokens(8192)
+                        .defaultTemperature(0.7)
+                        .toolExecutor(toolExecutorPool)
+                        .defaultHistoryLimit(50)
+                        .build(),
+                objectMapper,
+                new NoOpMemoryRouter(),
+                new NoOpMemoryStore(),
+                new BudgetController(81920, 300000, 2),
+                new NoOpPerceptionEngine(),
+                new ComplexityRouter(new DualSystemRouter()),
+                noOpTraceService(),
+                noOpMetricService(),
+                new ResponseCache() {
+                },
+                new PromptInjectionDetector(),
+                new OutputSanitizer(),
+                noOpModelSelector(),
+                null,
+                null,
+                null,
+                null);
+
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().toolCallDelta(LlmChunk.ToolCallDelta.builder()
+                        .id("call-0").name("query_weather").build()).build(),
+                LlmChunk.builder().finishReason("tool_calls").build()));
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().toolCallDelta(LlmChunk.ToolCallDelta.builder()
+                        .id("call-1").name("query_weather").build()).build(),
+                LlmChunk.builder().finishReason("tool_calls").build()));
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().delta("任务完成").build(),
+                LlmChunk.builder().finishReason("stop").build()));
+        when(toolExecutor.execute(eq("query_weather"), anyString(), any(), any()))
+                .thenReturn(ToolResult.builder().success(true).output("晴").build());
+
+        List<AgentEvent> events = executor.executeStream(task(2048))
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        // 扩容告警事件出现，且闸门放行后任务继续推进（无强制总结的 STATUS/DONE(rounds)）
+        assertThat(events).anyMatch(e -> "budget_warning".equals(e.getType())
+                && e.getContent() != null && e.getContent().contains("已自动扩容"));
+        List<String> types = events.stream().map(AgentEvent::getType).toList();
+        assertThat(types).doesNotContain("error");
+        AgentEvent last = events.get(events.size() - 1);
+        assertThat(last.getType()).isEqualTo("done");
+        assertThat(last.getFinishReason()).isEqualTo("stop");
+        // 完成透明度：DONE metadata 携带执行统计（rounds 含扩容后轮次，roundsRenewed=1）
+        assertThat(last.getMetadata()).isNotNull();
+        assertThat(last.getMetadata().get("rounds")).isEqualTo(3);
+        assertThat(last.getMetadata().get("roundsRenewed")).isEqualTo(1);
+        assertThat(last.getMetadata().get("timeRenewals")).isEqualTo(0);
+        // 扩容后闸门放行：第三次 LLM 调用正常发生（非 tools 总结请求）
+        assertThat(llmClient.recordedRequests).hasSize(3);
+    }
+
+    @Test
+    @DisplayName("轮次滚动扩容次数耗尽后仍强制总结（绝对上限防失控）")
+    void streamRoundsExhaustedForcesSummaryWhenRenewalsExhausted() {
+        List<String> metricNames = new CopyOnWriteArrayList<>();
+        MetricService recordingMetrics = (name, value, tags) -> metricNames.add(name);
+
+        executor = new ReactAgentExecutor(
+                new LlmClientRegistry(List.of(llmClient), null, objectMapper,
+                        HttpClient.newHttpClient(), new LlmRequestBodyBuilder(objectMapper)),
+                toolExecutor,
+                new DefaultMessageBuilder(new SystemPromptComposer()),
+                new NoOpSessionContextService(),
+                new NoOpPersistenceService(),
+                AgentEngineConfig.builder()
+                        .maxToolRounds(5)
+                        .defaultMaxTokens(8192)
+                        .defaultTemperature(0.7)
+                        .toolExecutor(toolExecutorPool)
+                        .defaultHistoryLimit(50)
+                        .roundsRenewMax(1)
+                        .build(),
+                objectMapper,
+                new NoOpMemoryRouter(),
+                new NoOpMemoryStore(),
+                new BudgetController(81920, 300000, 2),
+                new NoOpPerceptionEngine(),
+                new ComplexityRouter(new DualSystemRouter()),
+                noOpTraceService(),
+                recordingMetrics,
+                new ResponseCache() {
+                },
+                new PromptInjectionDetector(),
+                new OutputSanitizer(),
+                noOpModelSelector(),
+                null,
+                null,
+                null,
+                null);
+
+        // round 2 闸门扩容一次（maxRounds 2→12），rounds 2..11 继续工具调用，
+        // round 12 闸门：扩容次数已耗尽 → 强制总结（13 次 LLM 调用 = 12 轮 + 总结）
+        for (int i = 0; i < 12; i++) {
+            llmClient.scriptedRounds.add(Flux.just(
+                    LlmChunk.builder().toolCallDelta(LlmChunk.ToolCallDelta.builder()
+                            .id("call-" + i).name("query_weather")
+                            .arguments("{\"i\":" + i + "}").build()).build(),
+                    LlmChunk.builder().finishReason("tool_calls").build()));
+        }
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().delta("进度总结").build(),
+                LlmChunk.builder().finishReason("stop").build()));
+        when(toolExecutor.execute(eq("query_weather"), anyString(), any(), any()))
+                .thenReturn(ToolResult.builder().success(true).output("晴").build());
+
+        List<AgentEvent> events = executor.executeStream(task(2048))
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        // 恰好一次扩容告警，随后是强制总结（notice 达上限 + DONE(rounds)）
+        long renewWarnings = events.stream()
+                .filter(e -> "budget_warning".equals(e.getType()))
+                .filter(e -> e.getContent() != null && e.getContent().contains("已自动扩容"))
+                .count();
+        assertThat(renewWarnings).isEqualTo(1);
+        assertThat(events).anyMatch(e -> "budget_warning".equals(e.getType())
+                && e.getContent() != null && e.getContent().contains("已达工具调用轮次上限"));
+        AgentEvent last = events.get(events.size() - 1);
+        assertThat(last.getFinishReason()).isEqualTo("rounds");
+        assertThat(llmClient.recordedRequests).hasSize(13);
+    }
+
+    @Test
+    @DisplayName("死循环检测（优化3）：warn 阈值注入 nudge，stop 阈值终止并总结（DONE(loop)）")
+    void streamToolLoopDetectedNudgesThenStops() {
+        List<String> metricNames = new CopyOnWriteArrayList<>();
+        MetricService recordingMetrics = (name, value, tags) -> metricNames.add(name);
+
+        executor = new ReactAgentExecutor(
+                new LlmClientRegistry(List.of(llmClient), null, objectMapper,
+                        HttpClient.newHttpClient(), new LlmRequestBodyBuilder(objectMapper)),
+                toolExecutor,
+                new DefaultMessageBuilder(new SystemPromptComposer()),
+                new NoOpSessionContextService(),
+                new NoOpPersistenceService(),
+                AgentEngineConfig.builder()
+                        .maxToolRounds(5)
+                        .defaultMaxTokens(8192)
+                        .defaultTemperature(0.7)
+                        .toolExecutor(toolExecutorPool)
+                        .defaultHistoryLimit(50)
+                        .loopWarnThreshold(2)
+                        .loopStopThreshold(3)
+                        .build(),
+                objectMapper,
+                new NoOpMemoryRouter(),
+                new NoOpMemoryStore(),
+                // maxRounds=20：让循环检测先于轮次闸门触发，证明是检测逻辑在起作用
+                new BudgetController(81920, 300000, 20),
+                new NoOpPerceptionEngine(),
+                new ComplexityRouter(new DualSystemRouter()),
+                noOpTraceService(),
+                recordingMetrics,
+                new ResponseCache() {
+                },
+                new PromptInjectionDetector(),
+                new OutputSanitizer(),
+                noOpModelSelector(),
+                null,
+                null,
+                null,
+                null);
+
+        // 三轮完全相同的工具调用 + 总结响应
+        for (int i = 0; i < 3; i++) {
+            llmClient.scriptedRounds.add(Flux.just(
+                    LlmChunk.builder().toolCallDelta(LlmChunk.ToolCallDelta.builder()
+                            .id("call-" + i).name("query_weather").build()).build(),
+                    LlmChunk.builder().toolCallDelta(LlmChunk.ToolCallDelta.builder()
+                            .arguments("{\"city\":\"北京\"}").build()).build(),
+                    LlmChunk.builder().finishReason("tool_calls").build()));
+        }
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().delta("循环总结：已连续查询天气").build(),
+                LlmChunk.builder().finishReason("stop").build()));
+        when(toolExecutor.execute(eq("query_weather"), anyString(), any(), any()))
+                .thenReturn(ToolResult.builder().success(true).output("晴").build());
+
+        List<AgentEvent> events = executor.executeStream(task(2048))
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        List<String> types = events.stream().map(AgentEvent::getType).toList();
+        // round 1 达 warn 阈值：注入 nudge + 提示事件；round 2 达 stop 阈值：终止 + 总结
+        assertThat(events).anyMatch(e -> "budget_warning".equals(e.getType())
+                && e.getContent() != null && e.getContent().contains("已提示模型改变策略"));
+        assertThat(events).anyMatch(e -> "budget_warning".equals(e.getType())
+                && e.getContent() != null && e.getContent().contains("已自动停止并总结进度"));
+        assertThat(types).containsSubsequence("status", "content", "done");
+        assertThat(events).anyMatch(e -> "content".equals(e.getType())
+                && "循环总结：已连续查询天气".equals(e.getContent()));
+        AgentEvent last = events.get(events.size() - 1);
+        assertThat(last.getType()).isEqualTo("done");
+        assertThat(last.getFinishReason()).isEqualTo("loop");
+        // round 0/1 的工具已执行，round 2 达终止阈值不再执行（节省执行成本）
+        verify(toolExecutor, times(2)).execute(eq("query_weather"), anyString(), any(), any());
+        // nudge 消息注入 round 2 的 LLM 请求（role=user，含系统提示语）
+        List<Message> round3Messages = llmClient.recordedRequests.get(2).getMessages();
+        assertThat(round3Messages).anyMatch(m -> "user".equals(m.getRole())
+                && m.getContent() != null && m.getContent().contains("系统提示"));
+        assertThat(metricNames).contains("agent.task.failure");
+    }
+
+    @Test
+    @DisplayName("预算熔断优雅降级（优化1）：BUDGET_EXCEEDED banner 保留 + 总结收尾，DONE(budget)")
+    void streamBudgetExceededDegradesToSummary() {
+        List<String> metricNames = new CopyOnWriteArrayList<>();
+        MetricService recordingMetrics = (name, value, tags) -> metricNames.add(name);
+
+        executor = new ReactAgentExecutor(
+                new LlmClientRegistry(List.of(llmClient), null, objectMapper,
+                        HttpClient.newHttpClient(), new LlmRequestBodyBuilder(objectMapper)),
+                toolExecutor,
+                new DefaultMessageBuilder(new SystemPromptComposer()),
+                new NoOpSessionContextService(),
+                new NoOpPersistenceService(),
+                AgentEngineConfig.builder()
+                        .maxToolRounds(5)
+                        .defaultMaxTokens(8192)
+                        .defaultTemperature(0.7)
+                        .toolExecutor(toolExecutorPool)
+                        .defaultHistoryLimit(50)
+                        .build(),
+                objectMapper,
+                new NoOpMemoryRouter(),
+                new NoOpMemoryStore(),
+                // tokenBudget=2：第 0 轮 consume 后即达 100%，round 1 入口熔断
+                new BudgetController(2, 300000, 10),
+                new NoOpPerceptionEngine(),
+                new ComplexityRouter(new DualSystemRouter()),
+                noOpTraceService(),
+                recordingMetrics,
+                new ResponseCache() {
+                },
+                new PromptInjectionDetector(),
+                new OutputSanitizer(),
+                noOpModelSelector(),
+                null,
+                null,
+                null,
+                null);
+
+        // 第 0 轮工具调用（触发 consume），第 1 轮入口熔断 → 总结响应
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().toolCallDelta(LlmChunk.ToolCallDelta.builder()
+                        .id("call-0").name("query_weather").build()).build(),
+                LlmChunk.builder().finishReason("tool_calls").build()));
+        llmClient.scriptedRounds.add(Flux.just(
+                LlmChunk.builder().delta("预算总结：已查询天气").build(),
+                LlmChunk.builder().finishReason("stop").build()));
+        when(toolExecutor.execute(eq("query_weather"), anyString(), any(), any()))
+                .thenReturn(ToolResult.builder().success(true).output("晴").build());
+
+        List<AgentEvent> events = executor.executeStream(task(2048))
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        // BUDGET_EXCEEDED 保留（前端 banner 照常），随后总结收尾
+        assertThat(events).anyMatch(e -> "budget_exceeded".equals(e.getType())
+                && e.getErrorMessage() != null && e.getErrorMessage().contains("预算耗尽"));
+        assertThat(events).anyMatch(e -> "content".equals(e.getType())
+                && "预算总结：已查询天气".equals(e.getContent()));
+        AgentEvent last = events.get(events.size() - 1);
+        assertThat(last.getType()).isEqualTo("done");
+        assertThat(last.getFinishReason()).isEqualTo("budget");
+        assertThat(metricNames).contains("agent.task.failure");
     }
 
     private MetricService noOpMetricService() {

@@ -47,4 +47,11 @@ public class AgentTask {
     private Boolean modelRouteEnabled;
     /** 感知引擎产出的结构化意图（运行时填充，调用方一般不设） */
     private PerceptionEngine.Intent intent;
+    /** 用户套餐剩余配额（tokens，配额体系注入；null=不限制，仅受模型上下文窗口约束） */
+    private Long quotaTokenBudget;
+    /** 配额熔断开关（用户偏好注入；null/true=token 耗尽熔断，false=仅告警不熔断） */
+    private Boolean quotaBlockEnabled;
+    /** 子代理嵌套深度（0=顶层任务）：spawn_subagents 派生的子任务=父深度+1，达到上限不再注册派生工具 */
+    @Builder.Default
+    private int agentDepth = 0;
 }

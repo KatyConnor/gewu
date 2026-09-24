@@ -7,6 +7,7 @@ import com.gewu.agent.engine.budget.BudgetContext;
 import com.gewu.agent.engine.budget.BudgetController;
 import com.gewu.agent.engine.budget.BudgetStatus;
 import com.gewu.agent.engine.cognition.ComplexityRouter;
+import com.gewu.agent.engine.hitl.UserInteractionGateway;
 import com.gewu.agent.engine.cognition.PerceptionEngine;
 import com.gewu.agent.engine.core.event.AgentEvent;
 import com.gewu.agent.engine.llm.LlmClient;
@@ -77,6 +78,13 @@ public class ReactAgentExecutor implements AgentExecutor {
     private final ModelSelector modelSelector;
     /** 文件工作空间 SPI（S9 F3）：内置文件工具执行后端，null 时禁用文件工具 */
     private final com.gewu.agent.engine.tool.FileWorkspaceSpi fileWorkspace;
+    /** 上下文压缩器 SPI（配额与上下文自治）：null 时上下文压缩禁用（仅告警） */
+    private final com.gewu.agent.engine.spi.ContextCompactor contextCompactor;
+    /** 模型上下文窗口提供者 SPI：null 时跳过压缩与输出上限校验 */
+    private final com.gewu.agent.engine.spi.ModelContextProvider modelContextProvider;
+
+    /** 用户交互网关（HITL 问答）：ask_user 工具的挂起-恢复后端；未装配时交互通道降级 */
+    private final com.gewu.agent.engine.hitl.UserInteractionGateway userInteractionGateway;
 
     /** 推理模型截断自愈：finish=length 时的最大重试次数（8192 起步 ×3 次翻倍可达 65536 硬顶） */
     private static final int MAX_TRUNCATION_RETRIES = 3;
@@ -89,9 +97,22 @@ public class ReactAgentExecutor implements AgentExecutor {
     private static final String PLAN_TOOL_NAME = "plan_task";
     private static final String PLAN_TOOL_DESCRIPTION =
             "创建或更新当前任务的任务清单。开始多步骤工作前调用一次以制定计划；"
-                    + "完成某步骤或计划变化时再次调用以更新整体状态（全量覆盖语义）。";
+                    + "完成某步骤或计划变化时再次调用以更新整体状态（全量覆盖语义）。"
+                    + "提交方案/计划时：以 markdown 参数提供完整计划正文（引擎保存到工作空间 plan/ 目录供用户查看），"
+                    + "随后必须调用 ask_user 等待用户批准，批准后方可开始实施。";
     private static final String PLAN_TOOL_SCHEMA = """
-            {"type":"object","properties":{"title":{"type":"string","description":"任务清单标题"},"steps":{"type":"array","description":"任务步骤列表（全量提交，以本次调用为准整体覆盖）","items":{"type":"object","properties":{"id":{"type":"string","description":"步骤唯一标识"},"text":{"type":"string","description":"步骤内容"},"status":{"type":"string","enum":["pending","in_progress","done"],"description":"步骤状态"}},"required":["id","text","status"]}}},"required":["steps"]}
+            {"type":"object","properties":{"title":{"type":"string","description":"任务清单标题"},"steps":{"type":"array","description":"任务步骤列表（全量提交，以本次调用为准整体覆盖）","items":{"type":"object","properties":{"id":{"type":"string","description":"步骤唯一标识"},"text":{"type":"string","description":"步骤内容"},"status":{"type":"string","enum":["pending","in_progress","done"],"description":"步骤状态"}},"required":["id","text","status"]}},"markdown":{"type":"string","description":"完整计划正文（Markdown）。提交方案/计划时提供，引擎将保存到工作空间 plan/ 目录供用户查看完整计划"}},"required":["steps"]}
+            """;
+
+    /** 内置用户问答工具（HITL）：向用户提问并挂起等待回答，回答作为工具结果回灌续跑 */
+    private static final String ASK_TOOL_NAME = "ask_user";
+    private static final String ASK_TOOL_DESCRIPTION =
+            "向用户提问以获取决策确认（执行会挂起，等待用户在界面上选择或输入回答后继续）。"
+                    + "适用：方案/计划需要用户批准、存在歧义需要用户决策、缺少关键信息。"
+                    + "提交方案/计划（plan_task）后必须调用本工具等待用户批准，批准后方可开始实施。"
+                    + "options 提供 1-4 个候选项可降低用户输入成本，用户也可自行输入回答。";
+    private static final String ASK_TOOL_SCHEMA = """
+            {"type":"object","properties":{"question":{"type":"string","description":"要向用户确认的问题（简洁明确）"},"options":{"type":"array","items":{"type":"string"},"maxItems":4,"description":"候选项（用户可选中或自行输入回答）"}},"required":["question"]}
             """;
 
     /** 内置文件工具（S9 F3）：经 FileWorkspaceSpi 在会话工作空间执行 */
@@ -112,6 +133,29 @@ public class ReactAgentExecutor implements AgentExecutor {
             {"type":"object","properties":{"path":{"type":"string","description":"目录相对路径，默认工作空间根目录"}},"required":[]}
             """;
 
+    /** 内置子代理派生工具：模型动态派生多个独立 ReAct 会话并行执行，聚合结果回灌主循环 */
+    private static final String SPAWN_TOOL_NAME = "spawn_subagents";
+    private static final String SPAWN_TOOL_DESCRIPTION =
+            "并行派生多个独立子 Agent（各自拥有独立上下文、独立工具循环与预算）分头处理不同子任务，"
+                    + "全部执行完成后汇总各子 Agent 结果返回。适用于可并行分解的调研、多方案对比、批量处理等场景。"
+                    + "每个子任务的 prompt 必须自包含（子 Agent 看不到当前对话历史）。";
+    private static final String SPAWN_TOOL_SCHEMA_TEMPLATE = """
+            {"type":"object","properties":{"agents":{"type":"array","description":"子代理任务清单（并行执行）","maxItems":%d,"items":{"type":"object","properties":{"name":{"type":"string","description":"子任务名称（用于结果标注）"},"agentId":{"type":"string","description":"可选，执行该子任务的 Agent 标识，缺省沿用当前 Agent"},"prompt":{"type":"string","description":"子任务的完整自包含提示词（含背景、目标与期望产出）"}},"required":["name","prompt"]}}},"required":["agents"]}
+            """;
+
+    /** 超限总结指令（user 角色，追加在对话末尾；总结请求不带 tools，模型无法再调用工具） */
+    private static final String SUMMARY_INSTRUCTION =
+            "你的任务执行已达到上限（工具调用轮次/执行预算），本次总结将是任务的最终输出，不能再调用任何工具。"
+                    + "请基于以上对话中已经获取的全部信息（工具结果与你的分析），用中文输出当前进展的最终总结："
+                    + "1) 已完成的工作与关键产出；2) 重要发现或结论；3) 尚未完成的部分与建议的下一步。"
+                    + "总结要简洁、结构化、直接给出内容。";
+    /** 单次执行的上下文压缩次数上限（防反复压缩） */
+    private static final int MAX_CONTEXT_COMPACTS = 5;
+    /** 死循环策略提示（nudge，user 角色，追加在工具结果之后、下一轮推理之前） */
+    private static final String LOOP_NUDGE_INSTRUCTION =
+            "系统提示：你已连续多次以完全相同的参数调用同一工具且任务未推进。"
+                    + "请停止重复调用，改用其他方法获取信息，或基于已有信息直接给出最终回答。";
+
     // ==================== 同步执行 ====================
 
     @Override
@@ -131,8 +175,8 @@ public class ReactAgentExecutor implements AgentExecutor {
         LlmClient client = llmClientRegistry.getClient(plan.provider);
         List<Message> messages = buildMessages(agent, task);
         Map<String, ToolConfig> toolConfigMap = new LinkedHashMap<>();
-        List<ToolDefinition> tools = buildToolDefinitions(agentId, toolConfigMap);
-        ToolContext toolContext = buildToolContext(task, agent);
+        List<ToolDefinition> tools = buildToolDefinitions(task, toolConfigMap);
+        ToolContext toolContext = buildToolContext(task, agent, plan.provider, plan.model);
         double temperature = resolveTemperature(task);
 
         // 语义缓存命中检查：高相似历史请求直接返回缓存响应（零 LLM 成本）
@@ -149,20 +193,25 @@ public class ReactAgentExecutor implements AgentExecutor {
                 plan.provider, plan.model, messages.size(), tools.size(), temperature);
 
         // 推理模型思考耗尽预算的自动重试状态（S8：finish=length 且正文为空时加倍 max_tokens）
-        int currentMaxTokens = resolveMaxTokens(task);
+        int currentMaxTokens = clampToModelOutputWindow(plan.model, resolveMaxTokens(task));
         int truncationRetries = 0;
 
-        for (int round = 0; round < config.getMaxToolRounds(); round++) {
+        // 死循环检测器（优化3）：同步路径同样生效
+        ToolLoopDetector loopDetector = new ToolLoopDetector();
+        // 轮次闸门等级感知：上限取预算账本的 maxRounds（随 L1/L2/L3 等级与截断重试扩容变化），
+        // 而非固定的 config.maxToolRounds——否则 L3 的 20 轮预算永远先被 10 轮执行器闸门卡住
+        for (int round = 0; round < plan.budget.getMaxRounds(); round++) {
             // 时间预算滚动续期（S9 方案A）：时间满额但 Token/轮次健康 → 续期不终止
             budgetController.renewTimeBudget(plan.budget);
-            // 预算检查：熔断则终止（仅 Token/轮次）
+            // 预算检查：熔断则终止（仅 Token/轮次，配置金额上限后含成本维）
             if (budgetController.shouldStop(plan.budget)) {
-                log.warn("预算熔断: tokenUtil={}, timeUtil={}, round={}",
-                        plan.budget.getTokenUtilization(), plan.budget.getTimeUtilization(), round);
+                log.warn("预算熔断: tokenUtil={}, timeUtil={}, costUtil={}, round={}",
+                        plan.budget.getTokenUtilization(), plan.budget.getTimeUtilization(),
+                        plan.budget.getCostUtilization(), round);
                 recordMetricSafe("agent.budget.exceeded", 1, Map.of(
                         "agentId", agentId != null ? agentId : "unknown", "reason", "sync_loop"));
                 throw AgentEngineException.of("BUDGET_EXCEEDED",
-                        "预算耗尽: token=" + plan.budget.getTokenConsumed() + "/" + plan.budget.getTokenBudget()
+                        budgetExceededMessage(plan.budget)
                                 + ", time=" + plan.budget.getElapsedMs() + "ms/" + plan.budget.getTimeBudgetMs() + "ms");
             }
 
@@ -186,9 +235,22 @@ public class ReactAgentExecutor implements AgentExecutor {
                 throw e;
             }
 
-            // 记录预算消耗
-            long tokens = response.getUsage() != null ? response.getUsage().getTotalTokens() : 0;
-            budgetController.consume(plan.budget, tokens, tokens * 0.00001);
+            // 记录预算消耗（优化2：成本按模型定价对输入/输出拆分计价；
+            // usage 缺失拆分时全部计入输出侧——保守高估，利于金额熔断）
+            LlmResponse.Usage usage = response.getUsage();
+            long promptTokens = usage != null && usage.getPromptTokens() != null ? usage.getPromptTokens() : 0;
+            long tokens;
+            long completionTokens;
+            if (usage != null && usage.getTotalTokens() != null && usage.getTotalTokens() > 0) {
+                tokens = usage.getTotalTokens();
+                completionTokens = usage.getCompletionTokens() != null
+                        ? usage.getCompletionTokens() : Math.max(0, tokens - promptTokens);
+            } else {
+                tokens = promptTokens;
+                completionTokens = 0;
+            }
+            budgetController.consume(plan.budget, tokens,
+                    budgetController.calculateCost(plan.model, promptTokens, completionTokens));
 
             if (response.getToolCalls() == null || response.getToolCalls().isEmpty()) {
                 boolean truncated = "length".equals(response.getFinishReason());
@@ -200,7 +262,8 @@ public class ReactAgentExecutor implements AgentExecutor {
                         && truncationRetries < MAX_TRUNCATION_RETRIES
                         && currentMaxTokens < MAX_TOKENS_HARD_CAP) {
                     truncationRetries++;
-                    currentMaxTokens = Math.min(currentMaxTokens * 2, MAX_TOKENS_HARD_CAP);
+                    currentMaxTokens = clampToModelOutputWindow(plan.model,
+                            Math.min(currentMaxTokens * 2, MAX_TOKENS_HARD_CAP));
                     // 主动升级预算：token/时间预算随 max_tokens 同步放大，否则重试轮次
                     // 会在循环头的 shouldStop 处被熔断（尤其 L1 级仅 30s 时间预算）。
                     // consume() 会累计 currentRound，重试也占轮次，需同步扩容 maxRounds
@@ -239,13 +302,38 @@ public class ReactAgentExecutor implements AgentExecutor {
                     .toolCalls(response.getToolCalls())
                     .build());
 
+            // 死循环检测（优化3）：本轮工具调用签名入账——达终止阈值在执行前直接抛出
+            // （节省工具执行成本），达告警阈值在工具结果落盘后注入策略提示
+            int loopMax = 0;
+            boolean loopWarn = false;
+            if (config.isLoopDetectionEnabled()) {
+                for (ToolCall tc : response.getToolCalls()) {
+                    int c = loopDetector.record(tc.getName(), tc.getArguments());
+                    if (c > loopMax) {
+                        loopMax = c;
+                    }
+                }
+                if (loopMax >= config.getLoopStopThreshold()) {
+                    log.warn("检测到工具调用死循环(同步): 连续相同调用 {} 次, round={}", loopMax, round);
+                    recordMetricSafe("agent.loop.detected", 1, Map.of(
+                            "agentId", agentId != null ? agentId : "unknown",
+                            "consecutive", String.valueOf(loopMax)));
+                    throw AgentEngineException.of("LOOP_DETECTED",
+                            "检测到重复工具调用循环（相同工具与参数已连续调用 " + loopMax + " 次），已强制终止");
+                }
+                loopWarn = loopMax >= config.getLoopWarnThreshold() && !loopDetector.isNudged();
+                if (loopWarn) {
+                    loopDetector.markNudged();
+                }
+            }
+
             List<CompletableFuture<ToolResult>> futures = response.getToolCalls().stream()
                     .map(tc -> CompletableFuture.supplyAsync(() -> {
                         // OTel 追踪：每次工具执行包装 Span
                         Object toolSpan = traceService.startSpan(task.getSessionId(), tc.getName(), "tool_call");
                     try {
                         ToolResult r = isBuiltinTool(tc.getName())
-                                ? executeBuiltinToolSync(tc, toolContext)
+                                ? executeBuiltinToolSync(tc, toolContext, plan.budget)
                                 : toolExecutor.execute(tc.getName(), tc.getArguments(), toolContext,
                                         toolConfigMap.get(tc.getName()));
                         traceService.endSpan(toolSpan);
@@ -268,6 +356,12 @@ public class ReactAgentExecutor implements AgentExecutor {
                         .toolCallId(toolCall.getId())
                         .name(toolCall.getName())
                         .build());
+            }
+
+            // 死循环告警（优化3）：策略提示在工具结果落盘后、下一轮推理前注入
+            if (loopWarn) {
+                messages.add(Message.builder().role("user").content(LOOP_NUDGE_INSTRUCTION).build());
+                log.info("死循环策略提示已注入(同步): 连续相同调用 {} 次, round={}", loopMax, round);
             }
         }
 
@@ -293,8 +387,8 @@ public class ReactAgentExecutor implements AgentExecutor {
         LlmClient client = llmClientRegistry.getClient(plan.provider);
         List<Message> messages = buildMessages(agent, task);
         Map<String, ToolConfig> toolConfigMap = new LinkedHashMap<>();
-        List<ToolDefinition> tools = buildToolDefinitions(agentId, toolConfigMap);
-        ToolContext toolContext = buildToolContext(task, agent);
+        List<ToolDefinition> tools = buildToolDefinitions(task, toolConfigMap);
+        ToolContext toolContext = buildToolContext(task, agent, plan.provider, plan.model);
         double temperature = resolveTemperature(task);
 
         // 语义缓存命中检查：直接以 CONTENT+DONE 事件回放缓存响应（零 LLM 成本）
@@ -312,10 +406,15 @@ public class ReactAgentExecutor implements AgentExecutor {
                 plan.provider, plan.model, messages.size(), tools.size(), temperature);
 
         StringBuilder contentTracker = new StringBuilder();
-        int maxTokens = resolveMaxTokens(task);
+        int maxTokens = clampToModelOutputWindow(plan.model, resolveMaxTokens(task));
         // 账本准确性（S9 方案A）：预算熔断的运行不算成功，且部分内容不沉淀经验
         java.util.concurrent.atomic.AtomicBoolean budgetStopped = new java.util.concurrent.atomic.AtomicBoolean(false);
-        return Flux.defer(() -> streamRound(client, plan.model, messages, tools, toolConfigMap, toolContext, temperature, maxTokens, 0, 0, plan.budget))
+        // 轮次超限同样不算成功（用户实报）：带内 ERROR+DONE(rounds) 终止，部分进度
+        // 不沉淀经验——与预算熔断语义对齐，此前误走 recordSuccess/storeExperience
+        java.util.concurrent.atomic.AtomicBoolean roundsStopped = new java.util.concurrent.atomic.AtomicBoolean(false);
+        // 死循环检测器（优化3）：单次执行内跨轮次记录工具调用签名
+        ToolLoopDetector loopDetector = new ToolLoopDetector();
+        return Flux.defer(() -> streamRound(client, plan.model, messages, tools, toolConfigMap, toolContext, temperature, maxTokens, 0, 0, plan.budget, loopDetector))
                 .doOnNext(event -> {
                     if (AgentEvent.CONTENT.equals(event.getType()) && event.getContent() != null) {
                         contentTracker.append(event.getContent());
@@ -323,12 +422,26 @@ public class ReactAgentExecutor implements AgentExecutor {
                     if (AgentEvent.BUDGET_EXCEEDED.equals(event.getType())) {
                         budgetStopped.set(true);
                     }
+                    if (AgentEvent.ERROR.equals(event.getType()) && event.getMetadata() != null
+                            && "tool_rounds_exceeded".equals(event.getMetadata().get("reason"))) {
+                        roundsStopped.set(true);
+                    }
+                    // 优雅降级路径（总结成功）没有 ERROR 事件，靠 DONE 的 finishReason 识别
+                    if (AgentEvent.DONE.equals(event.getType()) && event.getFinishReason() != null
+                            && ("rounds".equals(event.getFinishReason()) || "loop".equals(event.getFinishReason()))) {
+                        roundsStopped.set(true);
+                    }
+                    if (AgentEvent.DONE.equals(event.getType()) && "budget".equals(event.getFinishReason())) {
+                        budgetStopped.set(true);
+                    }
                 })
                 .doFinally(signal -> {
                     if (signal == reactor.core.publisher.SignalType.ON_COMPLETE) {
-                        if (budgetStopped.get()) {
-                            // 预算熔断：记失败账本，部分内容不沉淀经验（避免不完整回复污染记忆）
-                            recordFailure(task, "BUDGET_EXCEEDED: 预算耗尽，已保留部分进度");
+                        if (budgetStopped.get() || roundsStopped.get()) {
+                            // 熔断/轮次超限：记失败账本，部分内容不沉淀经验（避免不完整回复污染记忆）
+                            recordFailure(task, budgetStopped.get()
+                                    ? "BUDGET_EXCEEDED: 预算耗尽，已保留部分进度"
+                                    : "TOOL_ROUNDS_EXCEEDED: 工具调用轮次超限");
                             return;
                         }
                         // 输出安全层：PII 脱敏后再持久化经验
@@ -355,12 +468,38 @@ public class ReactAgentExecutor implements AgentExecutor {
     private Flux<AgentEvent> streamRound(LlmClient client, String model, List<Message> messages,
                                          List<ToolDefinition> tools, Map<String, ToolConfig> toolConfigMap,
                                          ToolContext toolContext, double temperature, int maxTokens, int round,
-                                         int truncationRetries, BudgetContext budget) {
-        if (round >= config.getMaxToolRounds()) {
-            return Flux.just(AgentEvent.builder()
-                    .type(AgentEvent.ERROR)
-                    .errorMessage("工具调用轮次超限")
-                    .build());
+                                         int truncationRetries, BudgetContext budget, ToolLoopDetector loopDetector) {
+        // 轮次闸门等级感知（与同步路径同源）：上限取预算账本 maxRounds，L3 的 20 轮预算
+        // 不再被固定 10 轮闸门提前卡住。超限优雅降级（优化1）：先尝试无 tools 的总结调用
+        // 把"任务失败"变为"降级完成"（finishReason=rounds），总结失败回退 ERROR 终止。
+        // 轮次滚动扩容：到顶但无死循环迹象时扩 50% 续跑（与时间滚动续期同哲学），
+        // 扩容次数受 roundsRenewMax 约束，耗尽后仍走强制总结（绝对上限防失控）
+        if (round >= budget.getMaxRounds()) {
+            if (config.isRoundsRenewEnabled()
+                    && budget.getRoundsRenewed() < config.getRoundsRenewMax()
+                    && loopDetector.consecutiveCount() < config.getLoopWarnThreshold()) {
+                budgetController.renewRounds(budget);
+                log.info("轮次滚动扩容(流式): round={}, newMaxRounds={}, renewals={}/{}",
+                        round, budget.getMaxRounds(), budget.getRoundsRenewed(), config.getRoundsRenewMax());
+                return Flux.concat(
+                        Flux.just(AgentEvent.builder()
+                                .type(AgentEvent.BUDGET_WARNING)
+                                .content(String.format("已达轮次上限 %d 轮，检测到任务仍在推进，已自动扩容至 %d 轮继续执行（第 %d/%d 次扩容）",
+                                        round, budget.getMaxRounds(), budget.getRoundsRenewed(),
+                                        config.getRoundsRenewMax()))
+                                .build()),
+                        streamRound(client, model, messages, tools, toolConfigMap, toolContext,
+                                temperature, maxTokens, round, truncationRetries, budget, loopDetector));
+            }
+            return summaryOnLimit(client, model, messages, temperature, maxTokens, budget,
+                    "已达工具调用轮次上限（" + budget.getMaxRounds() + " 轮），正在总结当前进度...",
+                    "rounds",
+                    () -> Flux.just(AgentEvent.builder()
+                                    .type(AgentEvent.ERROR)
+                                    .errorMessage("工具调用轮次超限")
+                                    .metadata(java.util.Map.of("reason", "tool_rounds_exceeded"))
+                                    .build(),
+                            AgentEvent.builder().type(AgentEvent.DONE).finishReason("rounds").build()));
         }
 
         // 时间预算滚动续期（S9 方案A）：时间满额但 Token/轮次健康 → 续期并发告警事件，
@@ -374,36 +513,54 @@ public class ReactAgentExecutor implements AgentExecutor {
                     .build());
         }
 
-        // 预算熔断检查（仅 Token 超限 / 轮次超限阻断）
+        // 预算熔断检查（仅 Token 超限 / 轮次超限阻断，配置金额上限后含成本维）
         if (budgetController.shouldStop(budget)) {
-            log.warn("预算熔断(流式): tokenUtil={}, timeUtil={}, round={}",
-                    budget.getTokenUtilization(), budget.getTimeUtilization(), round);
+            log.warn("预算熔断(流式): tokenUtil={}, timeUtil={}, costUtil={}, round={}",
+                    budget.getTokenUtilization(), budget.getTimeUtilization(), budget.getCostUtilization(), round);
             recordMetricSafe("agent.budget.exceeded", 1, Map.of(
                     "agentId", toolContext.getAgentId() != null ? toolContext.getAgentId() : "unknown",
                     "reason", "stream_loop"));
             // 熔断后补发 done（finishReason=budget）保证前端生命周期完整：
             // 此前流静默结束且 budget_exceeded 被前端忽略，表现为「无报错无结果地断开」
-            budgetHeadEvents.add(AgentEvent.builder()
+            AgentEvent exceededEvent = AgentEvent.builder()
                     .type(AgentEvent.BUDGET_EXCEEDED)
-                    .errorMessage("预算耗尽: token=" + budget.getTokenConsumed() + "/" + budget.getTokenBudget())
+                    .errorMessage(budgetExceededMessage(budget))
                     .metadata(java.util.Map.of("tokenConsumed", budget.getTokenConsumed(),
                             "tokenBudget", budget.getTokenBudget(),
                             "elapsedMs", budget.getElapsedMs()))
-                    .build());
-            budgetHeadEvents.add(AgentEvent.builder().type(AgentEvent.DONE).finishReason("budget").build());
-            return Flux.fromIterable(budgetHeadEvents);
+                    .build();
+            java.util.List<AgentEvent> stopHead = new ArrayList<>(budgetHeadEvents);
+            stopHead.add(exceededEvent);
+            // 熔断优雅降级（优化1）：先发 stopHead（续期告警 + BUDGET_EXCEEDED，前端 banner
+            // 照常），再接总结收尾；总结失败回退为仅补 DONE(budget) 的原终止序列
+            return Flux.concat(Flux.fromIterable(stopHead),
+                    summaryOnLimit(client, model, messages, temperature, maxTokens, budget,
+                            "任务预算已用尽，正在总结当前进度...",
+                            "budget",
+                            () -> Flux.just(AgentEvent.builder().type(AgentEvent.DONE).finishReason("budget").build())));
         }
 
-        // 预算告警（70%/90% 阈值，budget_warning 事件对用户可见）
+        // 预算告警（阈值可配，budget_warning 事件对用户可见）。
+        // 告警去重：仅在级别跃迁时发送（NORMAL→ALERT→DEGRADE），同级静默——
+        // 时间续期后利用率重置 ≈67%，若不去重则每轮都会重新越过 70% 刷屏（用户实报）
         BudgetStatus status = budgetController.check(budget);
-        if ((status == BudgetStatus.ALERT || status == BudgetStatus.DEGRADE)) {
+        int alertLevel = status == BudgetStatus.DEGRADE ? 2 : status == BudgetStatus.ALERT ? 1 : 0;
+        if (alertLevel > budget.getLastAlertLevel()) {
+            budget.setLastAlertLevel(alertLevel);
             log.info("预算告警(流式): tokenUtil={}, timeUtil={}, round={}",
                     budget.getTokenUtilization(), budget.getTimeUtilization(), round);
+            // 文案按预算维度如实区分：token 不限量（未绑定套餐哨兵）时只说时间，
+            // 避免"使用率 87%（token 0%）"这类自相矛盾的读数造成误解
+            String content = budget.isTokenUnlimited()
+                    ? String.format("任务执行时间较长：已用时 %d 分钟，时间预算滚动续期中，任务正常推进",
+                            budget.getElapsedMs() / 60_000)
+                    : String.format("任务预算使用率已达 %d%%（token %d%% · 时间 %d%%）",
+                            (int) Math.round(Math.max(budget.getTokenUtilization(), budget.getTimeUtilization()) * 100),
+                            (int) Math.round(budget.getTokenUtilization() * 100),
+                            (int) Math.round(budget.getTimeUtilization() * 100));
             budgetHeadEvents.add(AgentEvent.builder()
                     .type(AgentEvent.BUDGET_WARNING)
-                    .content(String.format("任务预算使用率已达 %d%%（token %d%% / 时间滚动续期中）",
-                            (int) Math.round(Math.max(budget.getTokenUtilization(), budget.getTimeUtilization()) * 100),
-                            (int) Math.round(budget.getTokenUtilization() * 100)))
+                    .content(content)
                     .build());
         }
 
@@ -469,14 +626,18 @@ public class ReactAgentExecutor implements AgentExecutor {
                     List<ToolCall> toolCalls = assembleToolCalls(toolCallAccumulators);
 
                     // 流式 Token 记账（S9 方案A）：流式路径此前从不 consume，Token 预算
-                    // 形同虚设（tokenUtil 恒 0）；按字符量估算本轮消耗（CJK 约 3 字符/token）
+                    // 形同虚设（tokenUtil 恒 0）；按字符量估算本轮消耗（CJK 约 3 字符/token），
+                    // 并拆分输入（历史消息）与输出（本轮生成）两段分别计价（优化2）
                     {
-                        long chars = reasoningChars[0] + content.length();
+                        long outChars = reasoningChars[0] + content.length();
+                        long inChars = 0;
                         for (Message m : messages) {
-                            chars += m.getContent() != null ? m.getContent().length() : 0;
+                            inChars += m.getContent() != null ? m.getContent().length() : 0;
                         }
-                        long estimated = Math.max(1, chars / 3);
-                        budgetController.consume(budget, estimated, estimated * 0.00001);
+                        long inEst = Math.max(1, inChars / 3);
+                        long outEst = Math.max(1, outChars / 3);
+                        budgetController.consume(budget, inEst + outEst,
+                                budgetController.calculateCost(model, inEst, outEst));
                     }
 
                     messages.add(Message.builder()
@@ -494,7 +655,8 @@ public class ReactAgentExecutor implements AgentExecutor {
                         if (truncated
                                 && truncationRetries < MAX_TRUNCATION_RETRIES
                                 && maxTokens < MAX_TOKENS_HARD_CAP) {
-                            int nextMaxTokens = Math.min(maxTokens * 2, MAX_TOKENS_HARD_CAP);
+                            int nextMaxTokens = clampToModelOutputWindow(model,
+                                    Math.min(maxTokens * 2, MAX_TOKENS_HARD_CAP));
                             log.warn("推理模型回复被截断（finish=length，正文{}），自动扩大 max_tokens 至 {} 重试（第 {}/{} 次）: model={}",
                                     blankContent ? "为空" : "不完整",
                                     nextMaxTokens, truncationRetries + 1, MAX_TRUNCATION_RETRIES, model);
@@ -523,7 +685,7 @@ public class ReactAgentExecutor implements AgentExecutor {
                                     : Flux.just(statusEvent);
                             return retryHead.concatWith(Flux.defer(() ->
                                     streamRound(client, model, messages, tools, toolConfigMap, toolContext,
-                                            temperature, nextMaxTokens, round, truncationRetries + 1, budget)));
+                                            temperature, nextMaxTokens, round, truncationRetries + 1, budget, loopDetector)));
                         }
                         if (truncated && blankContent) {
                             log.warn("LLM 回复被截断且重试预算耗尽: finish_reason=length, model={}", model);
@@ -543,7 +705,7 @@ public class ReactAgentExecutor implements AgentExecutor {
                                     AgentEvent.builder().type(AgentEvent.EXPERIENCE_SAVED)
                                             .content("执行经验已沉淀至长期记忆")
                                             .build(),
-                                    doneEvent(toolContext, finishReasonHolder[0]));
+                                    doneEvent(toolContext, finishReasonHolder[0], budget));
                         }
                         // 经验沉淀通知 + 完成事件（T4.5：实际写入在流终止回调，
                         // 此事件告知前端本次交互将沉淀为长期记忆）
@@ -551,7 +713,51 @@ public class ReactAgentExecutor implements AgentExecutor {
                                 AgentEvent.builder().type(AgentEvent.EXPERIENCE_SAVED)
                                         .content("执行经验已沉淀至长期记忆")
                                         .build(),
-                                doneEvent(toolContext, finishReasonHolder[0]));
+                                doneEvent(toolContext, finishReasonHolder[0], budget));
+                    }
+
+                    // 死循环检测（优化3）：toolCalls 组装后、执行前记录签名——达到终止阈值
+                    // 直接收尾（不执行本轮工具，节省执行成本），达到告警阈值注入策略提示
+                    // （一次性赋值保持 effectively-final，供尾部 lambda 捕获）
+                    final int loopMax;
+                    final boolean loopStop;
+                    final boolean loopWarn;
+                    if (config.isLoopDetectionEnabled()) {
+                        int max = 0;
+                        for (ToolCall tc : toolCalls) {
+                            int c = loopDetector.record(tc.getName(), tc.getArguments());
+                            if (c > max) {
+                                max = c;
+                            }
+                        }
+                        loopMax = max;
+                        loopStop = loopMax >= config.getLoopStopThreshold();
+                        boolean warnCandidate = !loopStop && loopMax >= config.getLoopWarnThreshold();
+                        if (warnCandidate && !loopDetector.isNudged()) {
+                            loopDetector.markNudged();
+                            loopWarn = true;
+                        } else {
+                            loopWarn = false;
+                        }
+                    } else {
+                        loopMax = 0;
+                        loopStop = false;
+                        loopWarn = false;
+                    }
+                    if (loopStop) {
+                        log.warn("检测到工具调用死循环(流式): 连续相同调用 {} 次, round={}", loopMax, round);
+                        recordMetricSafe("agent.loop.detected", 1, Map.of(
+                                "agentId", toolContext.getAgentId() != null ? toolContext.getAgentId() : "unknown",
+                                "consecutive", String.valueOf(loopMax)));
+                        return summaryOnLimit(client, model, messages, temperature, maxTokens, budget,
+                                "检测到重复执行循环（相同工具与参数已连续调用 " + loopMax + " 次），已自动停止并总结进度",
+                                "loop",
+                                () -> Flux.just(AgentEvent.builder()
+                                                .type(AgentEvent.ERROR)
+                                                .errorMessage("检测到重复工具调用循环（连续 " + loopMax + " 次相同调用）")
+                                                .metadata(java.util.Map.of("reason", "tool_loop_detected"))
+                                                .build(),
+                                        AgentEvent.builder().type(AgentEvent.DONE).finishReason("loop").build()));
                     }
 
                     List<AgentEvent> toolCallEvents = new ArrayList<>();
@@ -577,10 +783,10 @@ public class ReactAgentExecutor implements AgentExecutor {
                             .concatWith(Flux.fromIterable(executingEvents))
                             .concatWith(Flux.fromIterable(toolCalls)
                                     .flatMap(tc -> {
-                                        // 内置工具（S9）：plan_task（F5）与文件工具（F3）
+                                        // 内置工具（S9）：plan_task（F5）、spawn_subagents、文件工具（F3）
                                         // 本地/SPI 执行，不走 ToolExecutor 外部链路
                                         if (isBuiltinTool(tc.getName())) {
-                                            return executeBuiltinToolStream(tc, toolContext, messages);
+                                            return executeBuiltinToolStream(tc, toolContext, budget, messages);
                                         }
                                         return Mono.fromFuture(CompletableFuture.supplyAsync(
                                                         () -> toolExecutor.execute(tc.getName(), tc.getArguments(), toolContext,
@@ -592,9 +798,25 @@ public class ReactAgentExecutor implements AgentExecutor {
                                                     return toolResultEvent(tc, output);
                                                 });
                                     })
-                                    .concatWith(Flux.defer(() ->
-                                            streamRound(client, model, messages, tools, toolConfigMap,
-                                                    toolContext, temperature, maxTokens, round + 1, truncationRetries, budget))));
+                                    .concatWith(Flux.defer(() -> {
+                                        // 工具结果落盘后、下一轮推理前：死循环告警注入 + 上下文压缩检查
+                                        List<AgentEvent> head = new ArrayList<>();
+                                        if (loopWarn) {
+                                            synchronized (messages) {
+                                                messages.add(Message.builder().role("user")
+                                                        .content(LOOP_NUDGE_INSTRUCTION).build());
+                                            }
+                                            head.add(AgentEvent.builder()
+                                                    .type(AgentEvent.BUDGET_WARNING)
+                                                    .content("检测到重复的工具调用（第 " + loopMax + " 次相同调用），已提示模型改变策略")
+                                                    .build());
+                                        }
+                                        head.addAll(maybeCompactContext(model, messages, budget));
+                                        return Flux.concat(Flux.fromIterable(head),
+                                                streamRound(client, model, messages, tools, toolConfigMap,
+                                                        toolContext, temperature, maxTokens, round + 1,
+                                                        truncationRetries, budget, loopDetector));
+                                    })));
                 }));
         // 轮次头产生的预算事件（续期/告警/熔断）前置到本轮流输出
         return budgetHeadEvents.isEmpty()
@@ -602,28 +824,188 @@ public class ReactAgentExecutor implements AgentExecutor {
                 : Flux.concat(Flux.fromIterable(budgetHeadEvents), roundFlux);
     }
 
+    /**
+     * 超限优雅降级（优化1，借鉴 OpenCode 强制纯文本 / CrewAI、smolagents 强制最佳答案）：
+     * 达到轮次/预算/循环终止上限时，发一次不带 tools 的流式总结调用，强制模型基于
+     * 已有工具结果给出"尽力总结"——把裸报错变为降级完成。
+     * <p>头部发 BUDGET_WARNING（toast 可见）+ STATUS（时间线状态行）；总结完成后发
+     * DONE(finishReason)；总结调用失败时回退到 fallbackSupplier 的兜底终止序列。
+     * 总结是有意的有界开销（无 tools、maxTokens 取配置
+     * {@code agent.engine.engine.limit-summary-max-tokens}，默认 8192、硬上限 65536，
+     * 与当轮任务级 maxTokens 相互独立）。
+     */
+    private Flux<AgentEvent> summaryOnLimit(LlmClient client, String model, List<Message> messages,
+                                            double temperature, int maxTokens, BudgetContext budget,
+                                            String notice, String finishReason,
+                                            java.util.function.Supplier<Flux<AgentEvent>> fallbackSupplier) {
+        if (!config.isLimitSummaryEnabled()) {
+            return fallbackSupplier.get();
+        }
+        // 复制消息列表追加指令，不污染跨轮共享的 messages（总结后执行即结束，防御性隔离）
+        List<Message> summaryMessages = new ArrayList<>(messages);
+        summaryMessages.add(Message.builder().role("user").content(SUMMARY_INSTRUCTION).build());
+        LlmRequest summaryRequest = LlmRequest.builder()
+                .model(model)
+                .messages(summaryMessages)
+                .temperature(temperature)
+                .maxTokens(Math.min(config.getLimitSummaryMaxTokens(), MAX_TOKENS_HARD_CAP))
+                .stream(true)
+                .build();
+        StringBuilder summaryContent = new StringBuilder();
+        StringBuilder summaryReasoning = new StringBuilder();
+        Flux<AgentEvent> summaryFlux = Flux.defer(() -> client.chatStream(summaryRequest))
+                .flatMapIterable(chunk -> {
+                    List<AgentEvent> events = new ArrayList<>(2);
+                    if (chunk.getReasoning() != null && !chunk.getReasoning().isEmpty()) {
+                        summaryReasoning.append(chunk.getReasoning());
+                        events.add(AgentEvent.builder()
+                                .type(AgentEvent.THINKING)
+                                .reasoning(chunk.getReasoning())
+                                .build());
+                    }
+                    if (chunk.getDelta() != null && !chunk.getDelta().isEmpty()) {
+                        summaryContent.append(chunk.getDelta());
+                        events.add(AgentEvent.builder()
+                                .type(AgentEvent.CONTENT)
+                                .content(chunk.getDelta())
+                                .build());
+                    }
+                    return events;
+                })
+                .filter(event -> event.getType() != null)
+                .concatWith(Flux.defer(() -> {
+                    // 总结调用的 token 记账（超限后的收尾开销，如实入账）
+                    long estimated = Math.max(1,
+                            (summaryReasoning.length() + summaryContent.length()) / 3);
+                    budgetController.consume(budget, estimated,
+                            budgetController.calculateCost(model, estimated / 2, estimated - estimated / 2));
+                    return Flux.just(AgentEvent.builder()
+                            .type(AgentEvent.DONE)
+                            .finishReason(finishReason)
+                            .build());
+                }))
+                .onErrorResume(e -> {
+                    log.warn("超限总结生成失败，回退终止事件序列: finishReason={}, cause={}",
+                            finishReason, e.getMessage());
+                    return fallbackSupplier.get();
+                });
+        List<AgentEvent> head = List.of(
+                AgentEvent.builder().type(AgentEvent.BUDGET_WARNING).content(notice).build(),
+                AgentEvent.builder().type(AgentEvent.STATUS).content("正在总结当前进度...").build());
+        return Flux.concat(Flux.fromIterable(head), summaryFlux);
+    }
+
+    /**
+     * 上下文压缩检查（配额与上下文自治，取代单任务 token 熔断的续跑机制）：
+     * 估算输入 tokens 达到模型上下文窗口阈值（context_window_input × 阈值）时，
+     * 经 ContextCompactor SPI 压缩历史（保留系统提示 + 最近 N 轮 + 旧内容摘要），
+     * 压缩后任务继续。每执行最多 MAX_CONTEXT_COMPACTS 次；压缩无效放行。
+     */
+    private List<AgentEvent> maybeCompactContext(String model, List<Message> messages, BudgetContext budget) {
+        Integer window = modelContextProvider != null ? modelContextProvider.contextWindowInput(model) : null;
+        if (window == null || window <= 0 || config.getContextCompactThreshold() <= 0) {
+            return List.of();
+        }
+        if (budget.getContextCompactions() >= MAX_CONTEXT_COMPACTS) {
+            return List.of();
+        }
+        long inTokens = estimateContextTokens(messages);
+        if (inTokens < window * config.getContextCompactThreshold()) {
+            return List.of();
+        }
+        if (contextCompactor == null) {
+            log.warn("上下文接近模型窗口且未配置压缩器: model={}, inTokens~{}, window={}", model, inTokens, window);
+            return List.of(AgentEvent.builder()
+                    .type(AgentEvent.BUDGET_WARNING)
+                    .content(String.format("上下文已接近模型窗口（约 %d%%），且未配置压缩策略", inTokens * 100 / window))
+                    .build());
+        }
+        int before = messages.size();
+        List<Message> compacted = contextCompactor.compact(messages, config.getContextCompactKeepRounds());
+        if (compacted == null || compacted.isEmpty() || compacted.size() >= before) {
+            log.warn("上下文压缩无效（跳过）: before={}, after={}", before, compacted == null ? -1 : compacted.size());
+            return List.of();
+        }
+        messages.clear();
+        messages.addAll(compacted);
+        budget.setContextCompactions(budget.getContextCompactions() + 1);
+        log.info("上下文压缩完成: model={}, {}条→{}条, 第 {}/{} 次", model, before, messages.size(),
+                budget.getContextCompactions(), MAX_CONTEXT_COMPACTS);
+        return List.of(AgentEvent.builder()
+                .type(AgentEvent.STATUS)
+                .content(String.format("上下文接近模型窗口（约 %d%%），已压缩历史（%d→%d 条），任务继续推进中",
+                        inTokens * 100 / window, before, messages.size()))
+                .build());
+    }
+
+    /** 上下文 tokens 估算（与流式记账同口径：字符数 ÷ 3）。 */
+    private long estimateContextTokens(List<Message> messages) {
+        long chars = 0;
+        for (Message m : messages) {
+            chars += m.getContent() != null ? m.getContent().length() : 0;
+        }
+        return Math.max(1, chars / 3);
+    }
+
+    /** 输出上限校验：max_tokens 与模型 context_window_output 取小（未知则不限制）。 */
+    private int clampToModelOutputWindow(String model, int maxTokens) {
+        if (modelContextProvider == null) {
+            return maxTokens;
+        }
+        Integer out = modelContextProvider.contextWindowOutput(model);
+        return (out != null && out > 0) ? Math.min(maxTokens, out) : maxTokens;
+    }
+
+    /** 熔断原因文案：token 维 + 配置了金额上限时的 cost 维（可辨识具体触发维度） */
+    private String budgetExceededMessage(BudgetContext budget) {
+        StringBuilder msg = new StringBuilder("预算耗尽: token=")
+                .append(budget.getTokenConsumed()).append("/").append(budget.getTokenBudget());
+        if (budget.getCostBudget() > 0) {
+            msg.append(String.format(", cost=%.4f/%.4f元", budget.getCostConsumed(), budget.getCostBudget()));
+        }
+        return msg.toString();
+    }
+
     // ==================== 内置工具执行（S9：plan_task / 文件工具） ====================
 
     private boolean isBuiltinTool(String name) {
         return PLAN_TOOL_NAME.equals(name)
+                || SPAWN_TOOL_NAME.equals(name)
                 || READ_FILE_TOOL.equals(name)
                 || WRITE_FILE_TOOL.equals(name)
                 || EDIT_FILE_TOOL.equals(name)
-                || LIST_DIR_TOOL.equals(name);
+                || LIST_DIR_TOOL.equals(name)
+                || ASK_TOOL_NAME.equals(name);
     }
 
-    /** 同步路径内置工具分发 */
-    private ToolResult executeBuiltinToolSync(ToolCall tc, ToolContext toolContext) {
+    /** 同步路径内置工具分发（携带父预算：spawn 的子任务消耗需计入父账本） */
+    private ToolResult executeBuiltinToolSync(ToolCall tc, ToolContext toolContext, BudgetContext parentBudget) {
+        if (SPAWN_TOOL_NAME.equals(tc.getName())) {
+            return executeSpawnAgentsSync(tc, toolContext, parentBudget);
+        }
         if (PLAN_TOOL_NAME.equals(tc.getName())) {
             return executePlanToolSync(tc.getArguments(), toolContext);
+        }
+        if (ASK_TOOL_NAME.equals(tc.getName())) {
+            // 同步路径（wenshi/子代理）无 SSE 与问答界面：不挂起，立即降级应答
+            return ToolResult.builder().success(true)
+                    .output("（当前为非交互执行模式，无法向用户提问；请基于现有信息自主决策并继续任务）")
+                    .build();
         }
         return executeFileTool(tc, toolContext);
     }
 
-    /** 流式路径内置工具分发：plan_task 发计划事件；文件工具走 SPI（阻塞 IO 调度到工具执行池） */
-    private Flux<AgentEvent> executeBuiltinToolStream(ToolCall tc, ToolContext toolContext, List<Message> messages) {
+    /** 流式路径内置工具分发：plan_task 发计划事件；spawn 发子代理进度事件；ask_user 挂起等待用户回答；文件工具走 SPI（阻塞 IO 调度到工具执行池） */
+    private Flux<AgentEvent> executeBuiltinToolStream(ToolCall tc, ToolContext toolContext,
+                                                      BudgetContext parentBudget, List<Message> messages) {
+        if (SPAWN_TOOL_NAME.equals(tc.getName())) {
+            return executeSpawnAgentsStream(tc, toolContext, parentBudget, messages);
+        }
         if (PLAN_TOOL_NAME.equals(tc.getName())) {
             return executePlanToolStream(tc, toolContext, messages);
+        }
+        if (ASK_TOOL_NAME.equals(tc.getName())) {
+            return executeAskUserStream(tc, toolContext, messages);
         }
         return Mono.fromFuture(CompletableFuture.supplyAsync(
                         () -> executeFileTool(tc, toolContext), config.getToolExecutor()))
@@ -684,8 +1066,14 @@ public class ReactAgentExecutor implements AgentExecutor {
                     }
                     String updated = current.substring(0, idx) + newText + current.substring(idx + oldText.length());
                     fileWorkspace.writeFile(toolContext, path, updated);
+                    // 起始行号与增删行数随结果下发：前端过程时间线据此渲染 zcode 风格差异块（+N -N / 红绿行号）
+                    int startLine = 1;
+                    for (int i = 0; i < idx; i++) {
+                        if (current.charAt(i) == '\n') startLine++;
+                    }
+                    int[] diff = diffLineCounts(oldText, newText);
                     return ToolResult.builder().success(true)
-                            .output("已编辑 " + path + "（替换 1 处）").build();
+                            .output("已编辑 " + path + "（第 " + startLine + " 行起，+" + diff[0] + " -" + diff[1] + "）").build();
                 }
                 case LIST_DIR_TOOL -> {
                     List<String> entries = fileWorkspace.listDir(toolContext, path);
@@ -704,6 +1092,44 @@ public class ReactAgentExecutor implements AgentExecutor {
         }
     }
 
+    /**
+     * 行级增删统计（edit_file 结果展示）：公共前后缀裁剪 + 中段 LCS。
+     * 口径与前端 lineDiff.ts 保持一致，返回 [新增行数, 删除行数]。
+     */
+    static int[] diffLineCounts(String oldText, String newText) {
+        String[] a = oldText.split("\n", -1);
+        String[] b = newText.split("\n", -1);
+        int pre = 0;
+        while (pre < a.length && pre < b.length && a[pre].equals(b[pre])) pre++;
+        int sufA = a.length;
+        int sufB = b.length;
+        while (sufA > pre && sufB > pre && a[sufA - 1].equals(b[sufB - 1])) {
+            sufA--;
+            sufB--;
+        }
+        int m = sufA - pre;
+        int n = sufB - pre;
+        if (m == 0) {
+            return new int[]{n, 0};
+        }
+        if (n == 0) {
+            return new int[]{0, m};
+        }
+        if ((long) m * n > 640_000) {
+            return new int[]{n, m}; // 超大中段降级：整块删+增，避免 O(n²) 内存
+        }
+        int[][] dp = new int[m + 1][n + 1];
+        for (int i = m - 1; i >= 0; i--) {
+            for (int j = n - 1; j >= 0; j--) {
+                dp[i][j] = a[pre + i].equals(b[pre + j])
+                        ? dp[i + 1][j + 1] + 1
+                        : Math.max(dp[i + 1][j], dp[i][j + 1]);
+            }
+        }
+        int common = dp[0][0];
+        return new int[]{n - common, m - common};
+    }
+
     /** 流式路径执行 plan_task：发计划事件（首次创建/后续更新）+ 工具结果事件，并回灌 tool 消息 */
     private Flux<AgentEvent> executePlanToolStream(ToolCall tc, ToolContext toolContext, List<Message> messages) {
         boolean firstCall;
@@ -712,18 +1138,96 @@ public class ReactAgentExecutor implements AgentExecutor {
             ToolContext.PlanState state = planStateOf(toolContext);
             firstCall = state.getSteps().isEmpty();
             applyPlanState(state, root);
-            String output = "任务清单已更新：" + state.getSteps().size() + " 项步骤";
+            // 计划正文落盘（可选 markdown 参数）：保存到会话工作空间 plan/ 目录，
+            // 前端"查看完整计划"经文件内容接口读取预览；planPath 随计划事件与 done 快照透传
+            String markdown = root.path("markdown").asText("");
+            if (!markdown.isBlank() && fileWorkspace != null && fileWorkspace.available()) {
+                try {
+                    String planPath = "plan/plan-" + java.time.format.DateTimeFormatter
+                            .ofPattern("yyyyMMdd-HHmmss")
+                            .withZone(java.time.ZoneId.systemDefault())
+                            .format(java.time.Instant.now()) + ".md";
+                    fileWorkspace.writeFile(toolContext, planPath, markdown);
+                    state.setPlanPath(planPath);
+                } catch (Exception e) {
+                    log.warn("计划文件写入失败（不影响计划清单）: {}", e.getMessage());
+                }
+            }
+            String output = "任务清单已更新：" + state.getSteps().size() + " 项步骤"
+                    + (state.getPlanPath() != null ? "（计划文件: " + state.getPlanPath() + "）" : "");
             appendToolMessage(messages, tc, output);
-            return Flux.just(
-                    AgentEvent.builder()
-                            .type(firstCall ? AgentEvent.PLAN_CREATED : AgentEvent.PLAN_UPDATED)
-                            .planTitle(state.getTitle())
-                            .plan(state.getSteps())
-                            .build(),
-                    toolResultEvent(tc, output));
+            AgentEvent.AgentEventBuilder eventBuilder = AgentEvent.builder()
+                    .type(firstCall ? AgentEvent.PLAN_CREATED : AgentEvent.PLAN_UPDATED)
+                    .planTitle(state.getTitle())
+                    .plan(state.getSteps());
+            if (state.getPlanPath() != null) {
+                eventBuilder.metadata(new java.util.LinkedHashMap<>(java.util.Map.of("planPath", state.getPlanPath())));
+            }
+            return Flux.just(eventBuilder.build(), toolResultEvent(tc, output));
         } catch (Exception e) {
             log.warn("plan_task 解析失败: {}", e.getMessage());
             String output = "计划解析失败: " + e.getMessage();
+            appendToolMessage(messages, tc, output);
+            return Flux.just(toolResultEvent(tc, output));
+        }
+    }
+
+    /**
+     * ask_user（HITL 问答）：头发 ASK_USER 事件（问题+askId+选项），随后挂起等待用户回答。
+     * 工具 Flux 不完成即整条流在此停留（下一轮推理不启动，心跳保活照常）；
+     * 用户回答（或跳过/超时降级应答）到达后回灌为工具结果，自动续跑。
+     */
+    private Flux<AgentEvent> executeAskUserStream(ToolCall tc, ToolContext toolContext, List<Message> messages) {
+        if (userInteractionGateway == null) {
+            String fallback = "（用户交互通道未配置，请基于现有信息自主决策并继续任务）";
+            appendToolMessage(messages, tc, fallback);
+            return Flux.just(toolResultEvent(tc, fallback));
+        }
+        try {
+            JsonNode root = objectMapper.readTree(tc.getArguments() != null ? tc.getArguments() : "{}");
+            String question = root.path("question").asText("");
+            java.util.List<String> options = new java.util.ArrayList<>();
+            if (root.has("options") && root.get("options").isArray()) {
+                root.get("options").forEach(n -> options.add(n.asText()));
+            }
+            if (question.isBlank()) {
+                String output = "提问内容为空，已忽略（请基于现有信息继续任务）";
+                appendToolMessage(messages, tc, output);
+                return Flux.just(toolResultEvent(tc, output));
+            }
+            String askId = "ask-" + java.util.UUID.randomUUID();
+            UserInteractionGateway.AskRequest request = UserInteractionGateway.AskRequest.builder()
+                    .askId(askId)
+                    .sessionId(toolContext.getSessionId())
+                    .question(question)
+                    .options(options)
+                    .timeoutSeconds(config.getAskTimeoutSeconds())
+                    .build();
+            java.util.Map<String, Object> meta = new java.util.LinkedHashMap<>();
+            meta.put("askId", askId);
+            meta.put("question", question);
+            meta.put("options", options);
+            AgentEvent askEvent = AgentEvent.builder()
+                    .type(AgentEvent.ASK_USER)
+                    .metadata(meta)
+                    .build();
+            return Flux.concat(
+                    Flux.just(askEvent),
+                    userInteractionGateway.askQuestion(request)
+                            .map(answer -> {
+                                appendToolMessage(messages, tc, answer);
+                                return toolResultEvent(tc, answer);
+                            })
+                            .onErrorResume(e -> {
+                                log.warn("ask_user 等待回答异常: {}", e.getMessage());
+                                String output = "（提问通道异常，请基于现有信息继续任务）";
+                                appendToolMessage(messages, tc, output);
+                                return reactor.core.publisher.Mono.just(toolResultEvent(tc, output));
+                            })
+                            .flux());
+        } catch (Exception e) {
+            log.warn("ask_user 解析失败: {}", e.getMessage());
+            String output = "提问解析失败: " + e.getMessage();
             appendToolMessage(messages, tc, output);
             return Flux.just(toolResultEvent(tc, output));
         }
@@ -741,6 +1245,350 @@ public class ReactAgentExecutor implements AgentExecutor {
         } catch (Exception e) {
             return ToolResult.builder().success(false).error("计划解析失败: " + e.getMessage()).build();
         }
+    }
+
+    // ==================== 子代理派生（spawn_subagents） ====================
+
+    /** 单个子任务定义 */
+    private record SubAgentSpec(String name, String agentId, String prompt) {}
+
+    /** 单个子代理执行结果 */
+    private record SubAgentResult(int index, String name, String agentId, boolean success,
+                                  String output, long tokens, long durationMs) {}
+
+    /** spawn 参数解析结果：error 非空表示校验失败 */
+    private static final class SpawnRequest {
+        final List<SubAgentSpec> agents = new ArrayList<>();
+        String error;
+    }
+
+    /** 解析并校验 spawn_subagents 参数（数量/提示词长度上限，防御性拦截超规格派生） */
+    private SpawnRequest parseSpawnRequest(String arguments) {
+        SpawnRequest req = new SpawnRequest();
+        try {
+            JsonNode root = objectMapper.readTree(arguments != null ? arguments : "{}");
+            JsonNode agentsNode = root.path("agents");
+            if (!agentsNode.isArray() || agentsNode.isEmpty()) {
+                req.error = "缺少 agents 数组参数";
+                return req;
+            }
+            AgentEngineConfig.Subagents sub = config.getSubagents();
+            int maxPerSpawn = sub != null ? Math.max(1, sub.getMaxPerSpawn()) : 5;
+            int maxPromptChars = sub != null ? sub.getMaxPromptChars() : 8000;
+            if (agentsNode.size() > maxPerSpawn) {
+                req.error = "子代理数量超限（单次最多派生 " + maxPerSpawn + " 个）";
+                return req;
+            }
+            int i = 0;
+            for (JsonNode n : agentsNode) {
+                i++;
+                String prompt = n.path("prompt").asText("");
+                if (prompt.isBlank()) {
+                    req.error = "子代理[" + i + "] 缺少 prompt";
+                    return req;
+                }
+                if (prompt.length() > maxPromptChars) {
+                    req.error = "子代理[" + i + "] prompt 超长（上限 " + maxPromptChars + " 字符）";
+                    return req;
+                }
+                req.agents.add(new SubAgentSpec(
+                        n.path("name").asText("子任务" + i),
+                        n.path("agentId").asText(null),
+                        prompt));
+            }
+        } catch (Exception e) {
+            req.error = "参数解析失败: " + e.getMessage();
+        }
+        return req;
+    }
+
+    /** 构建子任务：指定 agentId 或继承父；默认隔离会话（子任务 prompt 需自包含）；深度+1（防递归失控）；配额继承 */
+    private AgentTask buildSubAgentTask(SubAgentSpec spec, ToolContext ctx) {
+        AgentEngineConfig.Subagents sub = config.getSubagents();
+        String subAgentId = (spec.agentId() != null && !spec.agentId().isBlank())
+                ? spec.agentId() : ctx.getAgentId();
+        // 子任务模型解析：子代理自身 AgentSpec 配置了模型则优先（task 级不设显式模型）；
+        // 否则回退父任务已解析的 provider/model，保证子任务不会 MODEL_NOT_RESOLVED
+        AgentSpec subSpec = loadAgent(subAgentId);
+        boolean specHasModel = subSpec != null && subSpec.getModelProvider() != null
+                && subSpec.getModelName() != null;
+        boolean shareHistory = sub != null && sub.isShareSessionHistory();
+        return AgentTask.builder()
+                .agentId(subAgentId)
+                .sessionId(shareHistory ? ctx.getSessionId() : null)
+                .userId(ctx.getUserId())
+                .message(spec.prompt())
+                .agentDepth(ctx.getAgentDepth() + 1)
+                .modelProvider(specHasModel ? null : ctx.getModelProvider())
+                .modelName(specHasModel ? null : ctx.getModelName())
+                .quotaTokenBudget(ctx.getQuotaTokenBudget())
+                .quotaBlockEnabled(ctx.getQuotaBlockEnabled())
+                .build();
+    }
+
+    /** 提交一批子代理并行执行：独立线程池（防嵌套 join 死锁）+ 单分支超时/异常降级为错误文本 */
+    private List<CompletableFuture<SubAgentResult>> submitSubAgents(SpawnRequest request, ToolContext ctx) {
+        AgentEngineConfig.Subagents sub = config.getSubagents();
+        int timeoutSeconds = sub != null ? sub.getTimeoutSeconds() : 180;
+        List<CompletableFuture<SubAgentResult>> futures = new ArrayList<>();
+        int index = 0;
+        for (SubAgentSpec spec : request.agents) {
+            final int idx = index++;
+            final AgentTask subTask = buildSubAgentTask(spec, ctx);
+            futures.add(CompletableFuture
+                    .supplyAsync(() -> {
+                        long start = System.currentTimeMillis();
+                        // 子任务走完整 execute()：独立预算/注入检测/截断自愈/经验沉淀全部生效
+                        LlmResponse resp = execute(subTask);
+                        long tokens = resp.getUsage() != null && resp.getUsage().getTotalTokens() != null
+                                ? resp.getUsage().getTotalTokens()
+                                : Math.max(1, (resp.getContent() == null ? 0 : resp.getContent().length()) / 3);
+                        return new SubAgentResult(idx, spec.name(), subTask.getAgentId(), true,
+                                resp.getContent(), tokens, System.currentTimeMillis() - start);
+                    }, config.getSubAgentExecutor())
+                    .orTimeout(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS)
+                    .handle((r, ex) -> {
+                        if (ex != null) {
+                            Throwable cause = ex.getCause() != null ? ex.getCause() : ex;
+                            String reason = cause instanceof java.util.concurrent.TimeoutException
+                                    ? "执行超时（" + timeoutSeconds + " 秒上限）"
+                                    : String.valueOf(cause.getMessage());
+                            log.warn("子代理[{}] {} 执行失败: {}", idx, spec.name(), reason);
+                            return new SubAgentResult(idx, spec.name(), subTask.getAgentId(), false,
+                                    reason, 0, 0);
+                        }
+                        return r;
+                    }));
+        }
+        return futures;
+    }
+
+    /**
+     * 聚合子代理结果：头部统计（成功/失败/耗时）+ 每分支独立小节（输出截断）；
+     * 子任务 token 消耗折算入父预算（父熔断感知子消耗）；聚合文本过 PII 脱敏。
+     * 返回 [聚合文本, 是否全部分支失败]。
+     */
+    private java.util.AbstractMap.SimpleEntry<String, Boolean> aggregateSpawnResults(
+            ToolContext ctx, BudgetContext parentBudget,
+            List<CompletableFuture<SubAgentResult>> futures, long startMs) {
+        List<SubAgentResult> results = futures.stream().map(CompletableFuture::join).toList();
+        return aggregateResults(ctx, parentBudget, results, startMs);
+    }
+
+    /** 聚合结果（流式路径复用）：从分支结果列表直接聚合（不再经 Future join） */
+    private java.util.AbstractMap.SimpleEntry<String, Boolean> aggregateResults(
+            ToolContext ctx, BudgetContext parentBudget,
+            List<SubAgentResult> results, long startMs) {
+        AgentEngineConfig.Subagents sub = config.getSubagents();
+        int maxOutputChars = sub != null ? sub.getMaxOutputChars() : 10 * 1024;
+        long totalTokens = 0;
+        int failed = 0;
+        for (SubAgentResult r : results) {
+            totalTokens += r.tokens();
+            if (!r.success()) {
+                failed++;
+            }
+        }
+        StringBuilder sb = new StringBuilder("子代理并行执行完成：共 ")
+                .append(results.size()).append(" 个，成功 ").append(results.size() - failed)
+                .append("，失败 ").append(failed)
+                .append("，耗时 ").append((System.currentTimeMillis() - startMs) / 1000).append(" 秒");
+        for (SubAgentResult r : results) {
+            sb.append("\n\n## 子代理[").append(r.index()).append("] ").append(r.name())
+                    .append("（").append(r.agentId() == null ? "默认" : r.agentId()).append("）");
+            if (!r.success()) {
+                sb.append("【执行失败】");
+            }
+            sb.append("\n").append(truncate(r.output(), maxOutputChars));
+        }
+        if (totalTokens > 0 && parentBudget != null) {
+            budgetController.consume(parentBudget, totalTokens,
+                    budgetController.calculateCost(ctx.getModelName(), totalTokens / 2, totalTokens - totalTokens / 2));
+        }
+        recordMetricSafe("agent.subagents.spawn", results.size(),
+                Map.of("agentId", ctx.getAgentId() != null ? ctx.getAgentId() : "unknown",
+                        "failed", String.valueOf(failed)));
+        return new java.util.AbstractMap.SimpleEntry<>(
+                outputSanitizer.checkOutput(sb.toString()), failed == results.size());
+    }
+
+    /** 深度护栏（运行时兜底）：即使模型幻觉调用未注册的 spawn 工具，也拒绝超深度派生 */
+    private String depthGuardMessage(ToolContext toolContext) {
+        AgentEngineConfig.Subagents sub = config.getSubagents();
+        int maxDepth = sub != null ? sub.getMaxDepth() : 2;
+        if (toolContext.getAgentDepth() + 1 > maxDepth) {
+            return "已达子代理嵌套深度上限（" + maxDepth + "），请直接基于现有信息完成任务";
+        }
+        return null;
+    }
+
+    /** 同步路径 spawn：并行派发、等待全部完成、聚合为单个工具结果 */
+    private ToolResult executeSpawnAgentsSync(ToolCall tc, ToolContext toolContext, BudgetContext parentBudget) {
+        String depthError = depthGuardMessage(toolContext);
+        if (depthError != null) {
+            return ToolResult.builder().success(false).error(depthError).build();
+        }
+        SpawnRequest request = parseSpawnRequest(tc.getArguments());
+        if (request.error != null) {
+            return ToolResult.builder().success(false).error(request.error).build();
+        }
+        long start = System.currentTimeMillis();
+        List<CompletableFuture<SubAgentResult>> futures = submitSubAgents(request, toolContext);
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        var aggregation = aggregateSpawnResults(toolContext, parentBudget, futures, start);
+        return ToolResult.builder()
+                .success(!aggregation.getValue())
+                .output(aggregation.getValue() ? null : aggregation.getKey())
+                .error(aggregation.getValue() ? aggregation.getKey() : null)
+                .build();
+    }
+
+    /**
+     * 流式路径 spawn（二期）：各分支改为流式执行——分支内部事件打 subagentId/subagentName
+     * 标签后 merge 透传（前端按 subagentId 分桶流式渲染右侧面板）；分支完成发
+     * subagent_status（status=success/failed，携带分支结果文本供历史回放）；全部完成后
+     * 聚合回灌 tool 消息并发 tool_result（含预算折算与 PII 脱敏，与同步路径一致）。
+     */
+    private Flux<AgentEvent> executeSpawnAgentsStream(ToolCall tc, ToolContext toolContext,
+                                                      BudgetContext parentBudget, List<Message> messages) {
+        String depthError = depthGuardMessage(toolContext);
+        if (depthError != null) {
+            appendToolMessage(messages, tc, depthError);
+            return Flux.just(toolResultEvent(tc, depthError));
+        }
+        SpawnRequest request = parseSpawnRequest(tc.getArguments());
+        if (request.error != null) {
+            appendToolMessage(messages, tc, request.error);
+            return Flux.just(toolResultEvent(tc, request.error));
+        }
+        return Flux.defer(() -> {
+            long start = System.currentTimeMillis();
+            AgentEngineConfig.Subagents sub = config.getSubagents();
+            int timeoutSeconds = sub != null ? sub.getTimeoutSeconds() : 180;
+            List<AgentEvent> startEvents = new ArrayList<>();
+            List<Flux<AgentEvent>> branchFluxes = new ArrayList<>();
+            List<BranchRun> runs = new ArrayList<>();
+            int index = 0;
+            for (SubAgentSpec spec : request.agents) {
+                final int idx = index++;
+                final String subagentId = "sub-" + idx + "-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+                final long branchStart = System.currentTimeMillis();
+                final AgentTask subTask = buildSubAgentTask(spec, toolContext);
+                // 分支现场：正文累积 / token（done 事件）/ 失败标记 / 结束时间；聚合时定格为 SubAgentResult
+                final BranchRun run = new BranchRun(idx, spec.name(), subTask.getAgentId(), branchStart);
+                // 派生开始事件：前端时间线立即出现"子智能体 … 执行中"行
+                startEvents.add(subagentStatusEvent(run.toResult(), subagentId, "running", null));
+                Flux<AgentEvent> branch = executeStream(subTask)
+                        .map(ev -> withSubagentTag(ev, subagentId, idx, spec.name()))
+                        .doOnNext(ev -> {
+                            if (AgentEvent.CONTENT.equals(ev.getType()) && ev.getContent() != null) {
+                                run.output.append(ev.getContent());
+                            }
+                            if (AgentEvent.DONE.equals(ev.getType()) && ev.getMetadata() != null
+                                    && ev.getMetadata().get("tokenEstimated") instanceof Number n) {
+                                run.tokens = n.longValue();
+                            }
+                        })
+                        .timeout(java.time.Duration.ofSeconds(timeoutSeconds))
+                        .onErrorResume(e -> {
+                            run.failed = true;
+                            Throwable cause = e.getCause() != null ? e.getCause() : e;
+                            String reason = cause instanceof java.util.concurrent.TimeoutException
+                                    ? "执行超时（" + timeoutSeconds + " 秒上限）"
+                                    : String.valueOf(cause.getMessage());
+                            log.warn("子代理[{}] {} 流式执行失败: {}", idx, spec.name(), reason);
+                            run.output.append("【执行失败】").append(reason);
+                            // 失败以分支内容事件透出（面板可见），同时计入聚合
+                            return Flux.just(withSubagentTag(AgentEvent.builder()
+                                    .type(AgentEvent.CONTENT)
+                                    .content("⚠️ 子代理执行失败：" + reason)
+                                    .build(), subagentId, idx, spec.name()));
+                        })
+                        .doFinally(sig -> run.endMs = System.currentTimeMillis());
+                // 分支完成：subagent_status（携带结果文本，供历史回放聚合结果展示）
+                branch = branch.concatWith(Flux.defer(() -> Flux.just(subagentStatusEvent(
+                        run.toResult(), subagentId, run.failed ? "failed" : "success", null))));
+                branchFluxes.add(branch);
+                runs.add(run);
+            }
+            // 分支事件合并（按发生顺序交错，前端按 subagentId 分桶）
+            Flux<AgentEvent> merged = Flux.merge(branchFluxes);
+            // 聚合：全部完成后子消耗折算入父预算，回灌 tool 消息并发 tool_result（runs 为
+            // 活引用，聚合时定格各分支最终状态）
+            Flux<AgentEvent> aggregate = Mono.fromCallable(() -> {
+                        List<SubAgentResult> results = runs.stream().map(BranchRun::toResult).toList();
+                        var aggregation = aggregateResults(toolContext, parentBudget, results, start);
+                        appendToolMessage(messages, tc, aggregation.getKey());
+                        return toolResultEvent(tc, aggregation.getKey());
+                    })
+                    .flux();
+            return Flux.concat(Flux.fromIterable(startEvents), merged, aggregate);
+        });
+    }
+
+    /** 分支流式执行现场（结果在聚合时定格为 SubAgentResult） */
+    private static final class BranchRun {
+        final int index;
+        final String name;
+        final String agentId;
+        final long startMs;
+        final StringBuilder output = new StringBuilder();
+        volatile long tokens;
+        volatile boolean failed;
+        volatile long endMs;
+
+        BranchRun(int index, String name, String agentId, long startMs) {
+            this.index = index;
+            this.name = name;
+            this.agentId = agentId;
+            this.startMs = startMs;
+        }
+
+        SubAgentResult toResult() {
+            long dur = Math.max(1, (endMs > 0 ? endMs : System.currentTimeMillis()) - startMs);
+            return new SubAgentResult(index, name, agentId, !failed, output.toString(), tokens, dur);
+        }
+    }
+
+    /** 事件打子代理标签（分支内部事件透传，前端按 subagentId 分桶流式渲染右侧面板） */
+    private AgentEvent withSubagentTag(AgentEvent ev, String subagentId, int index, String name) {
+        java.util.Map<String, Object> meta = new java.util.LinkedHashMap<>(
+                ev.getMetadata() == null ? Map.of() : ev.getMetadata());
+        meta.put("subagentId", subagentId);
+        meta.put("subagentName", name == null ? "" : name);
+        meta.put("subagentIndex", index);
+        return AgentEvent.builder()
+                .type(ev.getType())
+                .content(ev.getContent())
+                .reasoning(ev.getReasoning())
+                .toolCall(ev.getToolCall())
+                .toolResult(ev.getToolResult())
+                .finishReason(ev.getFinishReason())
+                .planTitle(ev.getPlanTitle())
+                .plan(ev.getPlan())
+                .errorMessage(ev.getErrorMessage())
+                .metadata(meta)
+                .build();
+    }
+
+    private AgentEvent subagentStatusEvent(SubAgentResult r, String subagentId, String statusOverride, String resultOverride) {
+        java.util.Map<String, Object> meta = new java.util.LinkedHashMap<>();
+        meta.put("subagentId", subagentId);
+        meta.put("index", r.index());
+        meta.put("name", r.name() == null ? "" : r.name());
+        meta.put("agentId", r.agentId() == null ? "" : r.agentId());
+        meta.put("status", statusOverride != null ? statusOverride : (r.success() ? "success" : "failed"));
+        meta.put("durationMs", r.durationMs());
+        meta.put("tokens", r.tokens());
+        // 分支结果文本（截断）：历史回放点击子智能体行时右侧面板展示
+        String result = resultOverride != null ? resultOverride : r.output();
+        meta.put("result", result != null && result.length() > 2000 ? result.substring(0, 2000) : result);
+        return AgentEvent.builder()
+                .type(AgentEvent.SUBAGENT_STATUS)
+                .content("子代理[" + r.index() + "] " + r.name()
+                        + ("running".equals(statusOverride) ? " 开始执行" : (r.success() ? " 已完成" : " 失败")))
+                .metadata(meta)
+                .build();
     }
 
     private ToolContext.PlanState planStateOf(ToolContext toolContext) {
@@ -793,15 +1641,34 @@ public class ReactAgentExecutor implements AgentExecutor {
                 .build();
     }
 
-    /** done 事件：携带 finishReason 与最终任务计划快照（S9 F5，前端历史回放用） */
-    private AgentEvent doneEvent(ToolContext toolContext, String finishReason) {
+    /**
+     * done 事件：携带 finishReason、最终任务计划快照（S9 F5，前端历史回放用），
+     * 以及执行统计 metadata（完成透明度：前端据此区分"AI 自主收尾"与"被限制收尾"）。
+     */
+    private AgentEvent doneEvent(ToolContext toolContext, String finishReason, BudgetContext budget) {
         AgentEvent.AgentEventBuilder builder = AgentEvent.builder()
                 .type(AgentEvent.DONE)
                 .finishReason(finishReason);
         ToolContext.PlanState state = toolContext != null ? toolContext.getPlanState() : null;
+        // metadata 合并构建：planPath 与预算统计共存于同一 Map（builder.metadata 为整体覆盖语义）
+        java.util.Map<String, Object> meta = new java.util.LinkedHashMap<>();
+        if (state != null && state.getPlanPath() != null) {
+            meta.put("planPath", state.getPlanPath());
+        }
         if (state != null && !state.getSteps().isEmpty()) {
             builder.planTitle(state.getTitle())
                     .plan(state.getSteps());
+        }
+        if (budget != null) {
+            meta.put("rounds", budget.getCurrentRound());
+            meta.put("elapsedMs", budget.getElapsedMs());
+            meta.put("tokenEstimated", budget.getTokenConsumed());
+            meta.put("timeRenewals", budget.getTimeRenewals());
+            meta.put("roundsRenewed", budget.getRoundsRenewed());
+            meta.put("tokenUnlimited", budget.isTokenUnlimited());
+            builder.metadata(meta);
+        } else if (!meta.isEmpty()) {
+            builder.metadata(meta);
         }
         return builder.build();
     }
@@ -847,6 +1714,17 @@ public class ReactAgentExecutor implements AgentExecutor {
         }
         // 按复杂度等级创建预算
         BudgetContext budget = budgetController.createBudget(budgetLevel);
+        // 用户套餐配额注入（配额体系）：余量作为本次执行的 token 上限；
+        // 熔断开关（用户偏好）决定 token 耗尽是熔断还是仅告警。null=不限制
+        if (task.getQuotaTokenBudget() != null && task.getQuotaTokenBudget() > 0) {
+            budget.setTokenBudget(task.getQuotaTokenBudget());
+            // 不限量哨兵（未绑定套餐用户下发 Long.MAX_VALUE/2）标记：告警文案据此省略
+            // token 维——哨兵利用率恒 ≈0，显示"token 0%"会让用户误读为记账故障（用户实报）
+            budget.setTokenUnlimited(task.getQuotaTokenBudget() >= Long.MAX_VALUE / 4);
+        }
+        if (task.getQuotaBlockEnabled() != null) {
+            budget.setBlockEnabled(task.getQuotaBlockEnabled());
+        }
         // 模型路由：调用方未显式指定模型时按复杂度/预算选择最优模型
         String[] routed = routeModelIfApplicable(task, pm, complexity, budget);
         return new ExecutionPlan(intent, complexity, budget, routed[0], routed[1]);
@@ -919,7 +1797,8 @@ public class ReactAgentExecutor implements AgentExecutor {
         return memoryRouter.inject(domain, messages, task.getMessage());
     }
 
-    private List<ToolDefinition> buildToolDefinitions(String agentId, Map<String, ToolConfig> toolConfigMap) {
+    private List<ToolDefinition> buildToolDefinitions(AgentTask task, Map<String, ToolConfig> toolConfigMap) {
+        String agentId = task.getAgentId();
         List<ToolDefinition> definitions = new ArrayList<>();
         if (agentId != null && !agentId.isBlank()) {
             List<ToolConfig> tools = persistenceService.loadAgentTools(agentId);
@@ -938,6 +1817,24 @@ public class ReactAgentExecutor implements AgentExecutor {
                 .description(PLAN_TOOL_DESCRIPTION)
                 .parameters(PLAN_TOOL_SCHEMA)
                 .build());
+        // 内置子代理派生工具：仅顶层/未达深度上限的任务可派生（防递归失控）
+        AgentEngineConfig.Subagents sub = config.getSubagents();
+        if (sub != null && sub.isEnabled() && task.getAgentDepth() < sub.getMaxDepth()) {
+            definitions.add(ToolDefinition.builder()
+                    .name(SPAWN_TOOL_NAME)
+                    .description(SPAWN_TOOL_DESCRIPTION)
+                    .parameters(SPAWN_TOOL_SCHEMA_TEMPLATE.formatted(Math.max(1, sub.getMaxPerSpawn())))
+                    .build());
+        }
+        // 内置用户问答工具（HITL）：仅顶层任务注册（子代理内提问无法到达用户界面，且会挂起分支）；
+        // 网关未装配时工具自动降级应答
+        if (task.getAgentDepth() == 0) {
+            definitions.add(ToolDefinition.builder()
+                    .name(ASK_TOOL_NAME)
+                    .description(ASK_TOOL_DESCRIPTION)
+                    .parameters(ASK_TOOL_SCHEMA)
+                    .build());
+        }
         // 内置文件工具（S9 F3）：read/write/edit/list，经 FileWorkspaceSpi 在会话工作空间执行
         if (fileWorkspace != null && fileWorkspace.available()) {
             definitions.add(ToolDefinition.builder().name(READ_FILE_TOOL)
@@ -956,7 +1853,7 @@ public class ReactAgentExecutor implements AgentExecutor {
         return definitions;
     }
 
-    private ToolContext buildToolContext(AgentTask task, AgentSpec agent) {
+    private ToolContext buildToolContext(AgentTask task, AgentSpec agent, String provider, String model) {
         boolean sandboxEnabled = false;
         String sandboxImage = null;
 
@@ -981,6 +1878,12 @@ public class ReactAgentExecutor implements AgentExecutor {
                 .timeout(30)
                 .sandboxEnabled(sandboxEnabled)
                 .sandboxImage(sandboxImage)
+                // 子代理派生上下文：深度/已解析模型/配额继承（spawn_subagents 构建子任务用）
+                .agentDepth(task.getAgentDepth())
+                .modelProvider(provider)
+                .modelName(model)
+                .quotaTokenBudget(task.getQuotaTokenBudget())
+                .quotaBlockEnabled(task.getQuotaBlockEnabled())
                 .build();
     }
 

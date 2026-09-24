@@ -134,10 +134,15 @@ gewu:
   sandbox:
     type: docker
     runtime: runc
-    image: gewu/sandbox:latest
+    image: gewu/sandbox-base:latest
     api:
       url: http://gewu-sandbox:8082/api/v1/sandboxes
-      internal-key: ${GEWU_INTERNAL_API_KEY:gewu-dev-internal-key-change-me}
+      internal-key: ${GEWU_INTERNAL_API_KEY:}
+    dev:
+      image: ${GEWU_DEV_IMAGE:gewu/dev-base:latest}
+      cpu: 2
+      memory-mb: 4096
+      disk-mb: 20480
 
   ai:
     gateway:

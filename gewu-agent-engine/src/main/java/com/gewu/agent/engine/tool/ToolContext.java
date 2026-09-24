@@ -41,6 +41,17 @@ public class ToolContext {
     /** 任务计划状态（S9 F5）：内置 plan_task 工具写入，done 事件快照回传 */
     @Builder.Default
     private PlanState planState = new PlanState();
+    /** 子代理派生上下文（spawn_subagents）：当前任务嵌套深度（0=顶层） */
+    @Builder.Default
+    private int agentDepth = 0;
+    /** 子代理派生上下文：父任务已解析的 LLM 供应商（子任务模型回退用） */
+    private String modelProvider;
+    /** 子代理派生上下文：父任务已解析的模型名（子任务模型回退用） */
+    private String modelName;
+    /** 子代理派生上下文：父任务配额 token 上限（继承传递，null=不限制） */
+    private Long quotaTokenBudget;
+    /** 子代理派生上下文：父任务配额熔断开关（继承传递） */
+    private Boolean quotaBlockEnabled;
 
     /**
      * 任务计划状态（S9 F5）：跨工具轮次持有最新任务清单，
@@ -54,5 +65,7 @@ public class ToolContext {
         private volatile String title = "";
         /** 步骤列表（全量覆盖语义） */
         private volatile List<AgentEvent.PlanStepInfo> steps = new CopyOnWriteArrayList<>();
+        /** 计划文件相对路径（markdown 参数提交时由引擎写入工作空间 plan/ 目录） */
+        private volatile String planPath;
     }
 }

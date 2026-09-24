@@ -57,6 +57,66 @@ public class OpenAiCompatibleClient implements LlmClient {
         this.streamIdleTimeoutMs = streamIdleTimeoutMs;
     }
 
+    /** 限流/瞬态错误最大尝试次数（含首次，docs/design/47 问题三），1=不重试 */
+    private volatile int retryMaxAttempts = 3;
+
+    /** 重试退避基数（毫秒） */
+    private volatile long retryBackoffMs = 1000L;
+
+    public void setRetryConfig(int retryMaxAttempts, long retryBackoffMs) {
+        this.retryMaxAttempts = Math.max(1, retryMaxAttempts);
+        this.retryBackoffMs = Math.max(0, retryBackoffMs);
+    }
+
+    /** 带 HTTP 状态码与 Retry-After 的调用异常（供受限重试判定，docs/design/47 问题三） */
+    static class LlmStatusException extends RuntimeException {
+        final int statusCode;
+        final long retryAfterMs;
+
+        LlmStatusException(int statusCode, String message, String retryAfter) {
+            super(message);
+            this.statusCode = statusCode;
+            this.retryAfterMs = parseRetryAfter(retryAfter);
+        }
+    }
+
+    /** Retry-After 头解析（秒 → 毫秒），非法/缺失返回 0 */
+    static long parseRetryAfter(String retryAfter) {
+        if (retryAfter == null || retryAfter.isBlank()) {
+            return 0L;
+        }
+        try {
+            return Long.parseLong(retryAfter.trim()) * 1000L;
+        } catch (NumberFormatException e) {
+            return 0L;
+        }
+    }
+
+    /** 可重试状态码白名单：限流与网关类瞬态错误（400/401/403 等非瞬态不重试） */
+    static boolean isRetryableStatus(int statusCode) {
+        return statusCode == 429 || statusCode == 502 || statusCode == 503 || statusCode == 504;
+    }
+
+    /**
+     * 重试判定：仅未收到首 token 前的限流/瞬态错误可重试（已产出内容后重试会造成重复输出）。
+     */
+    static boolean isRetryable(Throwable error, java.util.concurrent.atomic.AtomicBoolean sawToken) {
+        if (sawToken.get()) {
+            return false;
+        }
+        Throwable t = error;
+        while (t != null) {
+            if (t instanceof LlmStatusException se) {
+                return isRetryableStatus(se.statusCode);
+            }
+            if (t instanceof java.io.IOException) {
+                return true; // 连接重置/超时等网络瞬态
+            }
+            t = t.getCause();
+        }
+        return false;
+    }
+
     public OpenAiCompatibleClient(String providerCode, String apiKey, String baseUrl,
                                    ObjectMapper objectMapper, HttpClient httpClient,
                                    LlmRequestBodyBuilder bodyBuilder) {
@@ -95,6 +155,31 @@ public class OpenAiCompatibleClient implements LlmClient {
 
     @Override
     public LlmResponse chat(LlmRequest request) {
+        int attempts = Math.max(1, retryMaxAttempts);
+        LlmStatusException last = null;
+        for (int attempt = 1; attempt <= attempts; attempt++) {
+            try {
+                return doChatOnce(request);
+            } catch (LlmStatusException e) {
+                last = e;
+                if (attempt >= attempts || !isRetryableStatus(e.statusCode)) {
+                    throw e;
+                }
+                long waitMs = Math.max(retryBackoffMs * (long) Math.pow(2, attempt - 1), e.retryAfterMs);
+                log.warn("{} 同步请求瞬态失败（HTTP {}），第 {}/{} 次重试，退避 {}ms",
+                        providerCode, e.statusCode, attempt, attempts - 1, waitMs);
+                try {
+                    java.util.concurrent.TimeUnit.MILLISECONDS.sleep(waitMs);
+                } catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new RuntimeException(providerCode + " API 请求被中断", ie);
+                }
+            }
+        }
+        throw last;
+    }
+
+    private LlmResponse doChatOnce(LlmRequest request) {
         String body = bodyBuilder.buildBody(request, false, providerCode);
         HttpRequest httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create(endpointUrl()))
@@ -109,7 +194,9 @@ public class OpenAiCompatibleClient implements LlmClient {
             int statusCode = response.statusCode();
             if (statusCode < 200 || statusCode >= 300) {
                 log.error("{} API 同步请求失败: statusCode={}, body={}", providerCode, statusCode, response.body());
-                throw new RuntimeException(providerCode + " API 认证失败或请求错误 (HTTP " + statusCode + ")");
+                throw new LlmStatusException(statusCode,
+                        providerCode + " API 认证失败或请求错误 (HTTP " + statusCode + ")",
+                        response.headers().firstValue("Retry-After").orElse(null));
             }
             return parseResponse(response.body());
         } catch (InterruptedException e) {
@@ -142,12 +229,20 @@ public class OpenAiCompatibleClient implements LlmClient {
                 (apiKey == null || apiKey.isBlank()) ? "未配置" : "已配置",
                 body.length());
 
-        // 阻塞 I/O 调度到 boundedElastic，避免阻塞事件循环
+        // 阻塞 I/O 调度到 boundedElastic，避免阻塞事件循环；
+        // 受限重试（docs/design/47 问题三）：仅未收到首 token 前的 429/5xx/网络瞬态，
+        // 指数退避 + 尊重 Retry-After；已产出内容后失败不重试（防重复输出）
+        java.util.concurrent.atomic.AtomicBoolean sawToken = new java.util.concurrent.atomic.AtomicBoolean(false);
+        int retries = Math.max(0, retryMaxAttempts - 1);
         return Flux.<LlmChunk>create(sink -> {
             try {
                 long startMs = System.currentTimeMillis();
-                HttpResponse<java.io.InputStream> response = httpClient.send(httpRequest,
-                        HttpResponse.BodyHandlers.ofInputStream());
+                // 响应头阶段限时（docs/design/47 问题二）：上游不回响应头时不再无限等待；
+                // 响应体空闲由看门狗兜底
+                HttpResponse<java.io.InputStream> response = httpClient.sendAsync(httpRequest,
+                                HttpResponse.BodyHandlers.ofInputStream())
+                        .orTimeout(requestTimeout.toMillis(), java.util.concurrent.TimeUnit.MILLISECONDS)
+                        .join();
                 long elapsedMs = System.currentTimeMillis() - startMs;
                 log.info("{} 收到 HTTP 响应: statusCode={}, 耗时={}ms", providerCode, response.statusCode(), elapsedMs);
 
@@ -155,7 +250,9 @@ public class OpenAiCompatibleClient implements LlmClient {
                 if (statusCode < 200 || statusCode >= 300) {
                     String errorBody = drainStream(response.body());
                     log.error("{} API 流式请求失败: statusCode={}, body={}", providerCode, statusCode, errorBody);
-                    sink.error(new RuntimeException(providerCode + " API 认证失败或请求错误 (HTTP " + statusCode + ")"));
+                    sink.error(new LlmStatusException(statusCode,
+                            providerCode + " API 认证失败或请求错误 (HTTP " + statusCode + ")",
+                            response.headers().firstValue("Retry-After").orElse(null)));
                     return;
                 }
 
@@ -177,6 +274,7 @@ public class OpenAiCompatibleClient implements LlmClient {
                             LlmChunk chunk = parseStreamChunk(data);
                             if (chunk != null) {
                                 chunkCount++;
+                                sawToken.set(true);
                                 sink.next(chunk);
                             }
                         }
@@ -193,14 +291,8 @@ public class OpenAiCompatibleClient implements LlmClient {
                     log.info("{} SSE 读取完成: 共 {} 个 chunk", providerCode, chunkCount);
                     sink.complete();
                 }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                // 中断多来自 SSE 连接超时/客户端断开引发的订阅取消（非故障），WARN 即可，
-                // 避免误导排障方向（用户实报超时场景曾以 ERROR 形式干扰定位）
-                log.warn("{} chatStream 被取消（连接超时/客户端断开）: {}", providerCode, e.getMessage());
-                sink.error(e);
             } catch (Exception e) {
-                // JDK HttpClient 的中断以 IOException 包装形式抛出（用户实报栈形态），同样按取消降噪
+                // JDK HttpClient 的中断以异常包装形式抛出（用户实报栈形态），按取消降噪
                 if (e.getCause() instanceof InterruptedException) {
                     Thread.currentThread().interrupt();
                     log.warn("{} chatStream 被取消（连接超时/客户端断开）: {}", providerCode, e.getMessage());
@@ -209,7 +301,14 @@ public class OpenAiCompatibleClient implements LlmClient {
                 }
                 sink.error(e);
             }
-        }).subscribeOn(Schedulers.boundedElastic());
+        })
+                .retryWhen(reactor.util.retry.Retry.backoff(
+                                Math.max(0, retryMaxAttempts - 1),
+                                Duration.ofMillis(Math.max(1, retryBackoffMs)))
+                        .jitter(0.5)
+                        .filter(e -> isRetryable(e, sawToken))
+                        .transientErrors(true))
+                .subscribeOn(Schedulers.boundedElastic());
     }
 
     private String drainStream(java.io.InputStream is) {

@@ -1,5 +1,7 @@
 package com.gewu.interfaceapi.controller;
 
+import com.gewu.application.agent.adapter.ChatUserInteractionGateway;
+import com.gewu.application.session.ChatRunRegistry;
 import com.gewu.application.session.SessionService;
 import com.gewu.application.session.dto.*;
 import com.gewu.common.dto.PageQuery;
@@ -23,6 +25,48 @@ import java.util.List;
 public class SessionController {
 
     private final SessionService sessionService;
+    private final ChatRunRegistry chatRunRegistry;
+    private final ChatUserInteractionGateway chatUserInteractionGateway;
+
+    // ==================== 运行时状态（断连不中断 / HITL 问答 / 实时过程） ====================
+    // 注意：本控制器是前端 lib/session.ts 的路由家族（/api/v1/sessions）。
+    // 运行时端点必须注册在此家族下——此前误注册于 /api/v1/ai/sessions，前端经代理
+    // 调用 404，导致重进会话无横幅/无时间线/无问答框（checkRunStatus 静默 catch）。
+
+    /** 会话当前运行状态（active/挂起问），供重进会话恢复横幅、轮询与问答框 */
+    @GetMapping("/{sessionId}/run/status")
+    @Operation(summary = "会话运行状态", description = "查询该会话是否有正在后台执行的聊天任务；含挂起问时一并返回")
+    public Result<RunStatusDTO> runStatus(@PathVariable String sessionId) {
+        var pending = chatUserInteractionGateway.pendingBySession(sessionId);
+        RunStatusDTO.PendingAskDTO pendingDto = pending == null ? null : RunStatusDTO.PendingAskDTO.builder()
+                .askId(pending.askId())
+                .question(pending.question())
+                .options(pending.options())
+                .build();
+        return Result.success(RunStatusDTO.from(chatRunRegistry.get(sessionId), pendingDto));
+    }
+
+    /** 执行中任务的实时过程时间线条目（与消息 metadata.process 同构；无活动 run 时 items 为空） */
+    @GetMapping("/{sessionId}/run/process")
+    @Operation(summary = "会话运行实时过程", description = "读取执行中任务的实时过程时间线（重进会话后轮询渲染）")
+    public Result<RunProcessDTO> runProcess(@PathVariable String sessionId) {
+        var meta = chatRunRegistry.get(sessionId);
+        long startedAt = meta != null ? meta.startedAt() : 0L;
+        java.util.List<java.util.Map<String, Object>> items = chatRunRegistry.pollLiveProcess(sessionId);
+        return Result.success(RunProcessDTO.builder()
+                .items(items == null ? java.util.List.of() : items)
+                .startedAt(startedAt)
+                .build());
+    }
+
+    /** 用户回答（ask_user 挂起问）：恢复后台任务执行（answer 为空视为跳过） */
+    @PostMapping("/{sessionId}/ask/{askId}/answer")
+    @Operation(summary = "回答会话提问", description = "回复 ask_user 挂起的问题，恢复后台任务执行（answer 为空视为跳过）")
+    public Result<Void> answerAsk(@PathVariable String sessionId, @PathVariable String askId,
+                                  @RequestBody AskAnswerRequest request) {
+        chatUserInteractionGateway.answerAsk(sessionId, askId, request.getAnswer());
+        return Result.success();
+    }
 
     @PostMapping
     @Operation(summary = "创建会话", description = "创建新的会话并添加创建者为管理员成员")

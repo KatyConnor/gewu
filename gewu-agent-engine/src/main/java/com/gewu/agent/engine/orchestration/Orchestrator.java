@@ -64,20 +64,28 @@ public class Orchestrator {
 
     public Orchestrator(AgentExecutor executor, com.gewu.agent.engine.hitl.HitlGateway hitlGateway,
                         ConflictResolver conflictResolver, ArtifactValidator artifactValidator) {
-        this(executor, hitlGateway, conflictResolver, artifactValidator, null, null);
+        this(executor, hitlGateway, conflictResolver, artifactValidator, null, null, null);
+    }
+
+    public Orchestrator(AgentExecutor executor, com.gewu.agent.engine.hitl.HitlGateway hitlGateway,
+                        ConflictResolver conflictResolver, ArtifactValidator artifactValidator,
+                        GraphNodeExecutor graphNodeExecutor, ExecutionControl executionControl) {
+        this(executor, hitlGateway, conflictResolver, artifactValidator, graphNodeExecutor, executionControl, null);
     }
 
     /**
      * 完整构造：传入 TOOL 节点执行器与执行控制后，Pipeline 模式获得
-     * TOOL/ROUTER/PARALLEL/MERGE 节点支持与协作式暂停/取消/断点续跑能力。
+     * TOOL/ROUTER/PARALLEL/MERGE 节点支持与协作式暂停/取消/断点续跑能力；
+     * 传入 GoalPlanner 后 PLAN 节点获得动态规划-派发能力（"汇总→规划→派发实施"闭环）。
      */
     public Orchestrator(AgentExecutor executor, com.gewu.agent.engine.hitl.HitlGateway hitlGateway,
                         ConflictResolver conflictResolver, ArtifactValidator artifactValidator,
-                        GraphNodeExecutor graphNodeExecutor, ExecutionControl executionControl) {
+                        GraphNodeExecutor graphNodeExecutor, ExecutionControl executionControl,
+                        GoalPlanner goalPlanner) {
         this.modeHandlers = new HashMap<>();
         this.conflictResolver = conflictResolver;
         this.artifactValidator = artifactValidator;
-        register(new PipelineModeHandler(executor, hitlGateway, graphNodeExecutor, executionControl));
+        register(new PipelineModeHandler(executor, hitlGateway, graphNodeExecutor, executionControl, goalPlanner));
         register(new SupervisorModeHandler(executor));
         register(new SwarmModeHandler(executor));
         register(new DebateModeHandler(executor));

@@ -100,9 +100,40 @@ agent:
     # 会话历史默认加载条数（默认 50）
     engine:
       default-history-limit: 50
+      # 单次执行最大工具调用轮次（L2 基线；L1=3 固定、L3=×2）：长程 agentic 任务
+      # 常超 20 轮（用户实报 2/6 进度被断），提升至 50（对齐 AgentCore 75 量级）；
+      # 失控防线由死循环检测（同参数 10 次终止）承担，轮次只作最后兜底
+      max-tool-rounds: 50
+      # 超限优雅降级：轮次/预算超限时发一次无 tools 的总结调用，把"任务失败"变为
+      # "降级完成"（总结失败自动回退为终止事件）
+      limit-summary-enabled: true
+      # 超限总结调用的 max_tokens 上限（默认 8192，硬上限 65536；与当轮任务级
+      # maxTokens 相互独立）——长任务需要更详尽的总结时可调大
+      limit-summary-max-tokens: 8192
+      # 工具调用死循环检测：连续"同工具+相同参数"调用达到告警阈值先注入策略提示
+      # （nudge），达到终止阈值强制收尾。注意：合法的同参数轮询也会被终止，可调阈值或关闭
+      loop-detection-enabled: true
+      loop-warn-threshold: 3
+      # 死循环终止阈值（用户实报调整：5→10，给合法重试更多空间）
+      loop-stop-threshold: 10
+      # 上下文压缩续跑（auto-compact）：估算输入 tokens 达模型上下文窗口的阈值时
+      # 压缩历史（保留最近 keep-rounds 轮 + 摘要）后继续，取代单任务 token 熔断
+      context-compact-threshold: 0.8
+      context-compact-keep-rounds: 4
+      # 轮次预算滚动扩容：到顶且无死循环迹象时扩 50%（≥10 轮）续跑而非强制总结，
+      # 最多扩容 renew-max 次（50→75→100，与 L3 上限一致），耗尽后仍强制总结
+      rounds-renew-enabled: true
+      rounds-renew-max: 2
     # 预算控制（L2 默认等级；L1/L3 按下列倍率缩放）
     budget:
       time-budget-ms: 300000
+      # 告警阈值：token/时间利用率最大值越过 alert-threshold 发 budget_warning，
+      # 越过 degrade-threshold 发更高级告警（引擎内同级别去重，仅升级时重发）
+      alert-threshold: 0.7
+      degrade-threshold: 0.9
+      # 单次执行金额上限（元）：>0 启用成本维熔断（按模型定价表 model_config.price_per1k_*
+      # 真实计价，L1=÷l1-token-divisor、L3=×l3-token-multiplier），默认 0=仅记账观测
+      cost-budget: 0
       l1-token-divisor: 5
       l1-time-budget-ms: 30000
       l1-max-rounds: 3
@@ -116,6 +147,12 @@ agent:
 
 # 格物平台配置
 gewu:
+  session:
+    # 会话历史加载压缩（用户实报：原硬编码 4000 tokens 即压缩且只保留 6 条，
+    # 长程任务的任务计划/文件状态被压丢，模型误判任务完成而提前总结收场）
+    # 阈值建议 ≈ 模型上下文窗口的 1/4，长程任务 32K 起；保留条数覆盖最近 12 轮对话
+    context-compact-threshold-tokens: 32000
+    context-compact-keep-recent: 24
   project:
     name: 格物平台
     version: 1.0.0-SNAPSHOT

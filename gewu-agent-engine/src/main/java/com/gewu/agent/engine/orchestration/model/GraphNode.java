@@ -32,4 +32,8 @@ public class GraphNode {
     private Map<String, Object> config;
     /** 输入映射（可引用图变量 ${var.xxx}） */
     private Map<String, Object> inputs;
+    /** 画布横坐标（设计器布局用，引擎不消费） */
+    private Double x;
+    /** 画布纵坐标（设计器布局用，引擎不消费） */
+    private Double y;
 }

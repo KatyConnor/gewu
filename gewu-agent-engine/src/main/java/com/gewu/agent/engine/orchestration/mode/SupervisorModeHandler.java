@@ -105,6 +105,19 @@ public class SupervisorModeHandler implements ModeHandler {
         var nodeOutput = new StringBuilder();
         exec.executeStream(task).subscribe(
                 event -> {
+                    // 失败传播（docs/design/47 问题一）：顺序分派链，断链即整图 FAILED
+                    if (AgentEvent.ERROR.equals(event.getType())) {
+                        sink.next(AgentEvent.builder()
+                                .type(AgentEvent.ERROR).errorMessage(event.getErrorMessage())
+                                .nodeId(node.getNodeId()).role(node.getRoleCode()).build());
+                        sink.next(AgentEvent.builder().type("graph_complete")
+                                .metadata(Map.of("status", "FAILED",
+                                        "reason", node.getNodeId() + " 执行失败: "
+                                                + (event.getErrorMessage() == null ? "未知错误" : event.getErrorMessage())))
+                                .build());
+                        sink.complete();
+                        return;
+                    }
                     sink.next(AgentEvent.builder()
                             .type(event.getType()).content(event.getContent()).reasoning(event.getReasoning())
                             .toolCall(event.getToolCall()).toolResult(event.getToolResult())

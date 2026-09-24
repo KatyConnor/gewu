@@ -4,6 +4,7 @@ import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.within;
 
 /**
  * {@link BudgetController} 单元测试（T1.5 配额参数化验证）。
@@ -128,5 +129,129 @@ class BudgetControllerTest {
         assertThat(ctx.getTokenConsumed()).isEqualTo(3000);
         assertThat(ctx.getCostConsumed()).isEqualTo(0.03);
         assertThat(ctx.getCurrentRound()).isEqualTo(2);
+    }
+
+    @Test
+    @DisplayName("成本利用率：costBudget≤0 时恒 0（金额熔断未启用）")
+    void costUtilizationDisabledWithoutBudget() {
+        BudgetContext ctx = controller.createBudget(null);
+        // 未配置金额上限：costBudget 为旧派生伪金额，但 utilization 语义以配置为准——
+        // 这里直接验证 getCostUtilization 的守卫逻辑
+        ctx.setCostBudget(0);
+        ctx.setCostConsumed(5.0);
+        assertThat(ctx.getCostUtilization()).isEqualTo(0);
+    }
+
+    @Test
+    @DisplayName("金额熔断（优化2）：配置 cost-budget 后成本超限触发 BLOCK，未配置时不触发")
+    void costBlockingOnlyWhenConfigured() {
+        // 配置金额上限 1 元
+        BudgetController withCost = new BudgetController(100_000, 300_000, 10,
+                new BudgetController.Quotas(), 1.0, null);
+        BudgetContext ctx = withCost.createBudget(null);
+        assertThat(ctx.getCostBudget()).isEqualTo(1.0);
+
+        // 成本未超限：即使 token 维度也不超限，保持 NORMAL
+        ctx.setCostConsumed(0.5);
+        assertThat(withCost.check(ctx)).isNotEqualTo(BudgetStatus.BLOCK);
+
+        // 成本超限：token 消耗为零也 BLOCK（成本维独立触发）
+        ctx.setCostConsumed(1.0);
+        assertThat(withCost.check(ctx)).isEqualTo(BudgetStatus.BLOCK);
+        assertThat(withCost.shouldStop(ctx)).isTrue();
+
+        // 未配置金额上限（默认 0）：同样的成本消耗不触发 BLOCK
+        BudgetContext plain = controller.createBudget(null);
+        plain.setCostConsumed(999.0);
+        assertThat(controller.check(plain)).isNotEqualTo(BudgetStatus.BLOCK);
+    }
+
+    @Test
+    @DisplayName("金额上限等级缩放：L1=÷l1TokenDivisor、L3=×l3TokenMultiplier")
+    void costBudgetScalesWithLevel() {
+        BudgetController withCost = new BudgetController(100_000, 300_000, 10,
+                new BudgetController.Quotas(), 1.0, null);
+        assertThat(withCost.createBudget("L1").getCostBudget()).isCloseTo(0.2, within(1e-9));
+        assertThat(withCost.createBudget(null).getCostBudget()).isCloseTo(1.0, within(1e-9));
+        assertThat(withCost.createBudget("L3").getCostBudget()).isCloseTo(3.0, within(1e-9));
+
+        // 未配置金额上限时维持旧派生伪金额（仅观测）
+        assertThat(controller.createBudget(null).getCostBudget()).isCloseTo(1.0, within(1e-9));
+    }
+
+    @Test
+    @DisplayName("calculateCost：未装配计算器时回退统一假单价")
+    void calculateCostFallsBackToUniformPrice() {
+        assertThat(controller.calculateCost("any-model", 1000, 2000))
+                .isEqualTo(3000 * 0.00001);
+    }
+
+    @Test
+    @DisplayName("配额熔断开关（配额体系）：blockEnabled=false 时 token 超限仅告警不熔断")
+    void tokenBlockGatedByBlockEnabled() {
+        BudgetContext ctx = controller.createBudget(null);
+        // 开关关闭：token 100% 不 BLOCK（用户偏好=仅提醒）
+        ctx.setBlockEnabled(false);
+        ctx.setTokenConsumed(100_000);
+        assertThat(controller.check(ctx)).isNotEqualTo(BudgetStatus.BLOCK);
+        // 轮次超限不受开关控制（失控防线）
+        ctx.setCurrentRound(10);
+        assertThat(controller.check(ctx)).isEqualTo(BudgetStatus.BLOCK);
+
+        // 开关开启（缺省）：token 100% 照常 BLOCK
+        BudgetContext strict = controller.createBudget(null);
+        assertThat(strict.getBlockEnabled()).isTrue();
+        strict.setTokenConsumed(100_000);
+        assertThat(controller.check(strict)).isEqualTo(BudgetStatus.BLOCK);
+    }
+
+    @Test
+    @DisplayName("轮次滚动扩容：renewRounds 扩 50%（≥10 轮）并累计次数")
+    void renewRoundsExpandsAndCounts() {
+        BudgetContext ctx = controller.createBudget(null);
+        ctx.setMaxRounds(50);
+        assertThat(controller.renewRounds(ctx)).isTrue();
+        // 50 → 75（max(25, 10)=25），扩容次数 +1
+        assertThat(ctx.getMaxRounds()).isEqualTo(75);
+        assertThat(ctx.getRoundsRenewed()).isEqualTo(1);
+
+        // 小基线：2 轮 → 扩容下限 10 轮生效（2+10=12）
+        BudgetContext small = controller.createBudget(null);
+        small.setMaxRounds(2);
+        assertThat(controller.renewRounds(small)).isTrue();
+        assertThat(small.getMaxRounds()).isEqualTo(12);
+        assertThat(small.getRoundsRenewed()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("续期重置告警去重水位：时间/轮次续期后允许新周期再告警")
+    void renewalsResetAlertLevel() {
+        BudgetContext ctx = controller.createBudget(null);
+        ctx.setLastAlertLevel(2);
+        ctx.setStartTimeMs(System.currentTimeMillis() - 300_000);
+        controller.renewTimeBudget(ctx);
+        assertThat(ctx.getLastAlertLevel()).isZero();
+        assertThat(ctx.getTimeRenewals()).isEqualTo(1);
+
+        ctx.setLastAlertLevel(1);
+        controller.renewRounds(ctx);
+        assertThat(ctx.getLastAlertLevel()).isZero();
+        assertThat(ctx.getRoundsRenewed()).isEqualTo(1);
+    }
+
+    @Test
+    @DisplayName("阈值可配：自定义 alert/degrade 阈值生效于 check 状态机")
+    void configurableThresholds() {
+        BudgetController custom = new BudgetController(100_000, 300_000, 10,
+                new BudgetController.Quotas(), 0, null, 0.5, 0.8);
+        BudgetContext ctx = custom.createBudget(null);
+        ctx.setTokenConsumed(55_000);
+        assertThat(custom.check(ctx)).isEqualTo(BudgetStatus.ALERT);
+        ctx.setTokenConsumed(85_000);
+        assertThat(custom.check(ctx)).isEqualTo(BudgetStatus.DEGRADE);
+        // 默认构造保持 0.70/0.90 历史行为
+        BudgetContext plain = controller.createBudget(null);
+        plain.setTokenConsumed(55_000);
+        assertThat(controller.check(plain)).isEqualTo(BudgetStatus.NORMAL);
     }
 }

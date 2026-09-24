@@ -291,6 +291,11 @@ public class ModelConfigService {
         model.setDescription(command.getDescription());
         model.setStatus(command.getEnableImmediately() != null && command.getEnableImmediately() ? 1 : 2);
         model.setSortOrder(0);
+        model.setPricePer1kInput(command.getPricePer1kInput());
+        model.setPricePer1kOutput(command.getPricePer1kOutput());
+        model.setPriceUnitTokens(command.getPriceUnitTokens());
+        model.setContextWindowInput(command.getContextWindowInput());
+        model.setContextWindowOutput(command.getContextWindowOutput());
 
         modelConfigMapper.insert(model);
         log.info("创建模型成功: provider={}, modelId={}", provider.getProviderCode(), command.getModelId());
@@ -324,6 +329,21 @@ public class ModelConfigService {
         }
         if (command.getDescription() != null) {
             model.setDescription(command.getDescription());
+        }
+        if (command.getPricePer1kInput() != null) {
+            model.setPricePer1kInput(command.getPricePer1kInput());
+        }
+        if (command.getPricePer1kOutput() != null) {
+            model.setPricePer1kOutput(command.getPricePer1kOutput());
+        }
+        if (command.getPriceUnitTokens() != null) {
+            model.setPriceUnitTokens(command.getPriceUnitTokens());
+        }
+        if (command.getContextWindowInput() != null) {
+            model.setContextWindowInput(command.getContextWindowInput());
+        }
+        if (command.getContextWindowOutput() != null) {
+            model.setContextWindowOutput(command.getContextWindowOutput());
         }
 
         modelConfigMapper.updateById(model);
@@ -362,15 +382,44 @@ public class ModelConfigService {
      * 根据模型 ID 查找供应商编码（供 LLM 客户端路由使用）。
      */
     public String getProviderCodeByModelId(String modelId) {
-        ModelConfig model = modelConfigMapper.selectOne(
-                new LambdaQueryWrapper<ModelConfig>()
-                        .eq(ModelConfig::getModelId, modelId)
-                        .eq(ModelConfig::getStatus, 1));
+        ModelConfig model = resolveEnabledConfigByModelId(modelId);
         if (model == null) {
             return null;
         }
         ModelProvider provider = providerMapper.selectById(model.getProviderId());
         return provider != null ? provider.getProviderCode() : null;
+    }
+
+    /**
+     * 根据模型 ID 解析生效的启用配置。
+     * 同一 model_id 允许挂在多个供应商下（合法业务数据），不能假设唯一：
+     * 优先取供应商处于启用状态的配置，同级按最近更新排序，保证解析结果确定。
+     */
+    private ModelConfig resolveEnabledConfigByModelId(String modelId) {
+        List<ModelConfig> configs = modelConfigMapper.selectList(
+                new LambdaQueryWrapper<ModelConfig>()
+                        .eq(ModelConfig::getModelId, modelId)
+                        .eq(ModelConfig::getStatus, 1)
+                        .orderByDesc(ModelConfig::getUpdatedAt)
+                        .orderByDesc(ModelConfig::getId));
+        if (configs.isEmpty()) {
+            return null;
+        }
+        for (ModelConfig config : configs) {
+            ModelProvider provider = providerMapper.selectById(config.getProviderId());
+            if (provider != null && provider.getStatus() != null && provider.getStatus() == 1) {
+                if (configs.size() > 1) {
+                    log.warn("模型 ID [{}] 存在 {} 条启用配置，已选择启用供应商下的配置: providerId={}",
+                            modelId, configs.size(), config.getProviderId());
+                }
+                return config;
+            }
+        }
+        if (configs.size() > 1) {
+            log.warn("模型 ID [{}] 存在 {} 条启用配置但供应商均未启用，按最近更新取第一条: providerId={}",
+                    modelId, configs.size(), configs.get(0).getProviderId());
+        }
+        return configs.get(0);
     }
 
     /**
@@ -383,10 +432,7 @@ public class ModelConfigService {
      */
     public Integer getMaxTokensByModelId(String modelId) {
         try {
-            ModelConfig model = modelConfigMapper.selectOne(
-                    new LambdaQueryWrapper<ModelConfig>()
-                            .eq(ModelConfig::getModelId, modelId)
-                            .eq(ModelConfig::getStatus, 1));
+            ModelConfig model = resolveEnabledConfigByModelId(modelId);
             if (model == null || model.getModelParams() == null || model.getModelParams().isBlank()) {
                 return null;
             }
@@ -412,6 +458,11 @@ public class ModelConfigService {
                 .modelParams(model.getModelParams())
                 .description(model.getDescription())
                 .status(model.getStatus())
+                .pricePer1kInput(model.getPricePer1kInput())
+                .pricePer1kOutput(model.getPricePer1kOutput())
+                .priceUnitTokens(model.getPriceUnitTokens())
+                .contextWindowInput(model.getContextWindowInput())
+                .contextWindowOutput(model.getContextWindowOutput())
                 .build();
     }
 }

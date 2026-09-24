@@ -38,8 +38,19 @@ public class LlmClientRegistry {
     /** 动态创建客户端的流式空闲看门狗（agent.engine.llm.stream-idle-timeout-ms，0=禁用） */
     private volatile long streamIdleTimeoutMs;
 
+    /** 限流/瞬态错误最大尝试次数（含首次，docs/design/47 问题三） */
+    private volatile int retryMaxAttempts = 3;
+
+    /** 重试退避基数（毫秒） */
+    private volatile long retryBackoffMs = 1000L;
+
     public void setStreamIdleTimeoutMs(long streamIdleTimeoutMs) {
         this.streamIdleTimeoutMs = streamIdleTimeoutMs;
+    }
+
+    public void setRetryConfig(int retryMaxAttempts, long retryBackoffMs) {
+        this.retryMaxAttempts = retryMaxAttempts;
+        this.retryBackoffMs = retryBackoffMs;
     }
 
     private final LlmProvider provider;
@@ -122,6 +133,7 @@ public class LlmClientRegistry {
             if (streamIdleTimeoutMs > 0) {
                 client.setStreamIdleTimeoutMs(streamIdleTimeoutMs);
             }
+            client.setRetryConfig(retryMaxAttempts, retryBackoffMs);
             return client;
         } catch (Exception e) {
             log.warn("从 LlmProvider 加载供应商 {} 失败: {}", providerCode, e.getMessage());

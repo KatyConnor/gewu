@@ -39,11 +39,14 @@ class CostAccountingServiceTest {
     @Mock
     private ModelConfigMapper modelConfigMapper;
 
+    @Mock
+    private com.gewu.infrastructure.mapper.UsageLedgerMapper usageLedgerMapper;
+
     private CostAccountingService service;
 
     @BeforeEach
     void setUp() {
-        service = new CostAccountingService(sessionMapper, modelConfigMapper);
+        service = new CostAccountingService(sessionMapper, modelConfigMapper, usageLedgerMapper);
     }
 
     private void priceFor(String modelId, double in, double out) {

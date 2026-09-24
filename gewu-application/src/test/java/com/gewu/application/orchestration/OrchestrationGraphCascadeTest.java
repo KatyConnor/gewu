@@ -32,13 +32,15 @@ class OrchestrationGraphCascadeTest {
     @Mock ApprovalRequestMapper approvalMapper;
     @Mock com.gewu.application.governance.FourPhasePipeline fourPhasePipeline;
     @Mock com.gewu.infrastructure.trace.OrchestrationTracer orchestrationTracer;
+    @Mock com.gewu.infrastructure.mapper.OrchestrationNodeExecutionMapper nodeExecutionMapper;
 
     private OrchestrationService service;
 
     @BeforeEach
     void setUp() {
         service = new OrchestrationService(orchestrationEngine, graphMapper, executionMapper,
-                approvalMapper, new ObjectMapper(), fourPhasePipeline, orchestrationTracer);
+                approvalMapper, new ObjectMapper(), fourPhasePipeline, orchestrationTracer,
+                new GraphDefinitionValidator(new ObjectMapper()), nodeExecutionMapper);
     }
 
     @Test

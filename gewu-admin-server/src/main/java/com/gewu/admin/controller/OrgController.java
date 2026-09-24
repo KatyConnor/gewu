@@ -1,9 +1,9 @@
-package com.gewu.interfaceapi.controller;
+package com.gewu.admin.controller;
 
-import com.gewu.application.org.OrgService;
-import com.gewu.application.org.dto.CreateOrgCommand;
-import com.gewu.application.org.dto.OrgDTO;
-import com.gewu.application.org.dto.UpdateOrgCommand;
+import com.gewu.admin.service.OrgService;
+import com.gewu.admin.dto.org.CreateOrgCommand;
+import com.gewu.admin.dto.org.OrgDTO;
+import com.gewu.admin.dto.org.UpdateOrgCommand;
 import com.gewu.common.result.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;

@@ -13,6 +13,7 @@ import com.gewu.application.ai.dto.ModelInfo;
 import com.gewu.application.ai.dto.ToolCallInfo;
 import com.gewu.application.ai.dto.ToolResultInfo;
 import com.gewu.application.ai.dto.UsageInfo;
+import com.gewu.application.session.ChatRunRegistry;
 import com.gewu.application.session.SessionContextService;
 import com.gewu.application.wenshi.reasoning.WenshiReasoningChunk;
 import com.gewu.application.wenshi.reasoning.WenshiReasoningEngine;
@@ -53,6 +54,7 @@ import java.util.UUID;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import com.gewu.application.session.SessionFileWorkspaceService;
 
 @Slf4j
 @RestController
@@ -66,6 +68,8 @@ public class AiChatController {
     private final ObjectMapper objectMapper;
     private final SessionMessageMapper sessionMessageMapper;
     private final SessionMapper sessionMapper;
+    private final SessionFileWorkspaceService fileWorkspaceService;
+    private final ChatRunRegistry chatRunRegistry;
 
     @Autowired(required = false)
     private WenshiReasoningEngine wenshiReasoningEngine;
@@ -75,13 +79,17 @@ public class AiChatController {
                             ModelConfigService modelConfigService,
                             ObjectMapper objectMapper,
                             SessionMessageMapper sessionMessageMapper,
-                            SessionMapper sessionMapper) {
+                            SessionMapper sessionMapper,
+                            SessionFileWorkspaceService fileWorkspaceService,
+                            ChatRunRegistry chatRunRegistry) {
         this.agentExecutionEngine = agentExecutionEngine;
         this.sessionContextService = sessionContextService;
         this.modelConfigService = modelConfigService;
         this.objectMapper = objectMapper;
         this.sessionMessageMapper = sessionMessageMapper;
         this.sessionMapper = sessionMapper;
+        this.fileWorkspaceService = fileWorkspaceService;
+        this.chatRunRegistry = chatRunRegistry;
     }
 
     @Value("${gewu.ai.qwen.api-key:}")
@@ -127,6 +135,10 @@ public class AiChatController {
         String userId = UserContext.currentUserId();
         String userMessage = request.getMessage();
         String sessionId = request.getSessionId();
+        // 同会话并发防护与用户消息即时落库放在 Flux 组装之后（见 return 前的守卫块）：
+        // 组装仅构建冷 Flux 无副作用，注册一旦完成就必须保证终结——若在组装前注册，
+        // 组装段异常会绕过 doFinally 留下僵尸 RUNNING，阻塞该会话后续所有轮次
+        boolean hasSession = sessionId != null && !sessionId.isBlank();
         AtomicReference<StringBuilder> accumulated = new AtomicReference<>(new StringBuilder());
         java.util.List<ChatStreamEvent.FileEventInfo> fileEvents = new java.util.ArrayList<>();
 
@@ -165,34 +177,162 @@ public class AiChatController {
                 new java.util.concurrent.atomic.AtomicReference<>(null);
         // 过程时间线摘要（S9 问题3修复）：轻量累积供 metadata 持久化，
         // 前端历史消息据此还原折叠过程视图。条目截断控制体积。
-        final java.util.List<java.util.Map<String, Object>> processSummary = new java.util.ArrayList<>();
+        // 二期：CopyOnWriteArrayList——run 活跃期间经 ChatRunRegistry 引用被
+        // 重进会话的轮询线程并发读取（GET run/process），写少读多场景安全
+        final java.util.List<java.util.Map<String, Object>> processSummary =
+                new java.util.concurrent.CopyOnWriteArrayList<>();
+        // 活动 run 的实时过程快照（重进会话可见执行中任务的时间线）：事件线程上构建
+        // 不可变快照（processSummary + 未闭合的思考/正文段），轮询线程仅读引用，免并发读写
+        final java.util.concurrent.atomic.AtomicReference<java.util.List<java.util.Map<String, Object>>> liveSnapshotRef =
+                new java.util.concurrent.atomic.AtomicReference<>(new java.util.ArrayList<>());
         final long[] thinkStart = {0};
         final StringBuilder thinkSnippet = new StringBuilder();
         final java.util.Map<String, java.util.Map<String, Object>> openTools = new java.util.LinkedHashMap<>();
         final long streamStartMs = System.currentTimeMillis();
+        // 中间正文段（用户实报问题3）：正文按"被 thinking/tool_call 打断的位置"切段——
+        // 中间段持久化进 metadata.process 保留在过程中；流结束时未闭合的当前段即
+        // 最终正文，作为 assistantContent 主体（最终结果汇总在过程之后输出）
+        final long[] contentSegStart = {0};
+        final StringBuilder contentSegText = new StringBuilder();
+        final StringBuilder contentSegSnippet = new StringBuilder();
+        // 带内终止原因（用户实报问题3落库缺口）：流内 error / budget_exceeded 事件不是
+        // Flux 错误（errorRef 不触发），此前无正文的报错整轮交互（含用户消息）不落库
+        final java.util.concurrent.atomic.AtomicReference<String> stopReason =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        // 执行统计（完成透明度）：done 事件携带 rounds/elapsedMs/tokenEstimated 等，
+        // 落库 metadata.stats 供历史回放还原"AI 自主收尾 vs 被限制收尾"
+        final java.util.concurrent.atomic.AtomicReference<java.util.Map<String, Object>> doneStatsRef =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        // 回合文件汇总（撤销功能）：流收尾时计算快照差值，持久化 metadata.turnFiles
+        final java.util.concurrent.atomic.AtomicReference<java.util.List<SessionFileWorkspaceService.TurnFileChange>> turnFilesRef =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        // Flux 级异常捕获（断连不中断修复）：持久化迁入 doFinally 后不再依赖
+        // 请求线程侧的 errorRef，订阅错误在此捕获供终结时落库中断标记
+        final java.util.concurrent.atomic.AtomicReference<Throwable> fluxError =
+                new java.util.concurrent.atomic.AtomicReference<>();
+        // 单轮流式回合的累积上下文：供 doFinally 终结回调做落库（与请求线程解耦）
+        final TurnContext turnCtx = new TurnContext(sessionId, userId, userMessage,
+                request.getClientId(), accumulated, contentSegText, fileEvents, planJsonRef,
+                processSummary, doneStatsRef, turnFilesRef, stopReason, fluxError, streamStartMs);
         final Flux<ChatStreamEvent> eventFlux = baseFlux.doOnNext(event -> {
+            // 二期：子代理分支事件（带 subagentId 标签）不计入主轮次累积/正文/统计——
+            // 分支过程由前端按 subagentId 分桶实时渲染；仅 subagent_status 生命周期行进摘要
+            if (event.getMetadata() != null && event.getMetadata().containsKey("subagentId")
+                    && !"subagent_status".equals(event.getType())) {
+                return;
+            }
             if ("content".equals(event.getType()) && event.getContent() != null) {
                 accumulated.get().append(event.getContent());
+                // 当前正文段续写（无未闭合段则开新段）
+                if (contentSegStart[0] == 0) {
+                    contentSegStart[0] = System.currentTimeMillis();
+                }
+                contentSegText.append(event.getContent());
+                if (contentSegSnippet.length() < 2000) {
+                    int remain = 2000 - contentSegSnippet.length();
+                    contentSegSnippet.append(event.getContent(), 0,
+                            Math.min(event.getContent().length(), remain));
+                }
             }
             // 截断重试重新生成：清空已累积的部分正文，落库以最终重试结果为准
             if ("content_reset".equals(event.getType())) {
                 accumulated.set(new StringBuilder());
+                // 未闭合的当前段整体作废（旧内容将被重新生成替换）
+                contentSegStart[0] = 0;
+                contentSegText.setLength(0);
+                contentSegSnippet.setLength(0);
+            }
+            // 带内终止：error / budget_exceeded 事件记录原因（供无正文时也落库）
+            if ("error".equals(event.getType())) {
+                stopReason.compareAndSet(null,
+                        event.getErrorMessage() != null ? event.getErrorMessage() : "AI 处理失败");
+            }
+            if ("budget_exceeded".equals(event.getType())) {
+                stopReason.compareAndSet(null,
+                        event.getErrorMessage() != null ? event.getErrorMessage() : "任务预算已用尽");
+            }
+            // 优雅降级收尾（用户实报：轮次/循环总结路径此前按正常完成落库，历史无痕）：
+            // done 事件的 finishReason 计入 stopReason，落库追加 [执行中断] 标记
+            if ("done".equals(event.getType()) && event.getFinishReason() != null) {
+                switch (event.getFinishReason()) {
+                    case "rounds" -> stopReason.compareAndSet(null, "工具调用轮次上限");
+                    case "loop" -> stopReason.compareAndSet(null, "重复执行循环");
+                    case "budget" -> stopReason.compareAndSet(null, "任务预算已用尽");
+                    default -> { /* stop/length 等正常完成原因不标记 */ }
+                }
             }
             if ("file".equals(event.getType()) && event.getFile() != null) {
                 fileEvents.add(event.getFile());
             }
-            // 任务计划最终快照（S9 F5）：done 事件携带，落库供历史回放
+            // 任务计划最终快照（S9 F5）：done 事件携带，落库供历史回放（planPath 供"查看完整计划"）
             if ("done".equals(event.getType()) && event.getPlan() != null && !event.getPlan().isEmpty()) {
                 try {
-                    planJsonRef.set(objectMapper.writeValueAsString(
-                            java.util.Map.of("title", event.getPlanTitle() != null ? event.getPlanTitle() : "",
-                                    "steps", event.getPlan())));
+                    java.util.Map<String, Object> planSnapshot = new java.util.LinkedHashMap<>();
+                    planSnapshot.put("title", event.getPlanTitle() != null ? event.getPlanTitle() : "");
+                    planSnapshot.put("steps", event.getPlan());
+                    if (event.getMetadata() != null && event.getMetadata().get("planPath") != null) {
+                        planSnapshot.put("planPath", String.valueOf(event.getMetadata().get("planPath")));
+                    }
+                    planJsonRef.set(objectMapper.writeValueAsString(planSnapshot));
                 } catch (Exception e) {
                     log.debug("计划快照序列化失败: {}", e.getMessage());
                 }
             }
+            // 执行统计快照（完成透明度）：done 事件的 metadata 持久化
+            if ("done".equals(event.getType()) && event.getMetadata() != null) {
+                doneStatsRef.set(event.getMetadata());
+            }
             // 过程时间线摘要累积（S9 问题3修复）：thinking 段/工具调用轻量记录
             long nowMs = System.currentTimeMillis();
+            // HITL 问答条目（ask_user）：问题+选项进过程时间线（回答经随后的 ask_user 工具结果行可见）
+            if ("ask_user".equals(event.getType()) && event.getMetadata() != null && processSummary.size() < 100) {
+                java.util.Map<String, Object> ask = new java.util.LinkedHashMap<>();
+                ask.put("k", "ask");
+                ask.put("s", nowMs - streamStartMs);
+                Object q = event.getMetadata().get("question");
+                ask.put("q", q != null ? String.valueOf(q) : "");
+                Object opts = event.getMetadata().get("options");
+                ask.put("o", opts instanceof java.util.List ? opts : java.util.List.of());
+                processSummary.add(ask);
+            }
+            // 子代理生命周期条目（spawn_subagents）：仅持久化完成态（running 行为实时态，回放无需）
+            // 分支结果文本（截断 2000）随行持久化，供历史回放"点击子智能体→右侧面板展示聚合结果"
+            if ("subagent_status".equals(event.getType()) && event.getMetadata() != null
+                    && !"running".equals(String.valueOf(event.getMetadata().get("status")))
+                    && processSummary.size() < 100) {
+                java.util.Map<String, Object> row = new java.util.LinkedHashMap<>();
+                row.put("k", "subagent");
+                Object sid = event.getMetadata().get("subagentId");
+                row.put("id", sid != null ? String.valueOf(sid) : "");
+                Object n = event.getMetadata().get("name");
+                row.put("n", n != null ? String.valueOf(n) : "");
+                Object st = event.getMetadata().get("status");
+                row.put("st", st != null ? String.valueOf(st) : "success");
+                row.put("s", nowMs - streamStartMs);
+                row.put("e", nowMs - streamStartMs);
+                Object res = event.getMetadata().get("result");
+                row.put("r", res != null ? String.valueOf(res) : "");
+                processSummary.add(row);
+            }
+            // 中间正文段闭合（用户实报问题3）：thinking/tool_call 打断正文 → 当前段
+            // 进过程时间线（保留在过程中原位置），最终正文留给流结束时的未闭合段
+            if (("thinking".equals(event.getType()) && event.getReasoning() != null)
+                    || "tool_call".equals(event.getType())) {
+                if (contentSegStart[0] > 0) {
+                    String segText = contentSegSnippet.toString();
+                    if (!segText.isBlank() && processSummary.size() < 100) {
+                        java.util.Map<String, Object> seg = new java.util.LinkedHashMap<>();
+                        seg.put("k", "content");
+                        seg.put("s", contentSegStart[0] - streamStartMs);
+                        seg.put("e", nowMs - streamStartMs);
+                        seg.put("t", segText);
+                        processSummary.add(seg);
+                    }
+                    contentSegStart[0] = 0;
+                    contentSegText.setLength(0);
+                    contentSegSnippet.setLength(0);
+                }
+            }
             if ("thinking".equals(event.getType()) && event.getReasoning() != null) {
                 if (thinkStart[0] == 0) {
                     thinkStart[0] = nowMs;
@@ -222,7 +362,12 @@ public class AiChatController {
                 tool.put("s", nowMs - streamStartMs);
                 tool.put("n", event.getToolCall().getName());
                 String args = event.getToolCall().getArguments();
-                tool.put("a", args != null && args.length() > 200 ? args.substring(0, 200) : args);
+                // 编辑类工具保留大参数（old_text/new_text/content 全文）：历史会话回放时前端
+                // 据此渲染行级差异块；其余工具维持 200 字符摘要，防 metadata 无界膨胀
+                String summaryToolName = event.getToolCall().getName();
+                int argsCap = "edit_file".equals(summaryToolName) || "write_file".equals(summaryToolName)
+                        ? 20000 : 200;
+                tool.put("a", args != null && args.length() > argsCap ? args.substring(0, argsCap) : args);
                 tool.put("id", event.getToolCall().getId());
                 processSummary.add(tool);
                 openTools.put(event.getToolCall().getId(), tool);
@@ -235,7 +380,75 @@ public class AiChatController {
                     tool.put("r", output != null && output.length() > 200 ? output.substring(0, 200) : output);
                 }
             }
-        });
+            // 二期：重建活动 run 的实时过程快照——processSummary（已闭合段）+ 进行中的
+            // 未闭合思考/正文段。未闭合段不写 e（结束偏移）：前端据 e 缺失渲染 active/
+            // 流式态（旋转、增长预览、光标），与本地流式视图观感一致；历史回放（metadata
+            // .process）恒有 e，口径兼容
+            java.util.List<java.util.Map<String, Object>> liveSnap =
+                    new java.util.ArrayList<>(processSummary);
+            if (thinkStart[0] > 0) {
+                java.util.Map<String, Object> liveThink = new java.util.LinkedHashMap<>();
+                liveThink.put("k", "thinking");
+                liveThink.put("s", thinkStart[0] - streamStartMs);
+                // 未闭合段不写 e：前端渲染为 active 态（旋转 + 尾部增长预览）
+                liveThink.put("t", thinkSnippet.toString());
+                liveSnap.add(liveThink);
+            }
+            if (contentSegStart[0] > 0) {
+                java.util.Map<String, Object> liveContent = new java.util.LinkedHashMap<>();
+                liveContent.put("k", "content");
+                liveContent.put("s", contentSegStart[0] - streamStartMs);
+                // 未闭合段不写 e：前端对最后一段正文渲染流式光标
+                liveContent.put("t", contentSegText.toString());
+                liveSnap.add(liveContent);
+            }
+            liveSnapshotRef.set(liveSnap);
+        })
+                // 断连不中断修复（核心）：持久化从请求线程 post-latch 块迁入订阅终结回调。
+                // 订阅生命周期与 HTTP 请求解耦——客户端断连后任务继续执行到自然结束，
+                // 完整落库；落库幂等由 clientId("xxx"/"xxx:ai") 保证
+                .doOnError(fluxError::set)
+                .doFinally(signal -> {
+                    try {
+                        persistTurn(turnCtx);
+                    } finally {
+                        chatRunRegistry.finish(sessionId, fluxError.get() != null
+                                ? ChatRunRegistry.Status.FAILED : ChatRunRegistry.Status.DONE);
+                        // 移除实时过程引用（此后由消息 metadata 回放）
+                        chatRunRegistry.removeLiveProcess(sessionId);
+                    }
+                });
+
+        // 订阅前最后一步：注册运行 + 用户消息即时落库 + 回合开始。
+        // 此后正常路径由 doFinally 终结注册；本守卫块内的异常路径由 catch 终结——
+        // 两条路径覆盖全部出口，防止僵尸 RUNNING 阻塞该会话后续轮次。
+        // 1) 同会话并发防护：上一轮仍在后台执行时拒绝新轮次（交错执行会导致
+        //    上下文与落库顺序混乱）
+        // 2) 用户消息即时落库（断连不中断修复）：此后无论断连/异常/进程重启，
+        //    用户输入都不再丢失
+        if (hasSession) {
+            boolean registered = false;
+            try {
+                if (!chatRunRegistry.tryRegister(sessionId, request.getClientId())) {
+                    throw BusinessException.of(ResultCode.SESSION_RUN_IN_PROGRESS);
+                }
+                registered = true;
+                sessionContextService.appendUserMessage(sessionId, userId, userMessage, request.getClientId());
+                // 回合快照（撤销功能）：本回合开始——后续文件写入将记录回合前内容，
+                // 并标记回合进行中（期间拒绝撤销，防与引擎写入并发冲突）
+                fileWorkspaceService.beginTurn(sessionId);
+                // 注册实时过程引用（重进会话可见执行中任务的时间线）：doFinally 移除；
+                // supplier 返回事件线程上构建的不可变快照（含未闭合段）
+                chatRunRegistry.putLiveProcess(sessionId, liveSnapshotRef::get);
+            } catch (RuntimeException e) {
+                // 仅终结本次已注册的运行；并发拒绝路径未注册，绝不能误杀正在
+                // 运行的其他轮次的注册项（否则其注册状态被提前置 FAILED）
+                if (registered) {
+                    chatRunRegistry.finish(sessionId, ChatRunRegistry.Status.FAILED);
+                }
+                throw e;
+            }
+        }
 
         return outputStream -> {
             PrintWriter writer = new PrintWriter(new OutputStreamWriter(outputStream, StandardCharsets.UTF_8), false);
@@ -256,18 +469,19 @@ public class AiChatController {
                                 writer.write(objectMapper.writeValueAsString(event));
                                 writer.write("\n\n");
                                 writer.flush();
+                                // PrintWriter 吞掉 IOException（仅置内部 error 标志）：
+                                // broken pipe 不以异常抛出，必须用 checkError 显式检出断连
+                                if (writer.checkError()) {
+                                    throw new java.io.IOException("客户端已断开（checkError 检出写入失败）");
+                                }
                             }
                         } catch (Exception e) {
-                            // 写失败即客户端断连（broken pipe）：置位断连标记并终止订阅，
-                            // 释放被占住的异步线程与上游 LLM 资源（S8 修复，此前会
-                            // 持续写入失败直至 10 分钟异步超时）
-                            log.error("SSE 写入失败，终止订阅: {}", e.getMessage());
+                            // 写失败即客户端断连（broken pipe）：置位断连标记并释放请求线程。
+                            // 不再 dispose 订阅（断连不中断修复）：任务转后台继续执行到完成，
+                            // 落库由 doFinally 负责；此后事件在消费入口静默丢弃
+                            log.error("SSE 写入失败，客户端断连，任务转后台继续执行: {}", e.getMessage());
                             clientGone.set(true);
                             latch.countDown();
-                            Disposable d = subRef.get();
-                            if (d != null) {
-                                d.dispose();
-                            }
                         }
                     },
                     error -> {
@@ -323,15 +537,15 @@ public class AiChatController {
                     synchronized (writer) {
                         writer.write("data: {\"type\":\"ping\"}\n\n");
                         writer.flush();
+                        // 同消费端：PrintWriter 吞 IOException，checkError 检出断连
+                        if (writer.checkError()) {
+                            throw new java.io.IOException("客户端已断开（心跳 checkError 检出）");
+                        }
                     }
                 } catch (Exception e) {
-                    // 心跳写失败=连接已断：置位断连并终止上游订阅
+                    // 心跳写失败=连接已断：置位断连并释放请求线程（订阅继续，任务转后台）
                     clientGone.set(true);
                     latch.countDown();
-                    Disposable d = subRef.get();
-                    if (d != null) {
-                        d.dispose();
-                    }
                 }
             }, 20, 20, java.util.concurrent.TimeUnit.SECONDS);
 
@@ -341,59 +555,128 @@ public class AiChatController {
                 Thread.currentThread().interrupt();
                 clientGone.set(true);
             } finally {
-                // 请求线程侧最终清理：无论正常完成/断连/中断都终止上游订阅与心跳
+                // 请求线程侧清理：仅停心跳、关 writer。不 dispose 订阅——
+                // 断连/中断后任务继续后台执行到自然结束，落库由 doFinally 负责
                 heartbeatTask.cancel(false);
                 heartbeatExecutor.shutdownNow();
-                Disposable d = subRef.get();
-                if (d != null) {
-                    d.dispose();
-                }
                 writer.close();
             }
+        };
+    }
 
-            // 流完成后保存会话交互记录。
-            // 异常中断但已产出实质内容时同样落库（追加中断标记），
-            // 避免已消耗 token 的交互丢失；clientId 幂等兜底防重复落库。
-            if (sessionId != null) {
+    /**
+     * 单轮流式回合的累积上下文（doFinally 终结持久化入参）。
+     * <p>record 字段与 chatStream 内局部累积器一一对应，避免超长参数列表。
+     */
+    private record TurnContext(
+            String sessionId,
+            String userId,
+            String userMessage,
+            String clientId,
+            AtomicReference<StringBuilder> accumulated,
+            StringBuilder contentSegText,
+            java.util.List<ChatStreamEvent.FileEventInfo> fileEvents,
+            AtomicReference<String> planJsonRef,
+            java.util.List<java.util.Map<String, Object>> processSummary,
+            AtomicReference<java.util.Map<String, Object>> doneStatsRef,
+            AtomicReference<java.util.List<SessionFileWorkspaceService.TurnFileChange>> turnFilesRef,
+            AtomicReference<String> stopReason,
+            AtomicReference<Throwable> fluxError,
+            long streamStartMs) {
+    }
+
+    /**
+     * 回合终结持久化（断连不中断修复核心）：由订阅 doFinally 回调执行，
+     * 与 HTTP 请求线程生命周期解耦——客户端断连后任务跑完仍会走到这里。
+     * <p>闸门从"正文非空"放宽为"正文/过程/文件/计划任一非空"，杜绝整轮丢弃：
+     * 无正文的带内终止/异常以中断标记占位，用户消息已在请求入口即时落库，
+     * 此处只补齐助手消息与 metadata（过程时间线/统计/回合文件）。
+     */
+    private void persistTurn(TurnContext ctx) {
+        String sessionId = ctx.sessionId();
+        if (sessionId == null || sessionId.isBlank()) {
+            return;
+        }
+        try {
+            // 回合收尾（撤销功能）：先计算快照汇总（供 metadata.turnFiles 持久化），
+            // 再解除「回合进行中」标记（此后允许撤销，快照保留至下一回合）
+            try {
+                ctx.turnFilesRef().set(fileWorkspaceService.turnChanges(sessionId));
+            } catch (Exception e) {
+                log.debug("回合文件汇总计算失败: {}", e.getMessage());
+            } finally {
+                fileWorkspaceService.finishTurn(sessionId);
+            }
+
+            // 落库拆分（用户实报问题3）：未闭合的当前正文段 = 最终正文（最后一轮
+            // 的执行结果/汇总）；中间轮次叙述已进 metadata.process 保留在过程中。
+            // 退化场景（最终轮无正文但此前有中间叙述）回退全量拼接防丢数据
+            String assistantContent = ctx.contentSegText().toString();
+            if (assistantContent.isBlank() && !ctx.accumulated().get().toString().isBlank()) {
+                assistantContent = ctx.accumulated().get().toString();
+            }
+            Throwable error = ctx.fluxError().get();
+            String stopReason = ctx.stopReason().get();
+            if (error != null) {
+                log.warn("流式任务异常终结，按中断落库: sessionId={}, error={}",
+                        sessionId, error.getMessage() != null ? error.getMessage() : error.getClass().getSimpleName());
+                String reason = error.getMessage() != null ? error.getMessage() : "流式响应中断";
+                assistantContent = assistantContent.isBlank()
+                        ? "[异常中断: " + reason + "]"
+                        : assistantContent + "\n[异常中断: " + reason + "]";
+            } else if (stopReason != null) {
+                // 带内终止（轮次超限/预算熔断）：无正文也落库——过程时间线一并保存，
+                // 报错消息切回会话可完整还原
+                assistantContent = assistantContent.isBlank()
+                        ? "[执行中断: " + stopReason + "]"
+                        : assistantContent + "\n[执行中断: " + stopReason + "]";
+            }
+            // 将文件元信息以 HTML 注释嵌入 content 末尾，前端加载时解析恢复文件卡片
+            if (!ctx.fileEvents().isEmpty()) {
+                String filesJson = objectMapper.writeValueAsString(ctx.fileEvents());
+                assistantContent = assistantContent + "\n<!--FILES:" + filesJson + "-->";
+            }
+            // 任务计划快照同样以注释嵌入（S9 F5：前端加载时恢复任务流程卡片）
+            if (ctx.planJsonRef().get() != null) {
+                assistantContent = assistantContent + "\n<!--PLAN:" + ctx.planJsonRef().get() + "-->";
+            }
+            // 过程时间线摘要写入 metadata（S9 问题3修复）：前端历史还原折叠过程视图；
+            // processMs（用户实报：重进会话后时长显示"几秒"）：流式全程耗时
+            String assistantMetadata = null;
+            boolean hasTurnFiles = ctx.turnFilesRef().get() != null && !ctx.turnFilesRef().get().isEmpty();
+            if (!ctx.processSummary().isEmpty() || ctx.doneStatsRef().get() != null || hasTurnFiles) {
                 try {
-                    String assistantContent = accumulated.get().toString();
-                    if (errorRef.get() != null) {
-                        if (assistantContent.isBlank()) {
-                            return;
-                        }
-                        String reason = errorRef.get().getMessage() != null
-                                ? errorRef.get().getMessage() : "流式响应中断";
-                        assistantContent = assistantContent + "\n[异常中断: " + reason + "]";
+                    java.util.Map<String, Object> metadataMap = new java.util.LinkedHashMap<>();
+                    if (!ctx.processSummary().isEmpty()) {
+                        metadataMap.put("process", ctx.processSummary());
                     }
-                    // 将文件元信息以 HTML 注释嵌入 content 末尾，前端加载时解析恢复文件卡片
-                    if (!fileEvents.isEmpty()) {
-                        String filesJson = objectMapper.writeValueAsString(fileEvents);
-                        assistantContent = assistantContent + "\n<!--FILES:" + filesJson + "-->";
+                    metadataMap.put("processMs", System.currentTimeMillis() - ctx.streamStartMs());
+                    if (ctx.doneStatsRef().get() != null) {
+                        metadataMap.put("stats", ctx.doneStatsRef().get());
                     }
-                    // 任务计划快照同样以注释嵌入（S9 F5：前端加载时恢复任务流程卡片）
-                    if (planJsonRef.get() != null) {
-                        assistantContent = assistantContent + "\n<!--PLAN:" + planJsonRef.get() + "-->";
+                    // 回合文件汇总（撤销功能）：仅 path+增删行数，历史回放渲染汇总条
+                    if (hasTurnFiles) {
+                        metadataMap.put("turnFiles", ctx.turnFilesRef().get());
                     }
-                    // 过程时间线摘要写入 metadata（S9 问题3修复：前端历史还原折叠过程视图）
-                    String assistantMetadata = null;
-                    if (!processSummary.isEmpty()) {
-                        try {
-                            assistantMetadata = objectMapper.writeValueAsString(
-                                    java.util.Map.of("process", processSummary));
-                        } catch (Exception e) {
-                            log.debug("过程摘要序列化失败: {}", e.getMessage());
-                        }
-                    }
-                    if (!assistantContent.isBlank()) {
-                        sessionContextService.appendChatInteraction(
-                                sessionId, userId, userMessage, assistantContent, request.getClientId(),
-                                assistantMetadata);
-                    }
+                    assistantMetadata = objectMapper.writeValueAsString(metadataMap);
                 } catch (Exception e) {
-                    log.error("保存会话交互记录失败: sessionId={}", sessionId, e);
+                    log.debug("过程摘要序列化失败: {}", e.getMessage());
                 }
             }
-        };
+            // 落库闸门：正文为空但过程/文件/计划任一存在时也落库（占位文本承载体），
+            // 防止"整轮交互只有用户消息、AI 侧无痕"
+            boolean hasPayload = !assistantContent.isBlank() || !ctx.processSummary().isEmpty()
+                    || hasTurnFiles || ctx.planJsonRef().get() != null;
+            if (hasPayload && assistantContent.isBlank()) {
+                assistantContent = "[本轮无文本输出，过程见时间线]";
+            }
+            if (!assistantContent.isBlank()) {
+                sessionContextService.appendAssistantMessage(
+                        sessionId, assistantContent, assistantMetadata, ctx.clientId());
+            }
+        } catch (Exception e) {
+            log.error("保存会话交互记录失败: sessionId={}", sessionId, e);
+        }
     }
 
     @GetMapping("/models")
@@ -443,11 +726,14 @@ public class AiChatController {
             throw BusinessException.of(ResultCode.PARAM_INVALID, "未找到对应的用户消息，无法重新生成");
         }
 
-        // 逻辑删除：原始 user 消息（含）之后的所有消息
-        sessionMessageMapper.delete(
+        // 逻辑删除：原始 user 消息（含）之后的所有消息（同步扣减会话消息计数）
+        int removed = sessionMessageMapper.delete(
                 new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<SessionMessage>()
                         .eq(SessionMessage::getSessionId, sessionId)
                         .ge(SessionMessage::getSeq, userMsg.getSeq()));
+        if (removed > 0) {
+            sessionMapper.decrementMessageCount(sessionId, removed);
+        }
 
         // 以原输入重走流式（会话级 Agent 绑定回退保持一致）
         Session session = sessionMapper.selectById(sessionId);
@@ -524,6 +810,7 @@ public class AiChatController {
                 .finishReason(chunk.getFinishReason())
                 .planTitle(chunk.getPlanTitle())
                 .plan(plan)
+                .metadata(chunk.getMetadata())
                 .build();
     }
 

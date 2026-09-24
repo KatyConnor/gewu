@@ -25,6 +25,9 @@ public class AgentChunk {
     /** 任务计划步骤（plan_created / plan_updated / done 事件携带，S9 F5） */
     private java.util.List<PlanStepInfo> plan;
 
+    /** 执行统计（done 事件：rounds/elapsedMs/tokenEstimated/timeRenewals 等），透传给前端 */
+    private java.util.Map<String, Object> metadata;
+
     /** 任务计划步骤（F5） */
     @Data
     @Builder

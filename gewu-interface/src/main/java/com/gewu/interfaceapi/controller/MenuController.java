@@ -23,7 +23,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/menus")
 @RequiredArgsConstructor
-@Tag(name = "菜单管理", description = "菜单动态权限与角色菜单分配")
+@Tag(name = "菜单管理", description = "当前用户菜单（菜单管理 CRUD 已迁后台管理服务）")
 public class MenuController {
 
     private final MenuService menuService;
@@ -49,28 +49,8 @@ public class MenuController {
         return Result.success(menuService.createMenu(command));
     }
 
-    @PutMapping("/{menuId}")
-    @PreAuthorize("hasAuthority('menu:manage')")
-    @Operation(summary = "更新菜单")
-    public Result<MenuDTO> update(@PathVariable String menuId, @Valid @RequestBody UpdateMenuCommand command) {
-        return Result.success(menuService.updateMenu(menuId, command));
-    }
 
-    @DeleteMapping("/{menuId}")
-    @PreAuthorize("hasAuthority('menu:manage')")
-    @Operation(summary = "删除菜单", description = "存在子菜单时无法删除")
-    public Result<Void> delete(@PathVariable String menuId) {
-        log.info("删除菜单: {}", menuId);
-        menuService.deleteMenu(menuId);
-        return Result.success();
-    }
 
-    @GetMapping("/roles/{roleId}")
-    @PreAuthorize("hasAuthority('menu:manage')")
-    @Operation(summary = "角色已分配菜单ID列表")
-    public Result<List<String>> listRoleMenuIds(@PathVariable String roleId) {
-        return Result.success(menuService.listRoleMenuIds(roleId));
-    }
 
     @PutMapping("/roles/{roleId}")
     @PreAuthorize("hasAuthority('menu:manage')")

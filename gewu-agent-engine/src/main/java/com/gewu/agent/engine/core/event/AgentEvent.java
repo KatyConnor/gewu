@@ -107,6 +107,14 @@ public class AgentEvent {
     /** 任务计划更新（状态流转/增删步骤） */
     public static final String PLAN_UPDATED = "plan_updated";
 
+    // ===== 子代理派生事件（spawn_subagents 内置工具） =====
+    /** 子代理分支执行状态（流式进度；metadata: index/name/agentId/status/durationMs/tokens） */
+    public static final String SUBAGENT_STATUS = "subagent_status";
+
+    // ===== 用户交互事件（ask_user 内置工具，chat 链路 HITL 问答） =====
+    /** 向用户提问（metadata: askId/question/options；流在用户回答前挂起） */
+    public static final String ASK_USER = "ask_user";
+
     // ===== 阶段二扩展事件类型 =====
     /** 预算告警（消耗达 70%/90%） */
     public static final String BUDGET_WARNING = "budget_warning";

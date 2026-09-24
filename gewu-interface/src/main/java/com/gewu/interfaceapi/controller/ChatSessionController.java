@@ -46,8 +46,9 @@ public class ChatSessionController {
 
     @GetMapping("/{sessionId}/messages")
     @Operation(summary = "会话消息历史", description = "分页查询指定会话的消息历史")
-    public Result<PageResult<MessageDTO>> messages(@PathVariable String sessionId, @Valid PageQuery query) {
-        return Result.success(messageService.listMessages(sessionId, query));
+    public Result<PageResult<MessageDTO>> messages(@PathVariable String sessionId, @Valid PageQuery query,
+            @org.springframework.web.bind.annotation.RequestParam(defaultValue = "asc") String order) {
+        return Result.success(messageService.listMessages(sessionId, query, order));
     }
 
     @DeleteMapping("/{sessionId}")

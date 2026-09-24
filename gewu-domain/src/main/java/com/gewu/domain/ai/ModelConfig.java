@@ -41,6 +41,15 @@ public class ModelConfig extends BaseEntity {
     /** 输出每 1K token 单价（元），0=不计费（T4.1） */
     private BigDecimal pricePer1kOutput;
 
+    /** 上下文输入窗口（tokens，空=未知/不限制；单任务上下文压缩的判断依据） */
+    private Integer contextWindowInput;
+
+    /** 最大输出 tokens（空=不限制；引擎 max_tokens 校验上界） */
+    private Integer contextWindowOutput;
+
+    /** 计价基准 token 数（价格列的计价单位，默认 1000，可设 1000000） */
+    private Integer priceUnitTokens;
+
     /** 排序 */
     private Integer sortOrder;
 }

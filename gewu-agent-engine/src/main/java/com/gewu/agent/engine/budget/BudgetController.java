@@ -25,6 +25,13 @@ public class BudgetController {
     private final long defaultTimeBudgetMs;
     private final int defaultMaxRounds;
     private final Quotas quotas;
+    /** 告警/降级阈值（可配）；未显式配置时与历史常量一致 */
+    private final double alertThreshold;
+    private final double degradeThreshold;
+    /** 单次执行金额上限（元）；>0 时启用成本维 BLOCK，≤0 时成本仅记账观测 */
+    private final double configuredCostBudgetYuan;
+    /** 成本计算器（模型×输入/输出拆分计价）；null 时使用统一假单价兜底 */
+    private final com.gewu.agent.engine.spi.CostCalculator costCalculator;
 
     /**
      * L1/L3 等级配额参数（原硬编码倍率，现由 agent.engine.budget.* 配置）。
@@ -51,10 +58,40 @@ public class BudgetController {
 
     public BudgetController(long defaultTokenBudget, long defaultTimeBudgetMs, int defaultMaxRounds,
                             Quotas quotas) {
+        this(defaultTokenBudget, defaultTimeBudgetMs, defaultMaxRounds, quotas, 0, null);
+    }
+
+    /**
+     * 完整构造：金额上限与成本计算器（成本真实计价 + 可选金额熔断）。
+     *
+     * @param costBudgetYuan 单次执行金额上限（元）；>0 启用成本维 BLOCK，L1/L3 按 token 同倍率缩放
+     * @param costCalculator 成本计算器；null 时使用统一假单价（与历史行为一致）
+     */
+    public BudgetController(long defaultTokenBudget, long defaultTimeBudgetMs, int defaultMaxRounds,
+                            Quotas quotas, double costBudgetYuan,
+                            com.gewu.agent.engine.spi.CostCalculator costCalculator) {
+        this(defaultTokenBudget, defaultTimeBudgetMs, defaultMaxRounds, quotas, costBudgetYuan,
+                costCalculator, ALERT_THRESHOLD, DEGRADE_THRESHOLD);
+    }
+
+    /**
+     * 完整构造（含可配阈值）：告警/降级阈值由 agent.engine.budget.* 注入。
+     *
+     * @param alertThreshold   告警阈值（利用率 ≥ 此值发 budget_warning），默认 0.70
+     * @param degradeThreshold 降级告警阈值，默认 0.90
+     */
+    public BudgetController(long defaultTokenBudget, long defaultTimeBudgetMs, int defaultMaxRounds,
+                            Quotas quotas, double costBudgetYuan,
+                            com.gewu.agent.engine.spi.CostCalculator costCalculator,
+                            double alertThreshold, double degradeThreshold) {
         this.defaultTokenBudget = defaultTokenBudget;
         this.defaultTimeBudgetMs = defaultTimeBudgetMs;
         this.defaultMaxRounds = defaultMaxRounds;
         this.quotas = quotas != null ? quotas : new Quotas();
+        this.configuredCostBudgetYuan = costBudgetYuan;
+        this.costCalculator = costCalculator;
+        this.alertThreshold = alertThreshold;
+        this.degradeThreshold = degradeThreshold;
     }
 
     /**
@@ -67,6 +104,19 @@ public class BudgetController {
         long tokenBudget = defaultTokenBudget;
         long timeBudgetMs = defaultTimeBudgetMs;
         int maxRounds = defaultMaxRounds;
+        // 金额上限：配置值 >0 时按 token 同倍率缩放并启用成本维熔断；
+        // 未配置（≤0）时维持旧派生值（仅观测，不参与 check 判定）
+        double costBudget;
+        if (configuredCostBudgetYuan > 0) {
+            costBudget = configuredCostBudgetYuan;
+            if ("L1".equals(taskLevel)) {
+                costBudget = configuredCostBudgetYuan / quotas.getL1TokenDivisor();
+            } else if ("L3".equals(taskLevel)) {
+                costBudget = configuredCostBudgetYuan * quotas.getL3TokenMultiplier();
+            }
+        } else {
+            costBudget = defaultTokenBudget * 0.00001;
+        }
 
         if ("L1".equals(taskLevel)) {
             tokenBudget = defaultTokenBudget / quotas.getL1TokenDivisor();
@@ -104,11 +154,25 @@ public class BudgetController {
     }
 
     /**
+     * 按模型与输入/输出 token 拆分计算成本（元）。
+     * <p>未装配计算器时回退统一假单价（与历史行为一致）；实现方保证不抛异常。
+     */
+    public double calculateCost(String modelId, long promptTokens, long completionTokens) {
+        if (costCalculator != null) {
+            return costCalculator.cost(modelId, promptTokens, completionTokens);
+        }
+        return (promptTokens + completionTokens)
+                * com.gewu.agent.engine.spi.CostCalculator.FALLBACK_PRICE_PER_TOKEN;
+    }
+
+    /**
      * 检查预算状态。
-     * <p>阻断语义（S9 重构）：仅 Token 超限与轮次超限触发 BLOCK——它们直接度量
-     * 工作量与循环失控；时间维度降级为告警信号（不阻断）：墙钟会误杀健康的
-     * 马拉松任务（深度思考/长工具执行），真正的卡死由模型层空闲看门狗负责。
-     * DEGRADE/ALERT 信号仍取两者最大值供模型降级决策。
+     * <p>阻断语义（S9 重构 + 配额开关）：Token 超限触发 BLOCK 受 {@code blockEnabled}
+     * 开关控制（false=仅告警不熔断，用户偏好决定）——它们直接度量工作量与循环失控；
+     * 轮次超限与成本超限不受开关控制（失控防线）。时间维度降级为告警信号（不阻断）：
+     * 墙钟会误杀健康的马拉松任务，真正的卡死由模型层空闲看门狗负责。
+     * 成本维仅在显式配置金额上限（cost-budget > 0）时参与 BLOCK。
+     * DEGRADE/ALERT 信号仍取 token/时间两者最大值。
      */
     public BudgetStatus check(BudgetContext ctx) {
         if (ctx == null) return BudgetStatus.NORMAL;
@@ -117,11 +181,14 @@ public class BudgetController {
         double timeUtil = ctx.getTimeUtilization();
         double maxUtil = Math.max(tokenUtil, timeUtil);
 
-        if (tokenUtil >= BLOCK_THRESHOLD || ctx.getCurrentRound() >= ctx.getMaxRounds()) {
+        boolean tokenBlock = ctx.getBlockEnabled() == null || ctx.getBlockEnabled();
+        if ((tokenBlock && tokenUtil >= BLOCK_THRESHOLD)
+                || ctx.getCurrentRound() >= ctx.getMaxRounds()
+                || (configuredCostBudgetYuan > 0 && ctx.getCostUtilization() >= BLOCK_THRESHOLD)) {
             return BudgetStatus.BLOCK;
-        } else if (maxUtil >= DEGRADE_THRESHOLD) {
+        } else if (maxUtil >= degradeThreshold) {
             return BudgetStatus.DEGRADE;
-        } else if (maxUtil >= ALERT_THRESHOLD) {
+        } else if (maxUtil >= alertThreshold) {
             return BudgetStatus.ALERT;
         }
         return BudgetStatus.NORMAL;
@@ -143,7 +210,31 @@ public class BudgetController {
         }
         long slice = Math.max(ctx.getTimeBudgetMs() / 2, 30_000L);
         ctx.setTimeBudgetMs(elapsed + slice);
-        log.info("时间预算滚动续期: elapsed={}ms, newBudget={}ms (任务仍在健康推进)", elapsed, ctx.getTimeBudgetMs());
+        ctx.setTimeRenewals(ctx.getTimeRenewals() + 1);
+        // 新续期周期重置告警去重水位：允许新周期内再各发一次升级告警
+        ctx.setLastAlertLevel(0);
+        log.info("时间预算滚动续期: elapsed={}ms, newBudget={}ms, renewals={} (任务仍在健康推进)",
+                elapsed, ctx.getTimeBudgetMs(), ctx.getTimeRenewals());
+        return true;
+    }
+
+    /**
+     * 轮次预算滚动扩容：轮次到达上限但无死循环迹象时，扩 50%（≥10 轮）而非强制总结——
+     * 与时间滚动续期同哲学：持续健康推进的任务不因轮次闸门被误杀；
+     * 扩容次数受调用方 rounds-renew-max 约束，绝对上限 = 基线×(1+扩容比例×次数)。
+     *
+     * @return true 表示发生了扩容（调用方应发预算告警事件）
+     */
+    public boolean renewRounds(BudgetContext ctx) {
+        if (ctx == null || ctx.getMaxRounds() <= 0) {
+            return false;
+        }
+        int add = Math.max(ctx.getMaxRounds() / 2, 10);
+        ctx.setMaxRounds(ctx.getMaxRounds() + add);
+        ctx.setRoundsRenewed(ctx.getRoundsRenewed() + 1);
+        ctx.setLastAlertLevel(0);
+        log.info("轮次预算滚动扩容: maxRounds={}, renewals={} (无死循环迹象，任务仍在推进)",
+                ctx.getMaxRounds(), ctx.getRoundsRenewed());
         return true;
     }
 

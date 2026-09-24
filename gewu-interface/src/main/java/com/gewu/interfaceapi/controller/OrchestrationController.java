@@ -1,6 +1,7 @@
 package com.gewu.interfaceapi.controller;
 
 import com.gewu.agent.engine.core.event.AgentEvent;
+import com.gewu.application.orchestration.OrchestrationCatalogService;
 import com.gewu.application.orchestration.OrchestrationService;
 import com.gewu.common.context.UserContext;
 import com.gewu.common.result.Result;
@@ -8,6 +9,8 @@ import com.gewu.domain.orchestration.OrchestrationExecutionEntity;
 import com.gewu.domain.orchestration.OrchestrationGraphEntity;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.NotBlank;
 import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -28,17 +31,41 @@ import java.util.List;
 public class OrchestrationController {
 
     private final OrchestrationService orchestrationService;
+    private final OrchestrationCatalogService orchestrationCatalogService;
 
     // ==================== 编排图 CRUD ====================
 
     @PostMapping("/graphs")
     @Operation(summary = "创建编排图", description = "创建草稿状态的编排图定义")
-    public Result<OrchestrationGraphEntity> createGraph(@RequestBody CreateGraphRequest request) {
+    public Result<OrchestrationGraphEntity> createGraph(@Valid @RequestBody CreateGraphRequest request) {
         String userId = UserContext.currentUserId();
         OrchestrationGraphEntity graph = orchestrationService.createGraph(
                 request.getName(), request.getGraphDefinition(),
                 request.getGraphType(), request.getMode(), userId);
         return Result.success(graph);
+    }
+
+    @PutMapping("/graphs/{graphId}")
+    @Operation(summary = "更新编排图定义", description = "仅草稿状态可编辑；保存前执行图结构校验（ERROR 级问题阻断保存）")
+    public Result<OrchestrationGraphEntity> updateGraph(
+            @PathVariable String graphId,
+            @Valid @RequestBody UpdateGraphRequest request) {
+        OrchestrationGraphEntity graph = orchestrationService.updateGraph(
+                graphId, request.getName(), request.getGraphDefinition(),
+                request.getGraphType(), request.getMode(), UserContext.currentUserId());
+        return Result.success(graph);
+    }
+
+    @GetMapping("/catalog/roles")
+    @Operation(summary = "查询角色目录", description = "设计器 AGENT 节点 roleCode 下拉数据源")
+    public Result<List<OrchestrationCatalogService.RoleOption>> listRoleCatalog() {
+        return Result.success(orchestrationCatalogService.listRoles());
+    }
+
+    @GetMapping("/catalog/tools")
+    @Operation(summary = "查询工具目录", description = "代码工具与配置工具合并目录，设计器 TOOL 节点 toolName 下拉数据源")
+    public Result<List<OrchestrationCatalogService.ToolOption>> listToolCatalog() {
+        return Result.success(orchestrationCatalogService.listTools());
     }
 
     @GetMapping("/graphs")
@@ -154,7 +181,18 @@ public class OrchestrationController {
 
     @Data
     public static class CreateGraphRequest {
+        @NotBlank(message = "编排图名称不能为空")
         private String name;
+        @NotBlank(message = "编排图定义不能为空")
+        private String graphDefinition;
+        private String graphType;
+        private String mode;
+    }
+
+    @Data
+    public static class UpdateGraphRequest {
+        private String name;
+        @NotBlank(message = "编排图定义不能为空")
         private String graphDefinition;
         private String graphType;
         private String mode;

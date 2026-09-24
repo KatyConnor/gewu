@@ -102,6 +102,22 @@ public class AgentExecutionService {
     }
 
     public PageResult<AgentExecutionDTO> listExecutions(String agentId, PageQuery query) {
+        // 鉴权：仅创建者（或 ADMIN）可查该 Agent 的执行记录（对齐 AgentService.getAgent 权限语义）
+        Agent agent = agentMapper.selectById(agentId);
+        if (agent == null) {
+            throw BusinessException.of(ResultCode.AGENT_NOT_FOUND);
+        }
+        String currentUserId = UserContext.currentUserId();
+        if (currentUserId == null) {
+            throw BusinessException.of(ResultCode.UNAUTHORIZED);
+        }
+        if (!currentUserId.equals(agent.getCreatedBy())) {
+            List<String> roles = UserContext.get() != null ? UserContext.get().getRoleCodes() : null;
+            if (roles == null || !roles.contains("ADMIN")) {
+                throw BusinessException.of(ResultCode.FORBIDDEN, "无权查看此 Agent 的执行记录");
+            }
+        }
+
         Page<AgentExecution> page = new Page<>(query.getPage(), query.getSize());
         Page<AgentExecution> result = agentExecutionMapper.selectPage(page,
                 new LambdaQueryWrapper<AgentExecution>()

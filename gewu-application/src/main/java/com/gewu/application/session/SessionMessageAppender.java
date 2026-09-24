@@ -63,9 +63,4 @@ public class SessionMessageAppender {
         }
         return sessionMessageMapper.selectByClientId(sessionId, clientId);
     }
-
-    /** 原子递增会话计数并刷新最后消息时间（AI 交互两条消息一次记账时使用） */
-    public void bumpSessionCounters(String sessionId, int delta) {
-        sessionMapper.incrementMessageCount(sessionId, delta, System.currentTimeMillis());
-    }
 }

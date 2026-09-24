@@ -45,6 +45,8 @@ public class PlanGraph {
         private List<String> dependencies;
         /** 执行角色编码 */
         private String roleCode;
+        /** 执行该步骤的 Agent 标识（可选；缺省经图变量 modelProvider/modelName 兜底解析模型） */
+        private String agentId;
         /** 预估复杂度 */
         private int estimatedComplexity;
     }

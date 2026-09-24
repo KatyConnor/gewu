@@ -89,6 +89,7 @@ import com.gewu.agent.engine.tool.security.SecurityCheck;
 import com.gewu.agent.engine.tool.security.SsrfValidator;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -146,6 +147,7 @@ public class AgentEngineAutoConfiguration {
                 llmHttpClient, bodyBuilder);
         registry.setRequestTimeout(props.getLlm().getRequestTimeout());
         registry.setStreamIdleTimeoutMs(props.getLlm().getStreamIdleTimeoutMs());
+        registry.setRetryConfig(props.getLlm().getRetryMaxAttempts(), props.getLlm().getRetryBackoffMs());
         return registry;
     }
 
@@ -293,17 +295,64 @@ public class AgentEngineAutoConfiguration {
                 new ThreadPoolExecutor.CallerRunsPolicy());
     }
 
+    /**
+     * 子代理并行执行线程池：与工具执行池隔离——spawn_subagents 在工具执行线程上
+     * 内嵌 join 等待子 ReAct 会话，共用池会嵌套占满线程导致死锁；
+     * 队列满时 CallerRuns 降级为派发线程串行执行（背压而非拒绝）。
+     */
+    @Bean(destroyMethod = "shutdown")
+    @ConditionalOnMissingBean(name = "agentSubAgentExecutor")
+    public ExecutorService agentSubAgentExecutor(AgentEngineProperties props) {
+        AgentEngineProperties.Subagents s = props.getEngine().getSubagents();
+        return new ThreadPoolExecutor(
+                s.getCorePoolSize(),
+                s.getMaxPoolSize(),
+                60L, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(Math.max(16, s.getMaxPoolSize() * 4)),
+                r -> {
+                    Thread t = new Thread(r, "agent-subagent-exec");
+                    t.setDaemon(true);
+                    return t;
+                },
+                new ThreadPoolExecutor.CallerRunsPolicy());
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public AgentEngineConfig agentEngineConfig(AgentEngineProperties props,
-                                                ExecutorService agentToolExecutor) {
+                                                ExecutorService agentToolExecutor,
+                                                ExecutorService agentSubAgentExecutor) {
         AgentEngineProperties.Engine e = props.getEngine();
+        AgentEngineProperties.Subagents s = e.getSubagents();
         return AgentEngineConfig.builder()
                 .maxToolRounds(e.getMaxToolRounds())
                 .defaultMaxTokens(e.getDefaultMaxTokens())
                 .defaultTemperature(e.getDefaultTemperature())
                 .toolExecutor(agentToolExecutor)
                 .defaultHistoryLimit(e.getDefaultHistoryLimit())
+                // 超限优雅降级与死循环检测（优化1/3）
+                .limitSummaryEnabled(e.isLimitSummaryEnabled())
+                .limitSummaryMaxTokens(e.getLimitSummaryMaxTokens())
+                .loopDetectionEnabled(e.isLoopDetectionEnabled())
+                .loopWarnThreshold(e.getLoopWarnThreshold())
+                .loopStopThreshold(e.getLoopStopThreshold())
+                // 上下文压缩续跑（配额与上下文自治）
+                .contextCompactThreshold(e.getContextCompactThreshold())
+                .contextCompactKeepRounds(e.getContextCompactKeepRounds())
+                // 轮次滚动扩容（与时间滚动续期同哲学：不误杀健康推进的长任务）
+                .roundsRenewEnabled(e.isRoundsRenewEnabled())
+                .roundsRenewMax(e.getRoundsRenewMax())
+                // 子代理派生（spawn_subagents）
+                .subAgentExecutor(agentSubAgentExecutor)
+                .subagents(AgentEngineConfig.Subagents.builder()
+                        .enabled(s.isEnabled())
+                        .maxPerSpawn(s.getMaxPerSpawn())
+                        .maxDepth(s.getMaxDepth())
+                        .timeoutSeconds(s.getTimeoutSeconds())
+                        .shareSessionHistory(s.isShareSessionHistory())
+                        .maxPromptChars(s.getMaxPromptChars())
+                        .maxOutputChars(s.getMaxOutputChars())
+                        .build())
                 .build();
     }
 
@@ -320,11 +369,32 @@ public class AgentEngineAutoConfiguration {
                                        PromptInjectionDetector promptInjectionDetector,
                                        OutputSanitizer outputSanitizer,
                                        ModelSelector modelSelector,
-                                       com.gewu.agent.engine.tool.FileWorkspaceSpi fileWorkspaceSpi) {
+                                       com.gewu.agent.engine.tool.FileWorkspaceSpi fileWorkspaceSpi,
+                                       com.gewu.agent.engine.spi.ContextCompactor contextCompactor,
+                                       com.gewu.agent.engine.spi.ModelContextProvider modelContextProvider,
+                                       com.gewu.agent.engine.hitl.UserInteractionGateway userInteractionGateway) {
         return new ReactAgentExecutor(llmClientRegistry, toolExecutor, messageBuilder,
                 sessionContextService, persistenceService, config, objectMapper, memoryRouter, memoryStore,
                 budgetController, perceptionEngine, complexityRouter, traceService, metricService, responseCache,
-                promptInjectionDetector, outputSanitizer, modelSelector, fileWorkspaceSpi);
+                promptInjectionDetector, outputSanitizer, modelSelector, fileWorkspaceSpi,
+                contextCompactor, modelContextProvider, userInteractionGateway);
+    }
+
+    /** 上下文压缩器缺省实现：放弃压缩（仅配置上下文窗口时产生接近告警，不影响任务继续） */
+    @Bean
+    @ConditionalOnMissingBean(com.gewu.agent.engine.spi.ContextCompactor.class)
+    public com.gewu.agent.engine.spi.ContextCompactor contextCompactor() {
+        return (messages, keepRecentRounds) -> null;
+    }
+
+    /** 模型上下文窗口缺省实现：未知（跳过压缩与输出上限校验，行为与旧版一致） */
+    @Bean
+    @ConditionalOnMissingBean(com.gewu.agent.engine.spi.ModelContextProvider.class)
+    public com.gewu.agent.engine.spi.ModelContextProvider modelContextProvider() {
+        return new com.gewu.agent.engine.spi.ModelContextProvider() {
+            @Override public Integer contextWindowInput(String modelId) { return null; }
+            @Override public Integer contextWindowOutput(String modelId) { return null; }
+        };
     }
 
     /** 文件工作空间 SPI 缺省实现（S9 F3）：应用层提供沙箱实现时被覆盖 */
@@ -344,7 +414,7 @@ public class AgentEngineAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public BudgetController budgetController(AgentEngineProperties props) {
+    public BudgetController budgetController(AgentEngineProperties props, com.gewu.agent.engine.spi.CostCalculator costCalculator) {
         AgentEngineProperties.Engine e = props.getEngine();
         AgentEngineProperties.Budget b = props.getBudget();
         BudgetController.Quotas quotas = new BudgetController.Quotas();
@@ -358,7 +428,20 @@ public class AgentEngineAutoConfiguration {
                 b.getTokenBudget(),
                 b.getTimeBudgetMs(),
                 e.getMaxToolRounds(),
-                quotas);
+                quotas,
+                // 金额上限（元）：>0 启用成本维熔断（优化2）
+                b.getCostBudgetYuan(),
+                costCalculator,
+                b.getAlertThreshold(),
+                b.getDegradeThreshold());
+    }
+
+    /** 成本计算器缺省实现：统一假单价（与历史行为一致）；宿主提供定价表实现时自动覆盖 */
+    @Bean
+    @ConditionalOnMissingBean(com.gewu.agent.engine.spi.CostCalculator.class)
+    public com.gewu.agent.engine.spi.CostCalculator costCalculator() {
+        return (modelId, promptTokens, completionTokens) ->
+                (promptTokens + completionTokens) * com.gewu.agent.engine.spi.CostCalculator.FALLBACK_PRICE_PER_TOKEN;
     }
 
     @Bean
@@ -426,16 +509,23 @@ public class AgentEngineAutoConfiguration {
         return new NoOpHitlGateway();
     }
 
+    /** 用户交互网关（chat 链路 ask_user 问答）：应用层未提供真实实现时降级为不挂起 */
+    @Bean
+    @ConditionalOnMissingBean(com.gewu.agent.engine.hitl.UserInteractionGateway.class)
+    public com.gewu.agent.engine.hitl.UserInteractionGateway userInteractionGateway() {
+        return new com.gewu.agent.engine.hitl.NoOpUserInteractionGateway();
+    }
+
     @Bean
     @ConditionalOnMissingBean
     public Orchestrator orchestrator(AgentExecutor executor, HitlGateway hitlGateway,
                                       ObjectProvider<ConflictResolver> conflictResolverProvider,
                                       ObjectProvider<ArtifactValidator> artifactValidatorProvider,
                                       ObjectProvider<GraphNodeExecutor> graphNodeExecutorProvider,
-                                      ExecutionControl executionControl) {
+                                      ExecutionControl executionControl, GoalPlanner goalPlanner) {
         return new Orchestrator(executor, hitlGateway,
                 conflictResolverProvider.getIfAvailable(), artifactValidatorProvider.getIfAvailable(),
-                graphNodeExecutorProvider.getIfAvailable(), executionControl);
+                graphNodeExecutorProvider.getIfAvailable(), executionControl, goalPlanner);
     }
 
     /** 执行控制注册表：在途编排的协作式暂停/取消信号与断点检查点 */
@@ -450,6 +540,20 @@ public class AgentEngineAutoConfiguration {
     @ConditionalOnMissingBean
     public GraphNodeExecutor graphNodeExecutor(ToolExecutor toolExecutor) {
         return new GraphNodeExecutor(toolExecutor);
+    }
+
+    /**
+     * LLM 规划器（B-1，默认关闭）：agent.engine.planner.llm.enabled=true 时覆盖
+     * DefaultGoalPlanner 单步兜底，提供真实 LLM 目标分解与并行波次计划图。
+     * Bean 定义置于 ConditionalOnMissingBean 之前，启用即生效、关闭回落默认。
+     */
+    @Bean
+    @ConditionalOnProperty(name = "agent.engine.planner.llm.enabled", havingValue = "true")
+    public GoalPlanner llmGoalPlanner(AgentEngineProperties props, LlmClientRegistry llmClientRegistry,
+                                      ObjectMapper objectMapper) {
+        var cfg = props.getPlanner().getLlm();
+        return new com.gewu.agent.engine.orchestration.LlmGoalPlanner(
+                llmClientRegistry, objectMapper, cfg.getProvider(), cfg.getModel(), cfg.getMaxSteps());
     }
 
     @Bean

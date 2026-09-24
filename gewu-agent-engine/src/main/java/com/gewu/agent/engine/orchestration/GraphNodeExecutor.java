@@ -11,8 +11,6 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 
 import java.util.Map;
-import java.util.regex.Matcher;
-import java.util.regex.Pattern;
 
 /**
  * 图节点执行器 - TOOL 类型节点的执行支撑。
@@ -30,9 +28,6 @@ import java.util.regex.Pattern;
 @Slf4j
 @RequiredArgsConstructor
 public class GraphNodeExecutor {
-
-    /** 参数模板占位符：${varName} */
-    private static final Pattern VAR_PATTERN = Pattern.compile("\\$\\{([a-zA-Z0-9_.]+)}");
 
     private final ToolExecutor toolExecutor;
 
@@ -74,24 +69,9 @@ public class GraphNodeExecutor {
 
     /**
      * 渲染参数模板：将 {@code ${varName}} 替换为上下文变量值（未知变量替换为空串并告警）。
+     * 实现已抽取至 {@link VariableTemplates} 供 AGENT/PLAN 节点 inputs 共用。
      */
     String renderTemplate(String template, OrchestrationContext ctx) {
-        if (template == null || !template.contains("${")) {
-            return template;
-        }
-        Matcher matcher = VAR_PATTERN.matcher(template);
-        StringBuilder rendered = new StringBuilder();
-        while (matcher.find()) {
-            String varName = matcher.group(1);
-            Object value = ctx.getVariable(varName);
-            if (value == null) {
-                log.warn("模板变量未定义，替换为空串: {} (节点参数渲染)", varName);
-            }
-            String replacement = value != null ? String.valueOf(value) : "";
-            // Matcher.quoteReplacement 防替换串中的 $/\ 破坏渲染
-            matcher.appendReplacement(rendered, Matcher.quoteReplacement(replacement));
-        }
-        matcher.appendTail(rendered);
-        return rendered.toString();
+        return VariableTemplates.render(template, ctx);
     }
 }

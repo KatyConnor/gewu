@@ -32,6 +32,8 @@ public class ChatStreamEvent {
     /** 文件卡片信息（file 事件） */
     private FileEventInfo file;
     private String errorMessage;
+    /** 执行统计（done 事件：rounds/elapsedMs/tokenEstimated/timeRenewals 等，SSE 透传给前端） */
+    private java.util.Map<String, Object> metadata;
 
     /** 任务计划步骤（S9 F5，与 AgentChunk.PlanStepInfo 同构） */
     @Data

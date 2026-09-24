@@ -22,7 +22,7 @@ import java.util.List;
 @RestController
 @RequestMapping("/api/v1/skills")
 @RequiredArgsConstructor
-@Tag(name = "技能管理", description = "技能库、我的技能与安装")
+@Tag(name = "技能管理", description = "技能库、我的技能与安装（审核已迁后台管理服务）")
 public class SkillController {
 
     private final SkillService skillService;
@@ -47,11 +47,6 @@ public class SkillController {
         return Result.success();
     }
 
-    @GetMapping("/pending")
-    @Operation(summary = "待审核技能列表", description = "管理员查询待审核的技能")
-    public Result<List<SkillDTO>> pending() {
-        return Result.success(skillService.listPendingSkills());
-    }
 
     @PostMapping("/{skillId}/publish")
     @Operation(summary = "发布技能", description = "用户提交自己的技能到公共库审核")
@@ -61,13 +56,6 @@ public class SkillController {
         return Result.success();
     }
 
-    @PostMapping("/{skillId}/audit")
-    @Operation(summary = "审核技能", description = "管理员审核待审核技能")
-    public Result<Void> audit(@PathVariable String skillId, @Valid @RequestBody AuditSkillCommand command) {
-        log.info("审核 Skill: skillId={}, approved={}", skillId, command.getApproved());
-        skillService.auditSkill(skillId, command.getApproved(), command.getReason());
-        return Result.success();
-    }
 
     @GetMapping("/{skillId}")
     @Operation(summary = "获取技能", description = "根据 ID 获取技能详情")

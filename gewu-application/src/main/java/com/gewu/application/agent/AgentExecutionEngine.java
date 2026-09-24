@@ -41,6 +41,7 @@ public class AgentExecutionEngine {
     private final SessionMapper sessionMapper;
     private final AgentExecutionService agentExecutionService;
     private final com.gewu.application.ai.CostAccountingService costAccountingService;
+    private final com.gewu.application.quota.UserQuotaService userQuotaService;
 
     /**
      * 同步执行：委托 ReactAgentExecutor 全链路（安全/记忆/预算/路由），映射回 legacy 响应结构。
@@ -100,8 +101,13 @@ public class AgentExecutionEngine {
      * 解析会话级 Agent 绑定与实验分组，创建 running 记录；失败返回 null 不阻断。
      */
     public String beginExecutionRecord(AgentExecutionRequest request) {
+        String agentId = resolveAgentId(request.getAgentId(), request.getSessionId());
+        // 真暂停校验：已暂停的 Agent 拒绝新对话（wenshi 链路入口）。
+        // 必须在 try 之外——账本记录本身失败不阻断，但暂停拦截要抛给调用方生效。
+        if (agentId != null && !agentId.isBlank()) {
+            checkNotPaused(agentMapper.selectById(agentId));
+        }
         try {
-            String agentId = resolveAgentId(request.getAgentId(), request.getSessionId());
             if (agentId == null || agentId.isBlank()) {
                 return null;
             }
@@ -211,7 +217,7 @@ public class AgentExecutionEngine {
         Agent agent = loadAgent(agentId);
         String[] pm = messageBuilder.resolveProviderAndModel(agent, request.getModel());
 
-        return AgentTask.builder()
+        AgentTask task = AgentTask.builder()
                 .agentId(agentId)
                 .sessionId(request.getSessionId())
                 .userId(UserContext.currentUserId())
@@ -222,6 +228,39 @@ public class AgentExecutionEngine {
                 .thinkingStyle(request.getThinkingStyle())
                 .modelRouteEnabled(request.getModelRouteEnabled())
                 .build();
+        applyUserQuota(task);
+        return task;
+    }
+
+    /**
+     * 用户套餐配额预检（配额体系）：熔断开关开且任一窗口耗尽 → 拒绝新任务；
+     * 否则把剩余配额与熔断开关注入任务，引擎据此控制执行中的告警与收尾。
+     * 未绑定套餐/无登录上下文（系统内部调用）不限制。
+     */
+    private void applyUserQuota(AgentTask task) {
+        if (task.getUserId() == null || task.getUserId().isBlank()) {
+            return;
+        }
+        try {
+            com.gewu.application.quota.dto.QuotaPreflightResultDTO preflight =
+                    userQuotaService.preflight(task.getUserId());
+            if (preflight.isShouldBlock()) {
+                throw BusinessException.of(ResultCode.FORBIDDEN,
+                        "套餐配额已用尽（窗口利用率 "
+                                + Math.round(preflight.getMaxUtilization() * 100) + "%），"
+                                + "请等待配额恢复、提升套餐或关闭熔断开关后重试");
+            }
+            // 未绑定套餐：显式下发不限量哨兵（用户实报：null 分支漏了语义，
+            // 导致未绑定用户仍被旧默认 82K token 预算中途熔断）
+            task.setQuotaTokenBudget(preflight.getRemainingTokens() != null
+                    ? preflight.getRemainingTokens() : Long.MAX_VALUE / 2);
+            task.setQuotaBlockEnabled(preflight.isBlockEnabled());
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            // 配额预检故障不阻断任务（降级为无配额限制）
+            log.warn("用户配额预检失败（跳过限制）: user={}, cause={}", task.getUserId(), e.getMessage());
+        }
     }
 
     /**
@@ -291,6 +330,7 @@ public class AgentExecutionEngine {
                 .finishReason(event.getFinishReason())
                 .planTitle(event.getPlanTitle())
                 .plan(plan)
+                .metadata(event.getMetadata())
                 .build();
     }
 
@@ -319,6 +359,14 @@ public class AgentExecutionEngine {
         if (agent == null) {
             throw BusinessException.of(ResultCode.AGENT_NOT_FOUND);
         }
+        checkNotPaused(agent);
         return agent;
+    }
+
+    /** 真暂停校验：Agent status=0（已暂停）时拒绝新对话（"我的智能体"页暂停按钮的落地语义） */
+    private void checkNotPaused(Agent agent) {
+        if (agent != null && agent.getStatus() != null && agent.getStatus() == 0) {
+            throw BusinessException.of(ResultCode.AGENT_PAUSED);
+        }
     }
 }

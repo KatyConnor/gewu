@@ -2,7 +2,9 @@ package com.gewu.application.orchestration;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.gewu.agent.engine.core.event.AgentEvent;
 import com.gewu.agent.engine.hitl.HitlGateway;
 import com.gewu.agent.engine.hitl.HumanDecision;
@@ -10,6 +12,7 @@ import com.gewu.agent.engine.orchestration.OrchestrationEngine;
 import com.gewu.agent.engine.orchestration.model.AutonomousGoal;
 import com.gewu.agent.engine.orchestration.model.OrchestrationContext;
 import com.gewu.agent.engine.orchestration.model.OrchestrationGraph;
+import com.gewu.agent.engine.orchestration.model.OrchestrationMode;
 import com.gewu.agent.engine.orchestration.model.OrchestrationResult;
 import com.gewu.common.result.BusinessException;
 import com.gewu.common.result.ResultCode;
@@ -17,9 +20,11 @@ import com.gewu.common.ulid.Ulid;
 import com.gewu.domain.orchestration.ApprovalRequestEntity;
 import com.gewu.domain.orchestration.OrchestrationExecutionEntity;
 import com.gewu.domain.orchestration.OrchestrationGraphEntity;
+import com.gewu.domain.orchestration.OrchestrationNodeExecutionEntity;
 import com.gewu.infrastructure.mapper.ApprovalRequestMapper;
 import com.gewu.infrastructure.mapper.OrchestrationExecutionMapper;
 import com.gewu.infrastructure.mapper.OrchestrationGraphMapper;
+import com.gewu.infrastructure.mapper.OrchestrationNodeExecutionMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.ObjectProvider;
@@ -51,6 +56,8 @@ public class OrchestrationService {
     private final ObjectMapper objectMapper;
     private final com.gewu.application.governance.FourPhasePipeline fourPhasePipeline;
     private final com.gewu.infrastructure.trace.OrchestrationTracer orchestrationTracer;
+    private final GraphDefinitionValidator graphValidator;
+    private final OrchestrationNodeExecutionMapper nodeExecutionMapper;
 
     /** HITL 网关（延迟解析，避免与 DbHitlGatewayAdapter 循环依赖） */
     @Autowired(required = false)
@@ -63,6 +70,7 @@ public class OrchestrationService {
 
     /**
      * 创建编排图定义。
+     * <p>图定义语法在此校验，编排模式规范化写入 JSON 的 mode 字段（执行引擎以 JSON 内 mode 为准）。
      */
     public OrchestrationGraphEntity createGraph(String name, String graphDefinitionJson,
                                                  String graphType, String mode, String userId) {
@@ -70,18 +78,53 @@ public class OrchestrationService {
         if (graphDefinitionJson == null || graphDefinitionJson.isBlank()) {
             throw BusinessException.of(ResultCode.PARAM_INVALID, "编排图定义不能为空");
         }
+        String normalizedMode = mode != null && !mode.isBlank() ? mode : "PIPELINE";
         OrchestrationGraphEntity entity = new OrchestrationGraphEntity();
         entity.setId(Ulid.next());
         entity.setGraphName(name);
-        entity.setGraphDefinition(graphDefinitionJson);
+        entity.setGraphDefinition(normalizeDefinitionJson(graphDefinitionJson, normalizedMode));
         entity.setGraphType(graphType != null ? graphType : "AD_HOC");
-        entity.setOrchestrationMode(mode != null ? mode : "PIPELINE");
+        entity.setOrchestrationMode(normalizedMode);
         entity.setVersion("1");
         entity.setStatus("draft");
         entity.setCreatedBy(userId);
         entity.setUpdatedBy(userId);
         graphMapper.insert(entity);
-        log.info("创建编排图: id={}, name={}, mode={}", entity.getId(), name, mode);
+        log.info("创建编排图: id={}, name={}, mode={}", entity.getId(), name, normalizedMode);
+        return entity;
+    }
+
+    /**
+     * 更新编排图定义（docs/design/46 报告 B1）。仅 draft 状态可编辑；
+     * 保存前执行图结构校验，ERROR 级问题阻断保存。
+     */
+    public OrchestrationGraphEntity updateGraph(String graphId, String name, String graphDefinitionJson,
+                                                 String graphType, String mode, String userId) {
+        OrchestrationGraphEntity entity = graphMapper.selectById(graphId);
+        if (entity == null) {
+            throw new IllegalArgumentException("编排图不存在: " + graphId);
+        }
+        if (!"draft".equals(entity.getStatus())) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID,
+                    "仅草稿状态的编排图可编辑，当前状态: " + entity.getStatus());
+        }
+        if (graphDefinitionJson == null || graphDefinitionJson.isBlank()) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "编排图定义不能为空");
+        }
+        String normalizedMode = mode != null && !mode.isBlank() ? mode : entity.getOrchestrationMode();
+        String normalized = normalizeDefinitionJson(graphDefinitionJson, normalizedMode);
+        runDefinitionValidation(deserializeNormalized(normalized), entity.getId());
+        if (name != null && !name.isBlank()) {
+            entity.setGraphName(name);
+        }
+        if (graphType != null && !graphType.isBlank()) {
+            entity.setGraphType(graphType);
+        }
+        entity.setOrchestrationMode(normalizedMode);
+        entity.setGraphDefinition(normalized);
+        entity.setUpdatedBy(userId);
+        graphMapper.updateById(entity);
+        log.info("更新编排图定义: id={}, mode={}", graphId, normalizedMode);
         return entity;
     }
 
@@ -153,13 +196,13 @@ public class OrchestrationService {
             throw new IllegalArgumentException("编排图不存在: " + graphId);
         }
 
-        OrchestrationGraph graph = deserializeGraph(graphEntity);
+        OrchestrationGraph graph = loadExecutableGraph(graphEntity);
         String executionId = Ulid.next();
         OrchestrationContext ctx = OrchestrationContext.builder()
                 .executionId(executionId)
                 .userId(userId)
                 .sessionId(sessionId)
-                .variables(new HashMap<>(Map.of("input", input != null ? input : "")))
+                .variables(buildContextVariables(graph, input))
                 .build();
 
         // 创建执行记录
@@ -207,13 +250,13 @@ public class OrchestrationService {
             return Flux.error(new IllegalArgumentException("编排图不存在: " + graphId));
         }
 
-        OrchestrationGraph graph = deserializeGraph(graphEntity);
+        OrchestrationGraph graph = loadExecutableGraph(graphEntity);
         String executionId = Ulid.next();
         OrchestrationContext ctx = OrchestrationContext.builder()
                 .executionId(executionId)
                 .userId(userId)
                 .sessionId(sessionId)
-                .variables(new HashMap<>(Map.of("input", input != null ? input : "")))
+                .variables(buildContextVariables(graph, input))
                 .build();
 
         // 创建执行记录
@@ -223,24 +266,44 @@ public class OrchestrationService {
         executionMapper.updateById(execEntity);
         liveContexts.put(executionId, ctx);
 
+        // 图终态透传（docs/design/47 问题一）：graph_complete 的 status 决定执行记录终态，
+        // 修复"失败图被无条件写 SUCCEEDED"的收尾缺环
+        final java.util.concurrent.atomic.AtomicReference<String> graphStatus =
+                new java.util.concurrent.atomic.AtomicReference<>("SUCCESS");
+        final java.util.concurrent.atomic.AtomicReference<String> graphReason =
+                new java.util.concurrent.atomic.AtomicReference<>(null);
         return orchestrationEngine.executeStream(graph, ctx)
                 .doOnNext(event -> {
                     // 更新当前节点
                     if (event.getNodeId() != null) {
                         execEntity.setCurrentNodeId(event.getNodeId());
                     }
+                    if (AgentEvent.GRAPH_COMPLETE.equals(event.getType()) && event.getMetadata() != null) {
+                        graphStatus.set(String.valueOf(event.getMetadata().get("status")));
+                        Object reason = event.getMetadata().get("reason");
+                        graphReason.set(reason == null ? null : String.valueOf(reason));
+                    }
+                    // 节点执行记录落库（docs/design/47 问题四，幂等）
+                    upsertNodeExecution(graph, executionId, event);
                 })
                 .doOnComplete(() -> {
-                    execEntity.setStatus("SUCCEEDED");
+                    boolean failed = "FAILED".equals(graphStatus.get());
+                    execEntity.setStatus(failed ? "FAILED" : "SUCCEEDED");
+                    if (failed) {
+                        execEntity.setErrorMessage(graphReason.get());
+                    }
                     execEntity.setCompletedAt(Instant.now().toEpochMilli());
                     executionMapper.updateById(execEntity);
                     liveContexts.remove(executionId);
-                    // 四环协同：流式成功完成后触发评估/治理/审计环
+                    // 四环协同：流式完成后触发评估/治理/审计环（失败图同样进入治理/审计）
                     fourPhasePipeline.postProcess(
-                            OrchestrationResult.success(executionId,
-                                    execEntity.getFinalOutput() != null ? execEntity.getFinalOutput() : ""),
+                            failed
+                                    ? OrchestrationResult.failure(executionId,
+                                            graphReason.get() != null ? graphReason.get() : "编排执行失败")
+                                    : OrchestrationResult.success(executionId,
+                                            execEntity.getFinalOutput() != null ? execEntity.getFinalOutput() : ""),
                             userId, sessionId, execEntity.getStartedAt() != null ? execEntity.getStartedAt() : 0L);
-                    log.info("编排流式执行完成: executionId={}", executionId);
+                    log.info("编排流式执行完成: executionId={}, status={}", executionId, execEntity.getStatus());
                 })
                 .doOnError(e -> {
                     execEntity.setStatus("FAILED");
@@ -350,7 +413,22 @@ public class OrchestrationService {
         if (entity == null) {
             return Flux.error(new IllegalArgumentException("执行实例不存在: " + executionId));
         }
+        OrchestrationGraph graph = null;
+        try {
+            OrchestrationGraphEntity graphEntity = graphMapper.selectById(entity.getGraphId());
+            if (graphEntity != null) {
+                graph = deserializeGraph(graphEntity);
+            }
+        } catch (Exception e) {
+            log.warn("断点续跑加载图定义失败，节点执行记录不可用: {}", e.getMessage());
+        }
+        final OrchestrationGraph graphRef = graph;
         return orchestrationEngine.resume(executionId)
+                .doOnNext(event -> {
+                    if (graphRef != null) {
+                        upsertNodeExecution(graphRef, executionId, event);
+                    }
+                })
                 .doOnComplete(() -> finishExecution(entity, "SUCCEEDED", null))
                 .doOnError(e -> finishExecution(entity, "FAILED", e.getMessage()))
                 .doOnCancel(() -> finishExecution(entity, "CANCELLED", null));
@@ -537,6 +615,147 @@ public class OrchestrationService {
             return objectMapper.readValue(definition, OrchestrationGraph.class);
         } catch (JsonProcessingException e) {
             throw new IllegalArgumentException("编排图定义反序列化失败: " + entity.getId(), e);
+        }
+    }
+
+    /**
+     * 加载可执行图：反序列化 → 编排模式兜底 → 图结构校验（docs/design/46 报告 B2/B4）。
+     * <p>模式兜底：JSON 无 mode 字段时回填实体 orchestration_mode 列值（存量图兼容），
+     * 使创建弹窗选择的模式对执行生效；列值非法时回退 PIPELINE。
+     */
+    private OrchestrationGraph loadExecutableGraph(OrchestrationGraphEntity entity) {
+        OrchestrationGraph graph = deserializeGraph(entity);
+        if (graph.getMode() == null && entity.getOrchestrationMode() != null) {
+            try {
+                graph.setMode(OrchestrationMode.valueOf(entity.getOrchestrationMode()));
+            } catch (IllegalArgumentException e) {
+                log.warn("编排图实体模式列非法，执行回退引擎默认: id={}, mode={}",
+                        entity.getId(), entity.getOrchestrationMode());
+            }
+        }
+        runDefinitionValidation(graph, entity.getId());
+        return graph;
+    }
+
+    /**
+     * 图结构校验闸：ERROR 级问题以业务异常阻断（保存/执行双闸共用），WARNING 级记录日志放行。
+     */
+    private void runDefinitionValidation(OrchestrationGraph graph, String graphId) {
+        List<GraphDefinitionValidator.ValidationIssue> issues = graphValidator.validate(graph);
+        List<String> errors = issues.stream().filter(GraphDefinitionValidator.ValidationIssue::isError)
+                .map(issue -> issue.ruleId() + ": " + issue.message())
+                .toList();
+        if (!errors.isEmpty()) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID,
+                    "编排图结构校验未通过: " + String.join("; ", errors));
+        }
+        List<String> warnings = issues.stream().filter(issue -> !issue.isError())
+                .map(issue -> issue.ruleId() + ": " + issue.message())
+                .toList();
+        if (!warnings.isEmpty()) {
+            log.warn("编排图存在结构警告: graphId={}, warnings={}", graphId, warnings);
+        }
+    }
+
+    /**
+     * 规范化图定义 JSON：校验语法合法性并把编排模式写入 JSON 的 mode 字段
+     * （执行引擎按 JSON 内 mode 分派，见 Orchestrator；docs/design/46 报告 B4）。
+     * 通过 JsonNode 树改写，保留模型之外的扩展字段（如设计器画布坐标）。
+     */
+    private String normalizeDefinitionJson(String graphDefinitionJson, String mode) {
+        try {
+            JsonNode tree = objectMapper.readTree(graphDefinitionJson);
+            if (!tree.isObject()) {
+                throw BusinessException.of(ResultCode.PARAM_INVALID, "编排图定义必须是 JSON 对象");
+            }
+            ((ObjectNode) tree).put("mode", mode);
+            return objectMapper.writeValueAsString(tree);
+        } catch (JsonProcessingException e) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID,
+                    "编排图定义不是合法 JSON: " + e.getOriginalMessage());
+        }
+    }
+
+    /** 解析规范化后的定义文本为图模型（枚举非法值在此暴露为可读业务错误）。 */
+    private OrchestrationGraph deserializeNormalized(String graphDefinitionJson) {
+        try {
+            return objectMapper.readValue(graphDefinitionJson, OrchestrationGraph.class);
+        } catch (JsonProcessingException e) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID,
+                    "编排图定义解析失败: " + e.getOriginalMessage());
+        }
+    }
+
+    /**
+     * 构建执行上下文变量：图定义 variables 先入，运行时用户输入 input 后入覆盖同名键
+     * （图变量 modelProvider/modelName 等由此进入执行上下文，供节点级兜底与 ${var.xxx} 模板引用）。
+     */
+    private Map<String, Object> buildContextVariables(OrchestrationGraph graph, String input) {
+        Map<String, Object> variables = new HashMap<>();
+        if (graph.getVariables() != null) {
+            variables.putAll(graph.getVariables());
+        }
+        variables.put("input", input != null ? input : "");
+        return variables;
+    }
+
+    /**
+     * 节点执行记录幂等落库（docs/design/47 问题四）：node_start 建 RUNNING 记录，
+     * node_complete/error 推进终态。落库失败仅告警不阻断执行。
+     */
+    private void upsertNodeExecution(OrchestrationGraph graph, String executionId, AgentEvent event) {
+        try {
+            String type = event.getType();
+            boolean start = AgentEvent.NODE_START.equals(type);
+            boolean complete = AgentEvent.NODE_COMPLETE.equals(type);
+            boolean failed = AgentEvent.ERROR.equals(type);
+            if ((!start && !complete && !failed) || event.getNodeId() == null) {
+                return;
+            }
+            OrchestrationNodeExecutionEntity node = nodeExecutionMapper.selectList(
+                            new LambdaQueryWrapper<OrchestrationNodeExecutionEntity>()
+                                    .eq(OrchestrationNodeExecutionEntity::getExecutionId, executionId)
+                                    .eq(OrchestrationNodeExecutionEntity::getNodeId, event.getNodeId()))
+                    .stream().findFirst().orElse(null);
+            long now = Instant.now().toEpochMilli();
+            if (node == null) {
+                OrchestrationNodeExecutionEntity created = new OrchestrationNodeExecutionEntity();
+                created.setId(Ulid.next());
+                created.setExecutionId(executionId);
+                created.setNodeId(event.getNodeId());
+                graph.getNodes().stream()
+                        .filter(n -> event.getNodeId().equals(n.getNodeId()))
+                        .findFirst()
+                        .ifPresent(n -> {
+                            created.setNodeType(n.getType() == null ? "AGENT" : n.getType().name());
+                            created.setRoleCode(n.getRoleCode());
+                        });
+                created.setStatus(start ? "RUNNING" : failed ? "FAILED" : "SUCCEEDED");
+                created.setStartedAt(now);
+                if (failed) {
+                    created.setErrorMessage(event.getErrorMessage());
+                    created.setCompletedAt(now);
+                }
+                nodeExecutionMapper.insert(created);
+                return;
+            }
+            if (complete && !"FAILED".equals(node.getStatus())) {
+                node.setStatus("SUCCEEDED");
+                node.setCompletedAt(now);
+                if (node.getStartedAt() != null) {
+                    node.setDurationMs(now - node.getStartedAt());
+                }
+            } else if (failed) {
+                node.setStatus("FAILED");
+                node.setErrorMessage(event.getErrorMessage());
+                node.setCompletedAt(now);
+            } else {
+                return;
+            }
+            nodeExecutionMapper.updateById(node);
+        } catch (Exception e) {
+            log.warn("节点执行记录落库失败（不影响执行）: executionId={}, nodeId={}, err={}",
+                    executionId, event.getNodeId(), e.getMessage());
         }
     }
 }

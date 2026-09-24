@@ -69,6 +69,7 @@ public class DebateModeHandler implements ModeHandler {
                                 .metadata(Map.of("phase", "DEBATE"))
                                 .build());
                         var accumulated = new StringBuilder();
+                        var failed = new java.util.concurrent.atomic.AtomicBoolean(false);
                         AgentTask task = AgentTask.builder()
                                 .agentId(node.getRefId())
                                 .sessionId(ctx.getSessionId())
@@ -77,6 +78,10 @@ public class DebateModeHandler implements ModeHandler {
                                 .build();
                         return executor.executeStream(task)
                                 .doOnNext(event -> {
+                                    // 失败传播（docs/design/47 问题一）：辩手失败记占位，不影响其他辩手与裁判
+                                    if (AgentEvent.ERROR.equals(event.getType())) {
+                                        failed.set(true);
+                                    }
                                     sink.next(AgentEvent.builder()
                                             .type(event.getType()).content(event.getContent())
                                             .reasoning(event.getReasoning())
@@ -90,6 +95,11 @@ public class DebateModeHandler implements ModeHandler {
                                     }
                                 })
                                 .doFinally(sig -> {
+                                    if (failed.get()) {
+                                        // 失败辩手：以占位提案参与汇总，不发 node_complete（避免失败伪装成完成）
+                                        proposals.add("[辩手 " + node.getNodeId() + " 执行失败，无有效提案]");
+                                        return;
+                                    }
                                     proposals.add(accumulated.toString());
                                     sink.next(AgentEvent.builder().type("node_complete")
                                             .nodeId(node.getNodeId()).role(node.getRoleCode())
@@ -136,6 +146,21 @@ public class DebateModeHandler implements ModeHandler {
         var verdict = new StringBuilder();
         exec.executeStream(judgeTask).subscribe(
                 event -> {
+                    // 失败传播（docs/design/47 问题一）：裁判失败即整图 FAILED
+                    if (AgentEvent.ERROR.equals(event.getType())) {
+                        sink.next(AgentEvent.builder()
+                                .type(AgentEvent.ERROR).errorMessage(event.getErrorMessage())
+                                .nodeId(judge.getNodeId()).role(judge.getRoleCode())
+                                .metadata(Map.of("phase", "JUDGE"))
+                                .build());
+                        sink.next(AgentEvent.builder().type("graph_complete")
+                                .metadata(Map.of("status", "FAILED",
+                                        "reason", judge.getNodeId() + " 裁决失败: "
+                                                + (event.getErrorMessage() == null ? "未知错误" : event.getErrorMessage())))
+                                .build());
+                        sink.complete();
+                        return;
+                    }
                     sink.next(AgentEvent.builder()
                             .type(event.getType()).content(event.getContent())
                             .reasoning(event.getReasoning())

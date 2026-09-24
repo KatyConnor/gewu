@@ -164,6 +164,9 @@ class ReactAgentExecutorSyncTest {
                 new PromptInjectionDetector(),
                 new OutputSanitizer(),
                 (taskDescription, complexity, privacyLevel, latencyPreference, budgetRemaining) -> null,
+                null,
+                null,
+                null,
                 null);
     }
 
@@ -334,12 +337,37 @@ class ReactAgentExecutorSyncTest {
         ScriptedLlmClient client = new ScriptedLlmClient(List.of(
                 toolCall("c1", "tool_a"),
                 toolCall("c2", "tool_b")));
-        ReactAgentExecutor executor = executor(client, new BudgetController(81920, 300000, 10), 1);
+        // 轮次闸门等级感知：上限取预算账本 maxRounds（与 maxToolRounds 对齐为 1）
+        ReactAgentExecutor executor = executor(client, new BudgetController(81920, 300000, 1), 1);
 
         assertThatThrownBy(() -> executor.execute(task()))
                 .isInstanceOf(AgentEngineException.class)
                 .hasMessageContaining("工具调用轮次超限");
         assertThat(client.requests).hasSize(1);
+    }
+
+    @Test
+    @DisplayName("死循环检测（优化3）：连续相同工具调用达终止阈值抛 LOOP_DETECTED")
+    void toolLoopDetected() {
+        // 10 轮完全相同的工具调用（同名同参数），达默认终止阈值 10（用户实报调整 5→10）
+        ScriptedLlmClient client = new ScriptedLlmClient(java.util.Arrays.asList(
+                toolCall("c1", "tool_a"),
+                toolCall("c2", "tool_a"),
+                toolCall("c3", "tool_a"),
+                toolCall("c4", "tool_a"),
+                toolCall("c5", "tool_a"),
+                toolCall("c6", "tool_a"),
+                toolCall("c7", "tool_a"),
+                toolCall("c8", "tool_a"),
+                toolCall("c9", "tool_a"),
+                toolCall("c10", "tool_a")));
+        // maxRounds=20：让循环检测先于轮次闸门触发，证明是检测逻辑在起作用
+        ReactAgentExecutor executor = executor(client, new BudgetController(81920, 300000, 20), 20);
+
+        assertThatThrownBy(() -> executor.execute(task()))
+                .isInstanceOf(AgentEngineException.class)
+                .hasMessageContaining("重复工具调用循环");
+        assertThat(client.requests).hasSize(10);
     }
 
     @Test

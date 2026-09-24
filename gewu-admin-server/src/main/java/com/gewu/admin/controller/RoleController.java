@@ -1,11 +1,11 @@
-package com.gewu.interfaceapi.controller;
+package com.gewu.admin.controller;
 
-import com.gewu.application.user.RoleService;
-import com.gewu.application.user.dto.AssignPermissionsCommand;
-import com.gewu.application.user.dto.CreateRoleCommand;
-import com.gewu.application.user.dto.PermissionDTO;
-import com.gewu.application.user.dto.RoleDTO;
-import com.gewu.application.user.dto.UpdateRoleCommand;
+import com.gewu.admin.service.RoleService;
+import com.gewu.admin.dto.role.AssignPermissionsCommand;
+import com.gewu.admin.dto.role.CreateRoleCommand;
+import com.gewu.admin.dto.role.PermissionDTO;
+import com.gewu.admin.dto.role.RoleDTO;
+import com.gewu.admin.dto.role.UpdateRoleCommand;
 import com.gewu.common.result.Result;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;

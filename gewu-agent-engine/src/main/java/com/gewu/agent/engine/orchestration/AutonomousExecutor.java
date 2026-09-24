@@ -140,8 +140,9 @@ public class AutonomousExecutor {
         var result = orchestrator.runSync(graph, ctx);
         result.getOutputs().forEach(ctx::putVariable);
 
-        // 预算记账（用执行结果中的 tokenUsed）
-        budgetController.consume(budget, result.getTokenUsed(), result.getTokenUsed() * 0.00001);
+        // 预算记账（用执行结果中的 tokenUsed；成本走统一计价口径，优化2）
+        budgetController.consume(budget, result.getTokenUsed(),
+                budgetController.calculateCost(null, 0, result.getTokenUsed()));
 
         // 进化钩子：图完成后记录执行数据
         evolutionHook.onGraphComplete(

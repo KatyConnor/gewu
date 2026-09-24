@@ -153,6 +153,12 @@ public class SandboxClient {
                 Map.of("path", path, "content", content), Void.class);
     }
 
+    /** 删除容器内文件（会话撤销新建文件场景） */
+    public void deleteFile(String sandboxId, String path) {
+        postAndParse("/" + sandboxId + "/files/delete",
+                Map.of("path", path), Void.class);
+    }
+
     /** 读取容器内文件内容 */
     public String readFile(String sandboxId, String path) {
         try {

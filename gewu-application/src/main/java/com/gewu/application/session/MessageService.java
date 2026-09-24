@@ -78,16 +78,33 @@ public class MessageService {
     }
 
     public PageResult<MessageDTO> listMessages(String sessionId, PageQuery query) {
+        return listMessages(sessionId, query, "asc");
+    }
+
+    /**
+     * 会话消息历史查询。
+     *
+     * @param order "asc"（默认，兼容旧行为）取最旧一页升序返回；
+     *              "desc" 取<b>最新一页</b>并按时间升序返回——修复长会话（>100 条）
+     *              固定取第 1 页导致最新消息被截断的问题
+     */
+    public PageResult<MessageDTO> listMessages(String sessionId, PageQuery query, String order) {
+        boolean latestWindow = "desc".equalsIgnoreCase(order);
         Page<SessionMessage> page = new Page<>(query.getPage(), query.getSize());
-        Page<SessionMessage> result = messageMapper.selectPage(page,
-                new LambdaQueryWrapper<SessionMessage>()
-                        .eq(SessionMessage::getSessionId, sessionId)
-                        .orderByAsc(SessionMessage::getCreatedAt));
+        LambdaQueryWrapper<SessionMessage> wrapper = new LambdaQueryWrapper<SessionMessage>()
+                .eq(SessionMessage::getSessionId, sessionId);
+        // 最新窗口按 seq 倒序取尾部（seq 会话内单调，比 createdAt 毫秒更可靠），再反转回正序
+        wrapper.orderBy(latestWindow, false, SessionMessage::getSeq);
+        Page<SessionMessage> result = messageMapper.selectPage(page, wrapper);
         if (result.getRecords().isEmpty()) {
             return PageResult.empty(query.getPage(), query.getSize());
         }
-        Map<String, String> senderNames = getSenderNames(result.getRecords());
-        List<MessageDTO> dtos = result.getRecords().stream()
+        List<SessionMessage> records = new java.util.ArrayList<>(result.getRecords());
+        if (latestWindow) {
+            java.util.Collections.reverse(records);
+        }
+        Map<String, String> senderNames = getSenderNames(records);
+        List<MessageDTO> dtos = records.stream()
                 .map(m -> toDTO(m, senderNames.get(m.getSenderId())))
                 .toList();
         return PageResult.of(dtos, result.getTotal(), query.getPage(), query.getSize());
@@ -134,6 +151,8 @@ public class MessageService {
             throw BusinessException.of(ResultCode.FORBIDDEN, "只能删除自己的消息");
         }
         messageMapper.deleteById(messageId);
+        // 逻辑删除后同步扣减会话消息计数，保持侧栏消息数与物理行数一致
+        sessionMapper.decrementMessageCount(message.getSessionId(), 1);
     }
 
     public PageResult<MessageDTO> searchMessages(String sessionId, String keyword, PageQuery query) {

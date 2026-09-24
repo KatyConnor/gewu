@@ -19,5 +19,7 @@ public enum NodeType {
     /** 汇聚合并节点 */
     MERGE,
     /** 嵌套子图节点 */
-    SUBGRAPH
+    SUBGRAPH,
+    /** 计划节点 - 输入经 GoalPlanner 动态分解为计划图，映射为并行波次子图内联执行（"汇总→规划→派发实施"闭环） */
+    PLAN
 }

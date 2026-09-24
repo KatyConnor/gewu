@@ -58,4 +58,22 @@ public class SessionFileChangeController {
         fileWorkspaceService.saveContent(sessionId, path, body.get("content"));
         return Result.success();
     }
+
+    @GetMapping("/turn")
+    @Operation(summary = "最近一次回复的修改汇总", description = "回合快照：最近一次 AI 回复修改的文件与增删行数（汇总条与撤销数据源）")
+    public Result<List<SessionFileWorkspaceService.TurnFileChange>> turnChanges(
+            @PathVariable String sessionId) {
+        sessionService.getSession(sessionId);
+        return Result.success(fileWorkspaceService.turnChanges(sessionId));
+    }
+
+    @PostMapping("/undo")
+    @Operation(summary = "撤销最近一次回复的文件修改", description = "恢复回合前内容（新建文件删除）；paths 为空=全部撤销")
+    public Result<List<SessionFileWorkspaceService.UndoResult>> undo(
+            @PathVariable String sessionId,
+            @RequestBody(required = false) Map<String, List<String>> body) {
+        sessionService.getSession(sessionId);
+        List<String> paths = body == null ? null : body.get("paths");
+        return Result.success(fileWorkspaceService.undoTurn(sessionId, paths));
+    }
 }
