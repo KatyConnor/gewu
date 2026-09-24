@@ -12,17 +12,19 @@ import {
   useNodesState, useEdgesState, useReactFlow,
   type Connection, type Node, type Edge,
 } from '@xyflow/react';
-import { ArrowLeft, Save, Braces, ShieldCheck, Loader2, TriangleAlert, Play, LayoutGrid } from 'lucide-react';
+import { ArrowLeft, Save, Braces, ShieldCheck, Loader2, TriangleAlert, Play, LayoutGrid, History } from 'lucide-react';
 import DesignerNodeCard from './designer/DesignerNodeCard';
 import DesignerPalette, { NODE_DND_MIME } from './designer/DesignerPalette';
 import DesignerPropertyPanel, { type Catalogs, type GraphSettings } from './designer/DesignerPropertyPanel';
 import DesignerJsonPanel from './designer/DesignerJsonPanel';
 import DesignerRunConsole from './designer/DesignerRunConsole';
+import DesignerReplayPanel from './designer/DesignerReplayPanel';
 import CustomSelect from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import {
   updateGraph, listRoleCatalog, listToolCatalog, executeGraphStream, cancelExecution,
-  type OrchestrationGraphEntity,
+  listExecutions, listNodeExecutions,
+  type OrchestrationGraphEntity, type OrchestrationExecutionEntity, type OrchestrationNodeExecution,
 } from '@/lib/orchestration';
 import { listAgents, type AgentDTO } from '@/lib/agent';
 import {
@@ -80,7 +82,15 @@ function DesignerInner({ graph, onBack, onSaved }: DesignerProps) {
   const [settings, setSettings] = useState<GraphSettings>({
     variablesText: initial.definition.variables ? JSON.stringify(initial.definition.variables, null, 2) : '',
     rootGoalId: initial.definition.rootGoalId ?? '',
+    continueOnFailure: initial.definition.variables?.continueOnFailure === true ? 'true'
+      : initial.definition.variables?.continueOnFailure === false ? 'false' : 'default',
   });
+  // 执行回放（docs/design/46 FR-14）
+  const [showReplay, setShowReplay] = useState(false);
+  const [replayExecutions, setReplayExecutions] = useState<OrchestrationExecutionEntity[]>([]);
+  const [replaySelectedId, setReplaySelectedId] = useState('');
+  const [replayNodes, setReplayNodes] = useState<OrchestrationNodeExecution[]>([]);
+  const [replayActive, setReplayActive] = useState(false);
   const initialFlow = useMemo(() => definitionToFlow(initial.definition), [initial.definition]);
   const [nodes, setNodes, onNodesChange] = useNodesState<OrchestrationNode>(initialFlow.nodes as OrchestrationNode[]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<OrchestrationEdge>(initialFlow.edges as OrchestrationEdge[]);
@@ -160,9 +170,12 @@ function DesignerInner({ graph, onBack, onSaved }: DesignerProps) {
         variables = JSON.parse(settings.variablesText) as Record<string, unknown>;
       } catch { /* 非法 JSON 保存时阻断，此处仅展示 */ }
     }
+    if (variables && settings.continueOnFailure !== 'default') {
+      variables.continueOnFailure = settings.continueOnFailure === 'true';
+    }
     return flowToDefinition(nodes as unknown as DesignerFlowNode[], edges as unknown as DesignerFlowEdge[],
       { name, mode, type: graphType, variables, rootGoalId: settings.rootGoalId || undefined });
-  }, [nodes, edges, name, mode, graphType, settings.variablesText, settings.rootGoalId]);
+  }, [nodes, edges, name, mode, graphType, settings.variablesText, settings.rootGoalId, settings.continueOnFailure]);
 
   const issues = useMemo<ValidationIssue[]>(() => validateDefinition(currentDefinition), [currentDefinition]);
   const errorCount = issues.filter(i => i.level === 'ERROR').length;
@@ -236,6 +249,41 @@ function DesignerInner({ graph, onBack, onSaved }: DesignerProps) {
     window.setTimeout(() => { void fitView({ padding: 0.15, duration: 200 }); }, 80);
   }, [nodes, edges, setNodes, fitView]);
 
+  const openReplay = useCallback(async () => {
+    setShowReplay(true);
+    if (replayExecutions.length === 0) {
+      try {
+        setReplayExecutions(await listExecutions(graph.id));
+      } catch { /* 执行历史加载失败不阻塞回放面板 */ }
+    }
+  }, [graph.id, replayExecutions.length]);
+
+  const handleLoadReplay = useCallback(async () => {
+    if (!replaySelectedId) return;
+    try {
+      const records = await listNodeExecutions(replaySelectedId);
+      setReplayNodes(records);
+      setNodeStates(() => {
+        const map = new Map<string, NodeRunState>();
+        for (const record of records) {
+          if (record.status === 'SUCCEEDED' || record.status === 'FAILED' || record.status === 'RUNNING') {
+            map.set(record.nodeId, record.status);
+          }
+        }
+        return map;
+      });
+      setReplayActive(true);
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '加载回放失败', 'error');
+    }
+  }, [replaySelectedId, toast]);
+
+  const handleClearReplay = useCallback(() => {
+    setNodeStates(new Map());
+    setReplayNodes([]);
+    setReplayActive(false);
+  }, [setNodeStates]);
+
   const openJson = useCallback(() => {
     setJsonText(serializeDefinition(currentDefinition));
     setJsonError('');
@@ -253,6 +301,8 @@ function DesignerInner({ graph, onBack, onSaved }: DesignerProps) {
       setSettings({
         variablesText: parsed.variables ? JSON.stringify(parsed.variables, null, 2) : '',
         rootGoalId: typeof parsed.rootGoalId === 'string' ? parsed.rootGoalId : '',
+        continueOnFailure: parsed.variables?.continueOnFailure === true ? 'true'
+          : parsed.variables?.continueOnFailure === false ? 'false' : 'default',
       });
       setSelectedNodeId(null);
       setSelectedEdgeId(null);
@@ -407,6 +457,10 @@ function DesignerInner({ graph, onBack, onSaved }: DesignerProps) {
             className="flex items-center gap-1.5 px-3 py-2 text-sm text-tech-400 border border-tech-500/20 rounded-lg hover:bg-tech-500/10 transition-colors disabled:opacity-50">
             {running ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}运行
           </button>
+          <button onClick={() => void openReplay()} title="按历史执行记录回放节点状态"
+            className="flex items-center gap-1.5 px-3 py-2 text-sm text-ink-300 hover:text-ink-100 border border-tech-500/20 rounded-lg transition-colors">
+            <History className="h-4 w-4" />回放
+          </button>
           <button onClick={() => setShowIssues(v => !v)}
             className="flex items-center gap-1.5 px-3 py-2 text-sm text-ink-300 hover:text-ink-100 border border-tech-500/20 rounded-lg transition-colors">
             <ShieldCheck className="h-4 w-4" />校验
@@ -513,6 +567,19 @@ function DesignerInner({ graph, onBack, onSaved }: DesignerProps) {
           onStart={handleRun}
           onStop={handleStopRun}
           onClose={() => { handleStopRun(); setShowRun(false); }}
+        />
+      )}
+
+      {showReplay && (
+        <DesignerReplayPanel
+          executions={replayExecutions}
+          selectedExecutionId={replaySelectedId}
+          nodes={replayNodes}
+          active={replayActive}
+          onSelectExecution={setReplaySelectedId}
+          onLoad={() => void handleLoadReplay()}
+          onClear={handleClearReplay}
+          onClose={() => setShowReplay(false)}
         />
       )}
 

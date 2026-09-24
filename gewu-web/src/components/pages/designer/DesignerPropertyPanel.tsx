@@ -21,6 +21,8 @@ export interface Catalogs {
 export interface GraphSettings {
   variablesText: string;
   rootGoalId: string;
+  /** 失败传播语义（docs/design/47 问题一）：default=引擎默认 fail-fast；true=best-effort 失败继续 */
+  continueOnFailure: 'default' | 'true' | 'false';
 }
 
 /** 选中边视图：仅暴露面板需要的字段（与 React Flow 边类型结构兼容） */
@@ -244,6 +246,19 @@ export default function DesignerPropertyPanel(props: Props) {
       {!selectedNode && !selectedEdge && (
         <div className="mt-4 space-y-3 border-t border-tech-500/10 pt-3">
           <p className="text-xs font-semibold text-ink-200">画布级设置</p>
+          <div>
+            <label className="mb-1 block text-xs text-ink-400">失败传播（continueOnFailure）</label>
+            <CustomSelect value={settings.continueOnFailure}
+              onChange={v => onSettingsChange({ continueOnFailure: v as GraphSettings['continueOnFailure'] })}
+              options={[
+                { value: 'default', label: '引擎默认（失败即整图终止）' },
+                { value: 'true', label: 'best-effort（失败继续其余分支）' },
+                { value: 'false', label: '失败即整图终止（显式）' },
+              ]} />
+            <p className="mt-1 text-[10px] leading-relaxed text-ink-500">
+              写入图变量 continueOnFailure：true 时 AGENT 失败后其余分支继续执行，整图终态仍如实标记 FAILED。
+            </p>
+          </div>
           <JsonField label="图变量 variables" hint="input 为运行时用户输入；modelProvider/modelName 为 Agent 兜底模型"
             value={safeParse(settings.variablesText)}
             onApply={parsed => onSettingsChange({ variablesText: parsed ? JSON.stringify(parsed, null, 2) : '' })} />

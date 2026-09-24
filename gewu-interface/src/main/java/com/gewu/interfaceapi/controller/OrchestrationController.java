@@ -140,6 +140,13 @@ public class OrchestrationController {
         return Result.success(entity);
     }
 
+    @GetMapping("/executions/{executionId}/nodes")
+    @Operation(summary = "查询执行的节点级记录", description = "按时间升序返回各节点的执行状态，供设计器回放着色")
+    public Result<List<com.gewu.domain.orchestration.OrchestrationNodeExecutionEntity>> listExecutionNodes(
+            @PathVariable String executionId) {
+        return Result.success(orchestrationService.listNodeExecutions(executionId));
+    }
+
     @PostMapping("/executions/{executionId}/pause")
     @Operation(summary = "暂停执行", description = "协作式暂停：当前节点执行完毕后生效，流以 graph_complete(PAUSED) 结束")
     public Result<Void> pauseExecution(@PathVariable String executionId) {

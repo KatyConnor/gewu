@@ -102,6 +102,21 @@ export interface ToolOption {
   toolType?: string;
 }
 
+/** 节点级执行记录（FR-14 回放数据源） */
+export interface OrchestrationNodeExecution {
+  id?: string;
+  executionId?: string;
+  nodeId: string;
+  nodeType?: string;
+  roleCode?: string;
+  status: string;
+  durationMs?: number;
+  errorMessage?: string;
+  startedAt?: number;
+  completedAt?: number;
+  createdAt?: number;
+}
+
 /**
  * 更新编排图定义（仅草稿可编辑，后端保存前执行图结构校验）。
  */
@@ -127,6 +142,12 @@ export async function listRoleCatalog(): Promise<RoleOption[]> {
 /** 工具目录（代码工具 + agent_tool 配置工具合并） */
 export async function listToolCatalog(): Promise<ToolOption[]> {
   const res = await authFetch(`${BASE}/v1/orchestration/catalog/tools`);
+  return handleResponse(res);
+}
+
+/** 查询执行的节点级记录（FR-14 回放数据源，按时间升序） */
+export async function listNodeExecutions(executionId: string): Promise<OrchestrationNodeExecution[]> {
+  const res = await authFetch(`${BASE}/v1/orchestration/executions/${executionId}/nodes`);
   return handleResponse(res);
 }
 

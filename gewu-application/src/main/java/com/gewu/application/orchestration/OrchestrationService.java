@@ -351,6 +351,15 @@ public class OrchestrationService {
     }
 
     /**
+     * 查询执行的节点级记录（docs/design/46 FR-14 执行回放数据源），按创建时间升序。
+     */
+    public List<com.gewu.domain.orchestration.OrchestrationNodeExecutionEntity> listNodeExecutions(String executionId) {
+        return nodeExecutionMapper.selectList(new LambdaQueryWrapper<com.gewu.domain.orchestration.OrchestrationNodeExecutionEntity>()
+                .eq(com.gewu.domain.orchestration.OrchestrationNodeExecutionEntity::getExecutionId, executionId)
+                .orderByAsc(com.gewu.domain.orchestration.OrchestrationNodeExecutionEntity::getCreatedAt));
+    }
+
+    /**
      * 查询执行实例列表。
      */
     public List<OrchestrationExecutionEntity> listExecutions(String graphId, String status) {
