@@ -120,7 +120,7 @@ export default function SessionSidebar({
           <span className="text-[10px] text-ink-600 flex-shrink-0">{groupSessions.length}</span>
           <button
             onClick={(e) => { e.stopPropagation(); onCreateSession(project.projectId); }}
-            className="p-1 text-ink-500 hover:text-tech-400 rounded transition-all opacity-0 group/proj:opacity-100"
+            className="p-1 text-ink-500 hover:text-tech-400 rounded transition-all opacity-0 group-hover/proj:opacity-100"
             aria-label={`在 ${project.projectName} 新建会话`}
             title={`在 ${project.projectName} 新建会话`}
           ><Plus className="w-3.5 h-3.5" /></button>
@@ -150,7 +150,7 @@ export default function SessionSidebar({
           <span className="text-[10px] text-ink-600 flex-shrink-0">{defaultSessions.length}</span>
           <button
             onClick={(e) => { e.stopPropagation(); onCreateSession(null); }}
-            className="p-1 text-ink-500 hover:text-tech-400 rounded transition-all opacity-0 group/space:opacity-100"
+            className="p-1 text-ink-500 hover:text-tech-400 rounded transition-all opacity-0 group-hover/space:opacity-100"
             aria-label="新建会话"
             title="在默认空间新建会话"
           ><Plus className="w-3.5 h-3.5" /></button>

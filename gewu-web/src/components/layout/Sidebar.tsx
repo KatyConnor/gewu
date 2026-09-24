@@ -6,7 +6,7 @@ import { setPage } from '@/store';
 import { getUser } from '@/lib/token';
 import { PageType } from '@/types';
 import { listCurrentMenus, type MenuDTO } from '@/lib/menu';
-import { Home, MessageSquare, FolderOpen, Bot, Settings, BarChart3, PenTool, FileText, GitBranch, BookOpen, Zap, Shield, Search, ArrowLeft, Lock, Server, Users, KeyRound, ClipboardCheck, Menu, Building2, Network } from 'lucide-react';
+import { Wallet, Home, MessageSquare, FolderOpen, Bot, Settings, BarChart3, PenTool, FileText, GitBranch, BookOpen, Zap, Shield, Search, ArrowLeft, Lock, Server, Users, KeyRound, ClipboardCheck, Menu, Building2, Network } from 'lucide-react';
 
 interface NavItem { id: PageType; label: string; icon: React.ComponentType<{ className?: string }>; badge?: string; colorClass?: string; noAction?: boolean }
 
@@ -15,6 +15,7 @@ const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Home, MessageSquare, FolderOpen, FileText, PenTool, GitBranch,
   Bot, Shield, BookOpen, Zap, Lock, Server,
   BarChart3, Settings, Users, KeyRound, ClipboardCheck, Menu, Building2,
+  Network, Wallet,
 };
 
 /** 静态菜单（API 失败时的 fallback，避免导航丢失） */
@@ -40,16 +41,11 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     { id: 'mcp-server', label: 'MCP Server', icon: Server, colorClass: 'text-cyber-400/70' },
   ]},
   { label: '数据', items: [
-    { id: 'usage' as PageType, label: '用量统计', icon: BarChart3, noAction: true },
+    { id: 'usage' as PageType, label: '用量统计', icon: BarChart3 },
     { id: 'settings', label: '设置', icon: Settings },
   ]},
   { label: '系统管理', items: [
-    { id: 'user-manage' as PageType, label: '用户管理', icon: Users, colorClass: 'text-cyber-400/70' },
-    { id: 'role-manage' as PageType, label: '角色权限', icon: KeyRound, colorClass: 'text-cyber-400/70' },
     { id: 'audit-center' as PageType, label: '审批中心', icon: ClipboardCheck, colorClass: 'text-cyber-400/70' },
-    { id: 'skill-audit', label: '技能审核', icon: Shield, colorClass: 'text-cyber-400/70' },
-    { id: 'menu-manage' as PageType, label: '菜单管理', icon: Menu, colorClass: 'text-cyber-400/70' },
-    { id: 'org-manage' as PageType, label: '机构管理', icon: Building2, colorClass: 'text-cyber-400/70' },
   ]},
 ];
 

@@ -1,6 +1,7 @@
 import type { ProcessItem } from '@/lib/agentProcess';
+import type { TurnFileChangeDTO } from '@/lib/sessionFileChanges';
 
-export type PageType = 'login' | 'dashboard' | 'chat' | 'projects' | 'settings' | 'agent-market' | 'agent-manage' | 'my-agents' | 'skill-library' | 'my-skills' | 'prototype' | 'requirements' | 'workflow' | 'orchestration' | 'usage' | 'sandbox' | 'mcp-server' | 'skill-audit' | 'user-manage' | 'role-manage' | 'audit-center' | 'menu-manage' | 'org-manage' | 'workspace' | 'dev-workspace';
+export type PageType = 'login' | 'dashboard' | 'chat' | 'projects' | 'settings' | 'agent-market' | 'agent-manage' | 'my-agents' | 'skill-library' | 'my-skills' | 'prototype' | 'requirements' | 'workflow' | 'orchestration' | 'usage' | 'sandbox' | 'mcp-server' | 'audit-center' | 'workspace' | 'dev-workspace';
 
 export type ThemeType = 'ink' | 'deepsea' | 'jade' | 'celadon';
 
@@ -25,6 +26,22 @@ export interface FileInfo {
   source: string;
 }
 
+/** 执行统计（完成透明度：done 事件/消息 metadata 携带，区分"AI 自主收尾"与"被限制收尾"） */
+export interface ExecutionStats {
+  /** 工具调用轮次 */
+  rounds?: number;
+  /** 执行总耗时（毫秒） */
+  elapsedMs?: number;
+  /** 估算 token 消耗（流式按字符量折算） */
+  tokenEstimated?: number;
+  /** 时间预算滚动续期次数 */
+  timeRenewals?: number;
+  /** 轮次预算滚动扩容次数 */
+  roundsRenewed?: number;
+  /** token 预算是否不限量（未绑定套餐用户） */
+  tokenUnlimited?: boolean;
+}
+
 export interface Message {
   id: string;
   role: 'user' | 'ai';
@@ -38,6 +55,10 @@ export interface Message {
   processMs?: number;
   processExpanded?: boolean;
   files?: FileInfo[];
+  /** 执行统计（AI 消息尾部"自主完成收尾"状态行数据源） */
+  stats?: ExecutionStats;
+  /** 回合文件汇总（撤销功能：metadata.turnFiles 持久化，AI 消息尾部汇总条数据源） */
+  turnFiles?: TurnFileChangeDTO[];
 }
 
 export interface Project {

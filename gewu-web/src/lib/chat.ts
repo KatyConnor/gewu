@@ -1,6 +1,7 @@
 // AI 聊天服务 — 对接后端 AiChatController
 import { API_ENDPOINTS } from './api';
 import { getAccessToken } from './token';
+import type { ExecutionStats } from '@/types';
 
 /**
  * 获取 SSE 流式请求的基础 URL。
@@ -140,6 +141,15 @@ export interface ChatStreamEvent {
   planTitle?: string;
   /** 任务计划步骤（plan_created / plan_updated / done 事件携带） */
   plan?: PlanStepInfo[];
+  /** 执行统计（done 事件携带：完成透明度，区分"AI 自主收尾"与"被限制收尾"） */
+  metadata?: ExecutionStats;
+}
+
+/** 从事件 metadata 中提取 planPath（plan_created/plan_updated/done 携带，计划文件落盘路径） */
+function planPathOf(event: ChatStreamEvent): string | undefined {
+  const meta = event.metadata as unknown as Record<string, unknown> | undefined;
+  const p = meta?.planPath;
+  return typeof p === 'string' && p ? p : undefined;
 }
 
 // 模型信息
@@ -202,12 +212,27 @@ export interface ChatStreamCallbacks {
   onExperienceSaved?: (note: string) => void;
   /** 失败已记录通知（进入失败案例库） */
   onFailureRecorded?: (reason: string) => void;
-  /** 任务计划更新（S9 F5）：模型经内置 plan_task 工具提交的任务清单 */
-  onPlan?: (title: string, steps: PlanStepInfo[]) => void;
+  /** 任务计划更新（S9 F5）：模型经内置 plan_task 工具提交的任务清单；planPath=计划文件路径（有则可"查看完整计划"） */
+  onPlan?: (title: string, steps: PlanStepInfo[], planPath?: string) => void;
+  /** 用户问答（HITL）：ask_user 工具挂起等待用户回答；回答经回答端点恢复执行 */
+  onAskUser?: (ask: { askId: string; question: string; options: string[] }) => void;
+  /** 子代理生命周期（spawn_subagents）：running/success/failed 行渲染在主时间线 */
+  onSubagentStatus?: (st: {
+    subagentId: string;
+    index: number;
+    name: string;
+    status: 'running' | 'success' | 'failed';
+    result?: string;
+    durationMs?: number;
+  }) => void;
+  /** 子代理分支内部事件（带 subagentId 标签）：调用方路由到对应子流桶（右侧面板流式渲染） */
+  onSubagentEvent?: (subagentId: string, event: ChatStreamEvent) => void;
   /** 任务预算熔断（时间/上下文超限）：已保留部分进度，需重发继续 */
   onBudgetExceeded?: (message: string) => void;
   /** 预算告警（70%/90%/续期）：非阻塞提示剩余预算 */
   onBudgetWarning?: (message: string) => void;
+  /** 执行统计（done 事件 metadata）：完成透明度，自然收尾时展示轮次/耗时等 */
+  onExecutionStats?: (stats: ExecutionStats) => void;
   onError?: (error: string) => void;
   /** 完成回调，携带 LLM finishReason（length=回复可能被截断） */
   onComplete?: (finishReason?: string) => void;
@@ -236,7 +261,8 @@ export async function chatStream(
   });
 
   if (!res.ok) {
-    throw new Error(`流式聊天请求失败: ${res.status}`);
+    // 后端业务异常返回 JSON 信封（如同会话并发拒绝/模型不支持）：透出具体原因
+    throw new Error(await extractErrorMessage(res, `流式聊天请求失败: ${res.status}`));
   }
 
   return consumeChatSse(res, callbacks);
@@ -267,10 +293,19 @@ export async function regenerateMessageStream(
   );
 
   if (!res.ok) {
-    throw new Error(`重新生成请求失败: ${res.status}`);
+    throw new Error(await extractErrorMessage(res, `重新生成请求失败: ${res.status}`));
   }
 
   return consumeChatSse(res, callbacks);
+}
+
+/** 从非 2xx 响应中提取后端 JSON 信封的 message（失败时回退默认文案） */
+async function extractErrorMessage(res: Response, fallback: string): Promise<string> {
+  try {
+    const body = await res.json();
+    if (body?.message) return body.message;
+  } catch { /* 非 JSON 响应保持默认文案 */ }
+  return fallback;
 }
 
 /** 读取并消费 SSE 响应流（chatStream / regenerateMessageStream 共用实现） */
@@ -344,11 +379,23 @@ async function consumeChatSse(
 
           try {
             const event: ChatStreamEvent = JSON.parse(dataStr);
+            // 二期：子代理分支事件（带 subagentId 标签）路由给子流消费方——
+            // 不进主时间线，也不得触发主循环的 done/error 终止逻辑（分支 done/error 均带标签）
+            const evMeta = event.metadata as unknown as Record<string, unknown> | undefined;
+            if (evMeta && typeof evMeta.subagentId === 'string' && evMeta.subagentId
+              && event.type !== 'subagent_status') {
+              callbacks.onSubagentEvent?.(evMeta.subagentId, event);
+              continue;
+            }
             // done 事件触发完成并终止读取（透传 finishReason 供截断提示；
             // done 携带最终计划快照时先回调 onPlan 再完成）
             if (event.type === 'done') {
               if (event.plan && callbacks.onPlan) {
-                callbacks.onPlan(event.planTitle || '', event.plan);
+                callbacks.onPlan(event.planTitle || '', event.plan, planPathOf(event));
+              }
+              // 执行统计先于完成回调（完成透明度：自然收尾展示轮次/耗时）
+              if (event.metadata && callbacks.onExecutionStats) {
+                callbacks.onExecutionStats(event.metadata);
               }
               safeComplete(event.finishReason);
               return;
@@ -370,20 +417,28 @@ async function consumeChatSse(
     if (buffer.startsWith('data:')) {
       const dataStr = buffer.substring(5).trim();
       if (dataStr && dataStr !== '[DONE]') {
-        try {
-          const event: ChatStreamEvent = JSON.parse(dataStr);
-          if (event.type === 'done') {
-            safeComplete(event.finishReason);
-            return;
+      try {
+        const event: ChatStreamEvent = JSON.parse(dataStr);
+        // 二期：分支事件路由（同主循环；缓冲区尾部残余数据）
+        const evMeta = event.metadata as unknown as Record<string, unknown> | undefined;
+        if (evMeta && typeof evMeta.subagentId === 'string' && evMeta.subagentId
+          && event.type !== 'subagent_status') {
+          callbacks.onSubagentEvent?.(evMeta.subagentId, event);
+        } else if (event.type === 'done') {
+          if (event.metadata && callbacks.onExecutionStats) {
+            callbacks.onExecutionStats(event.metadata);
           }
-          if (event.type === 'error') {
-            safeError(event.errorMessage || 'AI 处理失败');
-            return;
-          }
+          safeComplete(event.finishReason);
+          return;
+        } else if (event.type === 'error') {
+          safeError(event.errorMessage || 'AI 处理失败');
+          return;
+        } else {
           handleStreamEvent(event, callbacks);
-        } catch {
-          // 忽略
         }
+      } catch {
+        // 忽略
+      }
       }
     }
 
@@ -476,7 +531,32 @@ function handleStreamEvent(
     case 'plan_updated':
       // 任务计划（S9 F5）：模型经内置 plan_task 工具提交的任务清单
       if (event.plan && callbacks.onPlan) {
-        callbacks.onPlan(event.planTitle || '', event.plan);
+        callbacks.onPlan(event.planTitle || '', event.plan, planPathOf(event));
+      }
+      break;
+    case 'ask_user':
+      // HITL 问答（ask_user）：流在此挂起等待用户回答，回答经回答端点恢复执行
+      if (callbacks.onAskUser) {
+        const meta = (event.metadata || {}) as unknown as Record<string, unknown>;
+        callbacks.onAskUser({
+          askId: String(meta.askId || ''),
+          question: String(meta.question || ''),
+          options: Array.isArray(meta.options) ? (meta.options as string[]) : [],
+        });
+      }
+      break;
+    case 'subagent_status':
+      // 子代理生命周期（二期）：running/success/failed 行渲染在主时间线，可点击右侧流式查看
+      if (callbacks.onSubagentStatus) {
+        const meta = (event.metadata || {}) as unknown as Record<string, unknown>;
+        callbacks.onSubagentStatus({
+          subagentId: String(meta.subagentId || ''),
+          index: Number(meta.index ?? 0),
+          name: String(meta.name || ''),
+          status: (meta.status === 'failed' ? 'failed' : meta.status === 'success' ? 'success' : 'running'),
+          result: typeof meta.result === 'string' ? meta.result : undefined,
+          durationMs: Number(meta.durationMs ?? 0),
+        });
       }
       break;
     case 'budget_exceeded':

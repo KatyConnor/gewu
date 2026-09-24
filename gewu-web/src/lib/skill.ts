@@ -99,13 +99,3 @@ export async function publishSkill(skillId: string): Promise<void> {
   return unwrap(request.post<ApiResponse<void>>(`${API_ENDPOINTS.SKILLS}/${skillId}/publish`));
 }
 
-/** 审核技能（管理员） */
-export async function auditSkill(skillId: string, approved: boolean, reason?: string): Promise<void> {
-  return unwrap(request.post<ApiResponse<void>>(`${API_ENDPOINTS.SKILLS}/${skillId}/audit`,
-    { approved, reason }));
-}
-
-/** 待审核技能列表（管理员） */
-export async function listPendingSkills(): Promise<SkillDTO[]> {
-  return unwrap(request.get<ApiResponse<SkillDTO[]>>(`${API_ENDPOINTS.SKILLS}/pending`));
-}

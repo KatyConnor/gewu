@@ -32,6 +32,7 @@ export default function MonacoDiff({ original, modified, language }: {
         scrollBeyondLastLine: false,
         automaticLayout: true,
         readOnly: true,
+        stickyScroll: { enabled: false },
       }}
     />
   );

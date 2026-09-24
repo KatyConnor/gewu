@@ -61,3 +61,29 @@ export async function saveFileContent(sessionId: string, path: string, content: 
   return unwrap(request.put<ApiResponse<void>>(
     `/v1/sessions/${sessionId}/file-changes/content`, { content }, { params: { path } }));
 }
+
+/** 回合文件汇总（最近一次 AI 回复的修改，撤销数据源） */
+export interface TurnFileChangeDTO {
+  path: string;
+  additions: number;
+  deletions: number;
+}
+
+/** 撤销逐路径结果 */
+export interface UndoResultDTO {
+  path: string;
+  success: boolean;
+  reason?: string;
+}
+
+/** 最近一次回复的修改汇总（回合快照；无快照返回空数组） */
+export async function getTurnFileChanges(sessionId: string): Promise<TurnFileChangeDTO[]> {
+  return unwrap(request.get<ApiResponse<TurnFileChangeDTO[]>>(
+    `/v1/sessions/${sessionId}/file-changes/turn`));
+}
+
+/** 撤销最近一次回复的文件修改（paths 空=全部撤销；路径仅限回合快照白名单） */
+export async function undoFileChanges(sessionId: string, paths?: string[]): Promise<UndoResultDTO[]> {
+  return unwrap(request.post<ApiResponse<UndoResultDTO[]>>(
+    `/v1/sessions/${sessionId}/file-changes/undo`, paths && paths.length > 0 ? { paths } : {}));
+}

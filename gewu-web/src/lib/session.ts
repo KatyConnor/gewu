@@ -179,13 +179,74 @@ export async function pinSession(sessionId: string, pinned: boolean): Promise<Se
 
 // ==================== 消息 API ====================
 
-/** 获取会话消息列表 */
-export async function listMessages(sessionId: string, page = 1, size = 100): Promise<PageResult<MessageDTO>> {
+/**
+ * 获取会话消息列表。
+ * order='desc' 取最新一页（后端反转为升序返回）——修复长会话固定取最旧
+ * 100 条导致最新消息被截断的问题；缺省 'asc' 保持旧行为。
+ */
+export async function listMessages(
+  sessionId: string, page = 1, size = 100, order?: 'asc' | 'desc'
+): Promise<PageResult<MessageDTO>> {
+  const orderParam = order ? `&order=${order}` : '';
   return unwrap(request.get<ApiResponse<PageResult<MessageDTO>>>(
-    `/v1/sessions/${sessionId}/messages?page=${page}&size=${size}`));
+    `/v1/sessions/${sessionId}/messages?page=${page}&size=${size}${orderParam}`));
 }
 
 /** 发送消息 */
 export async function sendMessage(sessionId: string, data: SendMessageRequest): Promise<MessageDTO> {
   return unwrap(request.post<ApiResponse<MessageDTO>>(`/v1/sessions/${sessionId}/messages`, data));
+}
+
+// ==================== 运行状态（断连不中断修复） ====================
+
+/** 会话运行状态：active=true 表示有聊天任务仍在后台执行；pendingAsk 非空=有 ask_user 挂起问 */
+export interface RunStatusDTO {
+  active: boolean;
+  status: 'RUNNING' | 'DONE' | 'FAILED' | 'IDLE';
+  startedAt: number;
+  elapsedMs: number;
+  pendingAsk?: PendingAskDTO | null;
+}
+
+/** 挂起问（ask_user 等待用户回答，断连重进后据此恢复问答框） */
+export interface PendingAskDTO {
+  askId: string;
+  question: string;
+  options: string[];
+}
+
+/** 查询会话是否有正在后台执行的聊天任务（离开页面后任务继续跑，重进据此轮询等待） */
+export async function getSessionRunStatus(sessionId: string): Promise<RunStatusDTO> {
+  return unwrap(request.get<ApiResponse<RunStatusDTO>>(`/v1/sessions/${sessionId}/run/status`));
+}
+
+/** 回答会话挂起问（answer 为空=跳过），后端恢复任务执行 */
+export async function answerSessionAsk(sessionId: string, askId: string, answer: string): Promise<void> {
+  await unwrap(request.post<ApiResponse<void>>(
+    `/v1/sessions/${sessionId}/ask/${askId}/answer`, { answer }));
+}
+
+/** 会话运行实时过程条目（与消息 metadata.process 同构的 compact 格式） */
+export interface CompactProcessEntry {
+  k: string;
+  s?: number;
+  e?: number;
+  t?: string;
+  n?: string;
+  a?: string;
+  r?: string;
+  id?: string;
+  st?: string;
+  q?: string;
+  o?: string[];
+}
+
+export interface RunProcessDTO {
+  items: CompactProcessEntry[];
+  startedAt: number;
+}
+
+/** 读取执行中任务的实时过程时间线条目（重进会话后轮询渲染；无活动 run 时 items 为空） */
+export async function getRunProcess(sessionId: string): Promise<RunProcessDTO> {
+  return unwrap(request.get<ApiResponse<RunProcessDTO>>(`/v1/sessions/${sessionId}/run/process`));
 }

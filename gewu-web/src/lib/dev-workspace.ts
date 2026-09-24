@@ -1,30 +1,22 @@
 // 开发工作空间 API - 对接后端 DevWorkspaceController
-import { getAccessToken } from './token';
+// T4.3 收敛：统一走 request.ts（axios 拦截器：token 注入 / 401 清除并跳登录），
+// 不再手写 fetch —— 此前 401 后页面滞留导致"克隆失败 401"等迷惑现象
+import { request } from './request';
 
-function getBaseUrl(): string {
-  if (typeof window !== 'undefined' && process.env.NEXT_PUBLIC_API_BASE) {
-    return process.env.NEXT_PUBLIC_API_BASE;
-  }
-  return 'http://localhost:8081/api';
+/** 后端统一响应信封 */
+interface ApiResponse<T> {
+  code: number;
+  message: string;
+  data: T;
+  timestamp: number;
+  success: boolean;
 }
-const BASE = getBaseUrl();
 
-async function authFetch(url: string, options: RequestInit = {}): Promise<Response> {
-  const token = getAccessToken();
-  return fetch(url, {
-    ...options,
-    headers: {
-      'Content-Type': 'application/json',
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-      ...(options.headers || {}),
-    },
-  });
-}
-async function handleResponse<T>(res: Response): Promise<T> {
-  if (!res.ok) throw new Error(`请求失败: ${res.status}`);
-  const json = await res.json();
-  if (!json || json.code !== 10000) throw new Error(json?.message || '请求失败');
-  return json.data;
+/** 信封解包（menu.ts 试点范式） */
+async function unwrap<T>(p: Promise<ApiResponse<T>>): Promise<T> {
+  const res = await p;
+  if (!res || res.code !== 10000) throw new Error(res?.message || '请求失败');
+  return res.data;
 }
 
 // ==================== 类型 ====================
@@ -70,121 +62,83 @@ export interface ExecResult {
 // ==================== API ====================
 
 export async function getDevWorkspace(): Promise<DevWorkspaceInfo> {
-  const res = await authFetch(`${BASE}/v1/dev-workspaces`);
-  return handleResponse<DevWorkspaceInfo>(res);
+  return unwrap<DevWorkspaceInfo>(request.get<ApiResponse<DevWorkspaceInfo>>('/v1/dev-workspaces'));
 }
 
 export async function startSandbox(): Promise<unknown> {
-  const res = await authFetch(`${BASE}/v1/dev-workspaces/sandbox/start`, { method: 'POST' });
-  return handleResponse(res);
+  return unwrap<unknown>(request.post<ApiResponse<unknown>>('/v1/dev-workspaces/sandbox/start'));
 }
 
 export async function stopSandbox(): Promise<void> {
-  const res = await authFetch(`${BASE}/v1/dev-workspaces/sandbox/stop`, { method: 'POST' });
-  await handleResponse<void>(res);
+  await unwrap<void>(request.post<ApiResponse<void>>('/v1/dev-workspaces/sandbox/stop'));
 }
 
 export async function listFiles(path?: string): Promise<string> {
-  const params = path ? `?path=${encodeURIComponent(path)}` : '';
-  const res = await authFetch(`${BASE}/v1/dev-workspaces/files${params}`);
-  return handleResponse<string>(res);
+  return unwrap<string>(request.get<ApiResponse<string>>('/v1/dev-workspaces/files', { params: { path } }));
 }
 
 export async function readFile(path: string): Promise<string> {
-  const res = await authFetch(`${BASE}/v1/dev-workspaces/files/content?path=${encodeURIComponent(path)}`);
-  if (!res.ok) throw new Error(`读取失败: ${res.status}`);
-  return res.text();
+  // 后端返回 text/plain 原文（非信封），恒等 transformResponse 避免 axios 二次解析
+  return request.get<string>('/v1/dev-workspaces/files/content', {
+    params: { path },
+    transformResponse: [(data: string) => data],
+  });
 }
 
 export async function writeFile(path: string, content: string): Promise<void> {
-  const res = await authFetch(`${BASE}/v1/dev-workspaces/files/content`, {
-    method: 'PUT',
-    body: JSON.stringify({ path, content }),
-  });
-  await handleResponse<void>(res);
+  await unwrap<void>(request.put<ApiResponse<void>>('/v1/dev-workspaces/files/content', { path, content }));
 }
 
 export async function uploadFile(path: string, file: File): Promise<void> {
   const formData = new FormData();
   formData.append('file', file);
-  const token = getAccessToken();
-  const res = await fetch(`${BASE}/v1/dev-workspaces/files/upload?path=${encodeURIComponent(path)}`, {
-    method: 'POST',
-    body: formData,
-    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
-  });
-  if (!res.ok) throw new Error(`上传失败: ${res.status}`);
+  // axios 检测到 FormData 会接管 Content-Type 并补 boundary
+  await unwrap<void>(request.post<ApiResponse<void>>('/v1/dev-workspaces/files/upload', formData, {
+    params: { path },
+    headers: { 'Content-Type': 'multipart/form-data' },
+  }));
 }
 
 export async function deleteFile(path: string): Promise<void> {
-  const res = await authFetch(`${BASE}/v1/dev-workspaces/files?path=${encodeURIComponent(path)}`, { method: 'DELETE' });
-  await handleResponse<void>(res);
+  await unwrap<void>(request.delete<ApiResponse<void>>('/v1/dev-workspaces/files', { params: { path } }));
 }
 
 export async function execCommand(command: string, timeout?: number): Promise<ExecResult> {
-  const res = await authFetch(`${BASE}/v1/dev-workspaces/exec`, {
-    method: 'POST',
-    body: JSON.stringify({ command, timeout }),
-  });
-  return handleResponse<ExecResult>(res);
+  return unwrap<ExecResult>(request.post<ApiResponse<ExecResult>>('/v1/dev-workspaces/exec', { command, timeout }));
 }
 
 export async function cloneRepo(repoUrl: string, projectName: string, repoBranch?: string): Promise<GitProject> {
-  const res = await authFetch(`${BASE}/v1/dev-workspaces/projects/clone`, {
-    method: 'POST',
-    body: JSON.stringify({ repoUrl, projectName, repoBranch }),
-  });
-  return handleResponse<GitProject>(res);
+  return unwrap<GitProject>(request.post<ApiResponse<GitProject>>('/v1/dev-workspaces/projects/clone', { repoUrl, projectName, repoBranch }));
 }
 
 export async function listProjects(): Promise<GitProject[]> {
-  const res = await authFetch(`${BASE}/v1/dev-workspaces/projects`);
-  return handleResponse<GitProject[]>(res);
+  return unwrap<GitProject[]>(request.get<ApiResponse<GitProject[]>>('/v1/dev-workspaces/projects'));
 }
 
 export async function gitPull(projectId: string): Promise<GitProject> {
-  const res = await authFetch(`${BASE}/v1/dev-workspaces/projects/${projectId}/pull`, { method: 'POST' });
-  return handleResponse<GitProject>(res);
+  return unwrap<GitProject>(request.post<ApiResponse<GitProject>>(`/v1/dev-workspaces/projects/${projectId}/pull`));
 }
 
 export async function gitPush(projectId: string, message: string): Promise<string> {
-  const res = await authFetch(`${BASE}/v1/dev-workspaces/projects/${projectId}/push`, {
-    method: 'POST',
-    body: JSON.stringify({ message }),
-  });
-  return handleResponse<string>(res);
+  return unwrap<string>(request.post<ApiResponse<string>>(`/v1/dev-workspaces/projects/${projectId}/push`, { message }));
 }
 
 export async function buildProject(projectId: string, command: string): Promise<ExecResult> {
-  const res = await authFetch(`${BASE}/v1/dev-workspaces/projects/${projectId}/build`, {
-    method: 'POST',
-    body: JSON.stringify({ command }),
-  });
-  return handleResponse<ExecResult>(res);
+  return unwrap<ExecResult>(request.post<ApiResponse<ExecResult>>(`/v1/dev-workspaces/projects/${projectId}/build`, { command }));
 }
 
 export async function runProject(projectId: string, command: string): Promise<ExecResult> {
-  const res = await authFetch(`${BASE}/v1/dev-workspaces/projects/${projectId}/run`, {
-    method: 'POST',
-    body: JSON.stringify({ command }),
-  });
-  return handleResponse<ExecResult>(res);
+  return unwrap<ExecResult>(request.post<ApiResponse<ExecResult>>(`/v1/dev-workspaces/projects/${projectId}/run`, { command }));
 }
 
 export async function addGitCredential(credName: string, credType: string, credValue: string, gitHost?: string): Promise<void> {
-  const res = await authFetch(`${BASE}/v1/dev-workspaces/git-credentials`, {
-    method: 'POST',
-    body: JSON.stringify({ credName, credType, credValue, gitHost }),
-  });
-  await handleResponse<void>(res);
+  await unwrap<void>(request.post<ApiResponse<void>>('/v1/dev-workspaces/git-credentials', { credName, credType, credValue, gitHost }));
 }
 
 export async function listGitCredentials(): Promise<GitCredential[]> {
-  const res = await authFetch(`${BASE}/v1/dev-workspaces/git-credentials`);
-  return handleResponse<GitCredential[]>(res);
+  return unwrap<GitCredential[]>(request.get<ApiResponse<GitCredential[]>>('/v1/dev-workspaces/git-credentials'));
 }
 
 export async function deleteGitCredential(credentialId: string): Promise<void> {
-  const res = await authFetch(`${BASE}/v1/dev-workspaces/git-credentials/${credentialId}`, { method: 'DELETE' });
-  await handleResponse<void>(res);
+  await unwrap<void>(request.delete<ApiResponse<void>>(`/v1/dev-workspaces/git-credentials/${credentialId}`));
 }

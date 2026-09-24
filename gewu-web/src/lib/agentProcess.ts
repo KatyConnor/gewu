@@ -44,7 +44,20 @@ export interface ContentProcessItem {
   text: string;
 }
 
-export type ProcessItem = ThinkingProcessItem | ToolProcessItem | SearchProcessItem | ContentProcessItem;
+/** 子智能体生命周期条目（spawn_subagents）：可点击在右侧面板查看其流式过程/聚合结果 */
+export interface SubagentProcessItem {
+  kind: 'subagent';
+  /** subagentId（引擎标注，前端子流分桶键） */
+  id: string;
+  name: string;
+  status: 'running' | 'success' | 'failed';
+  startedAt: number;
+  endedAt?: number;
+  /** 分支结果文本（done 态携带，截断 2000；历史回放右侧面板展示） */
+  result?: string;
+}
+
+export type ProcessItem = ThinkingProcessItem | ToolProcessItem | SearchProcessItem | ContentProcessItem | SubagentProcessItem;
 
 /** 一次 AI 回复处理过程的可渲染快照 */
 export interface ProcessSnapshot {
@@ -228,6 +241,29 @@ export class ProcessTracker {
     this.closeActiveThinking();
   }
 
+  /** 子智能体开始（spawn_subagents）：主时间线插入生命周期行（running） */
+  addSubagent(id: string, name: string) {
+    if (this.items.some(i => i.kind === 'subagent' && i.id === id)) return;
+    this.closeActiveThinking();
+    this.items.push({
+      kind: 'subagent',
+      id,
+      name,
+      status: 'running',
+      startedAt: Date.now(),
+    });
+  }
+
+  /** 子智能体完成/失败：更新生命周期行并附着分支结果文本（历史回放展示用） */
+  updateSubagent(id: string, patch: { status: 'success' | 'failed'; endedAt?: number; result?: string }) {
+    const sub = this.items.find(i => i.kind === 'subagent' && i.id === id);
+    if (sub && sub.kind === 'subagent') {
+      sub.status = patch.status;
+      sub.endedAt = patch.endedAt ?? Date.now();
+      if (patch.result !== undefined) sub.result = patch.result;
+    }
+  }
+
   setStatus(status: string) {
     this.status = status;
   }
@@ -248,6 +284,28 @@ export class ProcessTracker {
       endedAt: this.endedAt,
       elapsedMs: this.elapsedMs,
     };
+  }
+
+  /**
+   * 拆分最终正文（用户实报问题3）：最后一个过程条目（思考/工具/搜索）之后的
+   * 正文段合并为"最终正文"（任务最终执行结果/汇总，渲染在时间线之后）；
+   * 其前的正文段保留在返回的时间线内——过程中输出的内容保持在过程中原位置。
+   */
+  splitFinalContent(): { finalText: string; items: ProcessItem[] } {
+    let lastProcessIdx = -1;
+    this.items.forEach((it, i) => {
+      if (it.kind !== 'content') lastProcessIdx = i;
+    });
+    const items: ProcessItem[] = [];
+    let finalText = '';
+    this.items.forEach((it, i) => {
+      if (i <= lastProcessIdx) {
+        items.push({ ...it });
+      } else if (it.kind === 'content') {
+        finalText += it.text;
+      }
+    });
+    return { finalText, items };
   }
 
   get elapsedMs(): number {

@@ -13,6 +13,10 @@ import {
   listModels, createModel, updateModel, toggleModelStatus, deleteModel,
   type Provider, type ModelConfig,
 } from '@/lib/model-config';
+import {
+  getMyPreferences, updateMyPreferences, getMyQuota,
+  type UserPreference, type QuotaPreflightResult,
+} from '@/lib/quota';
 
 const themes: { id: ThemeType; label: string; color: string }[] = [
   { id: 'ink', label: '墨韵', color: '#00b894' },
@@ -31,14 +35,17 @@ export default function SettingsPage() {
   const [showProviderModal, setShowProviderModal] = useState(false);
   const [showModelModal, setShowModelModal] = useState(false);
   const [providerForm, setProviderForm] = useState({ providerName: '', providerCode: '', baseUrl: '', apiKey: '', description: '', enableImmediately: true });
-  const [modelForm, setModelForm] = useState({ providerId: '', modelName: '', modelId: '', modelParams: '', description: '', enableImmediately: true });
+  const [modelForm, setModelForm] = useState({ providerId: '', modelName: '', modelId: '', modelParams: '', description: '', enableImmediately: true, pricePer1kInput: '', pricePer1kOutput: '', priceUnitTokens: '1000', contextWindowInput: '', contextWindowOutput: '' });
   // 编辑相关状态
   const [editingProvider, setEditingProvider] = useState<Provider | null>(null);
   const [editingModel, setEditingModel] = useState<ModelConfig | null>(null);
   const [viewingProvider, setViewingProvider] = useState<Provider | null>(null);
   const [viewingModel, setViewingModel] = useState<ModelConfig | null>(null);
   const [editProviderForm, setEditProviderForm] = useState({ providerName: '', baseUrl: '', apiKey: '', description: '', logoLetter: '', logoColor: '', textColor: '' });
-  const [editModelForm, setEditModelForm] = useState({ providerId: '', modelName: '', modelParams: '', description: '' });
+  const [editModelForm, setEditModelForm] = useState({ providerId: '', modelName: '', modelParams: '', description: '', pricePer1kInput: '', pricePer1kOutput: '', priceUnitTokens: '1000', contextWindowInput: '', contextWindowOutput: '' });
+  // 用量偏好（配额提醒阈值/熔断开关）与套餐余量
+  const [preference, setPreference] = useState<UserPreference | null>(null);
+  const [quotaStatus, setQuotaStatus] = useState<QuotaPreflightResult | null>(null);
 
   const loadData = useCallback(async () => {
     try {
@@ -51,7 +58,18 @@ export default function SettingsPage() {
     }
   }, [toast]);
 
+  const loadPreference = useCallback(async () => {
+    try {
+      const [pref, quota] = await Promise.all([getMyPreferences(), getMyQuota()]);
+      setPreference(pref);
+      setQuotaStatus(quota);
+    } catch { /* 偏好加载失败静默（保留缺省 UI） */ }
+  }, []);
+
   useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadPreference(); }, [loadPreference]);
+
+  const num = (v: string): number | undefined => (v.trim() === '' ? undefined : Number(v));
 
   const handleCreateProvider = async () => {
     if (!providerForm.providerName || !providerForm.providerCode || !providerForm.baseUrl) {
@@ -146,10 +164,15 @@ export default function SettingsPage() {
         modelParams: modelForm.modelParams || undefined,
         description: modelForm.description || undefined,
         enableImmediately: modelForm.enableImmediately,
+        pricePer1kInput: num(modelForm.pricePer1kInput),
+        pricePer1kOutput: num(modelForm.pricePer1kOutput),
+        priceUnitTokens: num(modelForm.priceUnitTokens),
+        contextWindowInput: num(modelForm.contextWindowInput),
+        contextWindowOutput: num(modelForm.contextWindowOutput),
       });
       toast('模型添加成功', 'success');
       setShowModelModal(false);
-      setModelForm({ providerId: '', modelName: '', modelId: '', modelParams: '', description: '', enableImmediately: true });
+      setModelForm({ providerId: '', modelName: '', modelId: '', modelParams: '', description: '', enableImmediately: true, pricePer1kInput: '', pricePer1kOutput: '', priceUnitTokens: '1000', contextWindowInput: '', contextWindowOutput: '' });
       loadData();
     } catch (err) {
       toast(err instanceof Error ? err.message : '添加失败', 'error');
@@ -182,6 +205,11 @@ export default function SettingsPage() {
       modelName: model.modelName,
       modelParams: model.modelParams || '',
       description: model.description || '',
+      pricePer1kInput: model.pricePer1kInput != null ? String(model.pricePer1kInput) : '',
+      pricePer1kOutput: model.pricePer1kOutput != null ? String(model.pricePer1kOutput) : '',
+      priceUnitTokens: model.priceUnitTokens != null ? String(model.priceUnitTokens) : '1000',
+      contextWindowInput: model.contextWindowInput != null ? String(model.contextWindowInput) : '',
+      contextWindowOutput: model.contextWindowOutput != null ? String(model.contextWindowOutput) : '',
     });
   };
 
@@ -197,6 +225,11 @@ export default function SettingsPage() {
         modelName: editModelForm.modelName,
         modelParams: editModelForm.modelParams || undefined,
         description: editModelForm.description || undefined,
+        pricePer1kInput: num(editModelForm.pricePer1kInput),
+        pricePer1kOutput: num(editModelForm.pricePer1kOutput),
+        priceUnitTokens: num(editModelForm.priceUnitTokens),
+        contextWindowInput: num(editModelForm.contextWindowInput),
+        contextWindowOutput: num(editModelForm.contextWindowOutput),
       });
       toast('模型更新成功', 'success');
       setEditingModel(null);
@@ -220,6 +253,7 @@ export default function SettingsPage() {
           { id: 'security', label: '安全' },
           { id: 'notification', label: '通知' },
           { id: 'model', label: '模型' },
+          { id: 'usage-pref', label: '用量与配额' },
         ].map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
             className={`px-4 py-2 text-sm rounded-md font-medium transition-all ${activeTab === tab.id ? 'bg-tech-500/15 text-tech-400' : 'text-ink-400 hover:text-ink-200'}`}>
@@ -339,6 +373,83 @@ export default function SettingsPage() {
         </Card>
       )}
 
+      {/* 用量与配额偏好 */}
+      {activeTab === 'usage-pref' && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>配额提醒与熔断</CardTitle>
+            </CardHeader>
+            <CardContent className="space-y-5">
+              <div>
+                <label className="block text-xs text-ink-400 mb-1">配额提醒阈值（%）</label>
+                <div className="flex items-center gap-3">
+                  <input type="number" min={10} max={95} value={preference?.quotaAlertThreshold ?? 80}
+                    onChange={e => setPreference(prev => prev ? { ...prev, quotaAlertThreshold: Number(e.target.value) } : prev)}
+                    className="w-32 px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" />
+                  <span className="text-xs text-ink-500">任一时间窗口的消耗达到该比例时提醒一次（10~95）</span>
+                </div>
+              </div>
+              <div className="flex items-center justify-between">
+                <div>
+                  <p className="text-sm text-ink-100">配额耗尽后熔断</p>
+                  <p className="text-xs text-ink-500">开启后配额耗尽将拒绝新任务；关闭则仅提醒，任务照常执行</p>
+                </div>
+                <button
+                  onClick={() => setPreference(prev => prev ? { ...prev, quotaBlockEnabled: !prev.quotaBlockEnabled } : prev)}
+                  className={`w-10 h-6 rounded-full relative transition-all ${preference?.quotaBlockEnabled ? 'bg-tech-500/40' : 'bg-ink-700'}`}>
+                  <div className={`w-4 h-4 rounded-full absolute top-1 transition-all ${preference?.quotaBlockEnabled ? 'right-1 bg-tech-400' : 'left-1 bg-ink-500'}`} />
+                </button>
+              </div>
+              <div className="flex justify-end">
+                <button onClick={async () => {
+                  if (!preference) return;
+                  try {
+                    const saved = await updateMyPreferences({
+                      quotaAlertThreshold: preference.quotaAlertThreshold,
+                      quotaBlockEnabled: preference.quotaBlockEnabled,
+                    });
+                    setPreference(saved);
+                    toast('用量偏好已保存', 'success');
+                  } catch (err) {
+                    toast(err instanceof Error ? err.message : '保存失败', 'error');
+                  }
+                }} className="px-4 py-2 btn-primary text-white text-sm rounded-lg">保存偏好</button>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+            <CardHeader>
+              <CardTitle>当前套餐余量</CardTitle>
+            </CardHeader>
+            <CardContent>
+              {quotaStatus?.bound ? (
+                <div className="space-y-4">
+                  <p className="text-xs text-ink-500">套餐：{quotaStatus.planName}</p>
+                  {quotaStatus.windows.map(w => {
+                    const percent = Math.min(100, Math.round(w.utilization * 100));
+                    const label = ({ FIVE_HOUR: '5 小时', WEEK: '每周', MONTH: '每月', QUARTER: '每季' } as Record<string, string>)[w.windowType] || w.windowType;
+                    return (
+                      <div key={w.windowType}>
+                        <div className="flex items-center justify-between text-xs mb-1">
+                          <span className="text-ink-300">{label} · 已用 {w.usedTokens.toLocaleString()} / {w.tokenLimit.toLocaleString()} tokens</span>
+                          <span className={percent >= 90 ? 'text-cinnabar-400' : percent >= 70 ? 'text-gold-400' : 'text-ink-500'}>{percent}%</span>
+                        </div>
+                        <div className="h-2 bg-ink-800/60 rounded-full overflow-hidden">
+                          <div className={`h-full rounded-full ${percent >= 90 ? 'bg-cinnabar-500/70' : percent >= 70 ? 'bg-gold-500/70' : 'bg-tech-500/60'}`} style={{ width: `${percent}%` }} />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <p className="text-xs text-ink-500">当前未绑定配额套餐，不限制用量（仍受模型上下文窗口约束）。如需配额请联系管理员。</p>
+              )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
       {/* 模型设置 */}
       {activeTab === 'model' && (
         <div className="space-y-6">
@@ -388,7 +499,7 @@ export default function SettingsPage() {
               <CardTitle>模型</CardTitle>
               <div className="flex items-center gap-3">
                 <CustomSelect value="all" onChange={() => {}} className="w-24" options={[{ value: 'all', label: '全部供应商' }, { value: 'openai', label: 'OpenAI' }, { value: 'anthropic', label: 'Anthropic' }, { value: 'deepseek', label: 'DeepSeek' }]} />
-                <button onClick={() => setShowModelModal(true)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs btn-primary text-white rounded-lg"><Plus className="w-3.5 h-3.5" />新增模型</button>
+                <button onClick={() => { setModelForm({ ...modelForm, providerId: modelForm.providerId || providers[0]?.id || '' }); setShowModelModal(true); }} className="flex items-center gap-1.5 px-3 py-1.5 text-xs btn-primary text-white rounded-lg"><Plus className="w-3.5 h-3.5" />新增模型</button>
               </div>
             </CardHeader>
             <CardContent>
@@ -421,9 +532,9 @@ export default function SettingsPage() {
       {/* 新增供应商弹窗 */}
       {showProviderModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowProviderModal(false)}>
-          <div className="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5"><h3 className="text-base font-semibold text-ink-50">新增供应商</h3><button onClick={() => setShowProviderModal(false)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
-            <div className="space-y-4">
+          <div className="glass-dark rounded-2xl w-full max-w-md max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5 flex-shrink-0"><h3 className="text-base font-semibold text-ink-50">新增供应商</h3><button onClick={() => setShowProviderModal(false)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
+            <div className="space-y-4 overflow-y-auto min-h-0 flex-1">
               <div><label className="block text-xs text-ink-400 mb-1">供应商名称 <span className="text-cinnabar-400">*</span></label><input type="text" value={providerForm.providerName} onChange={e => setProviderForm({ ...providerForm, providerName: e.target.value })} placeholder="如：OpenAI、Anthropic" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30 transition-all" /></div>
               <div><label className="block text-xs text-ink-400 mb-1">供应商编码 <span className="text-cinnabar-400">*</span></label><input type="text" value={providerForm.providerCode} onChange={e => setProviderForm({ ...providerForm, providerCode: e.target.value })} placeholder="如：openai、anthropic" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30 transition-all font-mono text-xs" /></div>
               <div><label className="block text-xs text-ink-400 mb-1">Base URL <span className="text-cinnabar-400">*</span></label><input type="text" value={providerForm.baseUrl} onChange={e => setProviderForm({ ...providerForm, baseUrl: e.target.value })} placeholder="https://api.openai.com/v1" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30 transition-all font-mono text-xs" /></div>
@@ -442,14 +553,22 @@ export default function SettingsPage() {
       {/* 新增模型弹窗 */}
       {showModelModal && (
         <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowModelModal(false)}>
-          <div className="glass-dark rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5"><h3 className="text-base font-semibold text-ink-50">新增模型</h3><button onClick={() => setShowModelModal(false)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
-            <div className="space-y-4">
+          <div className="glass-dark rounded-2xl w-full max-w-lg max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5 flex-shrink-0"><h3 className="text-base font-semibold text-ink-50">新增模型</h3><button onClick={() => setShowModelModal(false)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
+            <div className="space-y-4 overflow-y-auto min-h-0 flex-1">
               <div><label className="block text-xs text-ink-400 mb-1">供应商 <span className="text-cinnabar-400">*</span></label><CustomSelect value={modelForm.providerId} onChange={(v) => setModelForm({ ...modelForm, providerId: v })} options={providers.map(p => ({ value: p.id, label: p.providerName }))} /></div>
               <div><label className="block text-xs text-ink-400 mb-1">模型名称 <span className="text-cinnabar-400">*</span></label><input type="text" value={modelForm.modelName} onChange={e => setModelForm({ ...modelForm, modelName: e.target.value })} placeholder="如：GPT-4o、Claude 3.5 Sonnet" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30 transition-all" /></div>
               <div><label className="block text-xs text-ink-400 mb-1">模型ID <span className="text-cinnabar-400">*</span></label><input type="text" value={modelForm.modelId} onChange={e => setModelForm({ ...modelForm, modelId: e.target.value })} placeholder="如：gpt-4o、claude-3-5-sonnet" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30 transition-all font-mono text-xs" /></div>
               <div><label className="block text-xs text-ink-400 mb-1">模型参数 (JSON)</label><textarea rows={3} value={modelForm.modelParams} onChange={e => setModelForm({ ...modelForm, modelParams: e.target.value })} placeholder='{"temperature": 0.7, "max_tokens": 4096}' className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30 resize-none font-mono text-xs" /></div>
               <div><label className="block text-xs text-ink-400 mb-1">描述</label><input type="text" value={modelForm.description} onChange={e => setModelForm({ ...modelForm, description: e.target.value })} placeholder="模型描述" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30 transition-all" /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="block text-xs text-ink-400 mb-1">输入单价（元）</label><input type="number" value={modelForm.pricePer1kInput} onChange={e => setModelForm({ ...modelForm, pricePer1kInput: e.target.value })} placeholder="0.00" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" /></div>
+                <div><label className="block text-xs text-ink-400 mb-1">输出单价（元）</label><input type="number" value={modelForm.pricePer1kOutput} onChange={e => setModelForm({ ...modelForm, pricePer1kOutput: e.target.value })} placeholder="0.00" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" /></div>
+                <div><label className="block text-xs text-ink-400 mb-1">计价单位（tokens）</label><input type="number" value={modelForm.priceUnitTokens} onChange={e => setModelForm({ ...modelForm, priceUnitTokens: e.target.value })} placeholder="1000 或 1000000" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" /></div>
+                <div><label className="block text-xs text-ink-400 mb-1">上下文输入窗口（tokens）</label><input type="number" value={modelForm.contextWindowInput} onChange={e => setModelForm({ ...modelForm, contextWindowInput: e.target.value })} placeholder="如 128000" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" /></div>
+                <div><label className="block text-xs text-ink-400 mb-1">最大输出（tokens）</label><input type="number" value={modelForm.contextWindowOutput} onChange={e => setModelForm({ ...modelForm, contextWindowOutput: e.target.value })} placeholder="如 16384" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" /></div>
+              </div>
+              <p className="text-[11px] text-ink-600">单价按"元 / 每计价单位 tokens"填写（计价单位默认 1000，百万定价填 1000000）；上下文窗口用于单任务自动压缩与输出上限校验。</p>
               <div className="flex items-center gap-2"><input type="checkbox" checked={modelForm.enableImmediately} onChange={e => setModelForm({ ...modelForm, enableImmediately: e.target.checked })} className="w-4 h-4 rounded accent-tech-500" /><label className="text-sm text-ink-200">立即启用</label></div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
@@ -463,9 +582,9 @@ export default function SettingsPage() {
       {/* 编辑供应商弹窗 */}
       {editingProvider && (
         <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setEditingProvider(null)}>
-          <div className="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5"><h3 className="text-base font-semibold text-ink-50">编辑供应商</h3><button onClick={() => setEditingProvider(null)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
-            <div className="space-y-4">
+          <div className="glass-dark rounded-2xl w-full max-w-md max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5 flex-shrink-0"><h3 className="text-base font-semibold text-ink-50">编辑供应商</h3><button onClick={() => setEditingProvider(null)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
+            <div className="space-y-4 overflow-y-auto min-h-0 flex-1">
               <div><label className="block text-xs text-ink-400 mb-1">供应商编码</label><input type="text" value={editingProvider.providerCode} disabled className="w-full px-3 py-2.5 bg-ink-800/30 border border-tech-500/10 rounded-lg text-sm text-ink-500 outline-none font-mono text-xs cursor-not-allowed" /></div>
               <div><label className="block text-xs text-ink-400 mb-1">供应商名称 <span className="text-cinnabar-400">*</span></label><input type="text" value={editProviderForm.providerName} onChange={e => setEditProviderForm({ ...editProviderForm, providerName: e.target.value })} className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30 transition-all" /></div>
               <div><label className="block text-xs text-ink-400 mb-1">Base URL <span className="text-cinnabar-400">*</span></label><input type="text" value={editProviderForm.baseUrl} onChange={e => setEditProviderForm({ ...editProviderForm, baseUrl: e.target.value })} className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30 transition-all font-mono text-xs" /></div>
@@ -483,14 +602,21 @@ export default function SettingsPage() {
       {/* 编辑模型弹窗 */}
       {editingModel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setEditingModel(null)}>
-          <div className="glass-dark rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5"><h3 className="text-base font-semibold text-ink-50">编辑模型</h3><button onClick={() => setEditingModel(null)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
-            <div className="space-y-4">
+          <div className="glass-dark rounded-2xl w-full max-w-lg max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5 flex-shrink-0"><h3 className="text-base font-semibold text-ink-50">编辑模型</h3><button onClick={() => setEditingModel(null)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
+            <div className="space-y-4 overflow-y-auto min-h-0 flex-1">
               <div><label className="block text-xs text-ink-400 mb-1">模型ID</label><input type="text" value={editingModel.modelId} disabled className="w-full px-3 py-2.5 bg-ink-800/30 border border-tech-500/10 rounded-lg text-sm text-ink-500 outline-none font-mono text-xs cursor-not-allowed" /></div>
               <div><label className="block text-xs text-ink-400 mb-1">供应商</label><CustomSelect value={editModelForm.providerId} onChange={(v) => setEditModelForm({ ...editModelForm, providerId: v })} options={providers.map(p => ({ value: p.id, label: p.providerName }))} /></div>
               <div><label className="block text-xs text-ink-400 mb-1">模型名称 <span className="text-cinnabar-400">*</span></label><input type="text" value={editModelForm.modelName} onChange={e => setEditModelForm({ ...editModelForm, modelName: e.target.value })} className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30 transition-all" /></div>
               <div><label className="block text-xs text-ink-400 mb-1">模型参数 (JSON)</label><textarea rows={3} value={editModelForm.modelParams} onChange={e => setEditModelForm({ ...editModelForm, modelParams: e.target.value })} placeholder='{"temperature": 0.7, "max_tokens": 4096}' className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30 resize-none font-mono text-xs" /></div>
               <div><label className="block text-xs text-ink-400 mb-1">描述</label><input type="text" value={editModelForm.description} onChange={e => setEditModelForm({ ...editModelForm, description: e.target.value })} className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30 transition-all" /></div>
+              <div className="grid grid-cols-2 gap-3">
+                <div><label className="block text-xs text-ink-400 mb-1">输入单价（元）</label><input type="number" value={editModelForm.pricePer1kInput} onChange={e => setEditModelForm({ ...editModelForm, pricePer1kInput: e.target.value })} className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" /></div>
+                <div><label className="block text-xs text-ink-400 mb-1">输出单价（元）</label><input type="number" value={editModelForm.pricePer1kOutput} onChange={e => setEditModelForm({ ...editModelForm, pricePer1kOutput: e.target.value })} className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" /></div>
+                <div><label className="block text-xs text-ink-400 mb-1">计价单位（tokens）</label><input type="number" value={editModelForm.priceUnitTokens} onChange={e => setEditModelForm({ ...editModelForm, priceUnitTokens: e.target.value })} className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" /></div>
+                <div><label className="block text-xs text-ink-400 mb-1">上下文输入窗口（tokens）</label><input type="number" value={editModelForm.contextWindowInput} onChange={e => setEditModelForm({ ...editModelForm, contextWindowInput: e.target.value })} className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" /></div>
+                <div><label className="block text-xs text-ink-400 mb-1">最大输出（tokens）</label><input type="number" value={editModelForm.contextWindowOutput} onChange={e => setEditModelForm({ ...editModelForm, contextWindowOutput: e.target.value })} className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" /></div>
+              </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">
               <button onClick={() => setEditingModel(null)} className="px-4 py-2 text-sm text-ink-300 hover:text-ink-100">取消</button>
@@ -503,9 +629,9 @@ export default function SettingsPage() {
       {/* 查看供应商弹窗 */}
       {viewingProvider && (
         <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setViewingProvider(null)}>
-          <div className="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5"><h3 className="text-base font-semibold text-ink-50">供应商详情</h3><button onClick={() => setViewingProvider(null)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
-            <div className="space-y-3">
+          <div className="glass-dark rounded-2xl w-full max-w-md max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5 flex-shrink-0"><h3 className="text-base font-semibold text-ink-50">供应商详情</h3><button onClick={() => setViewingProvider(null)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
+            <div className="space-y-3 overflow-y-auto min-h-0 flex-1">
               <div className="flex items-center gap-3 mb-4">
                 <div className={`w-12 h-12 rounded-xl bg-gradient-to-br ${viewingProvider.logoColor || 'from-tech-500/20 to-tech-600/10'} flex items-center justify-center`}>
                   <span className={`text-lg font-bold ${viewingProvider.textColor || 'text-tech-400'}`}>{viewingProvider.logoLetter || viewingProvider.providerName.charAt(0)}</span>
@@ -543,9 +669,9 @@ export default function SettingsPage() {
       {/* 查看模型弹窗 */}
       {viewingModel && (
         <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setViewingModel(null)}>
-          <div className="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-5"><h3 className="text-base font-semibold text-ink-50">模型详情</h3><button onClick={() => setViewingModel(null)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
-            <div className="space-y-3">
+          <div className="glass-dark rounded-2xl w-full max-w-md max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-5 flex-shrink-0"><h3 className="text-base font-semibold text-ink-50">模型详情</h3><button onClick={() => setViewingModel(null)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
+            <div className="space-y-3 overflow-y-auto min-h-0 flex-1">
               <div className="flex items-center gap-3 mb-4">
                 <div className="w-10 h-10 rounded-lg bg-tech-500/10 flex items-center justify-center">
                   <span className="text-sm font-bold text-tech-400">{viewingModel.modelName.charAt(0)}</span>

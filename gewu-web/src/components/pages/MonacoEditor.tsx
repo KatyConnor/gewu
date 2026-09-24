@@ -11,11 +11,15 @@ function ensureLoader() {
   loader.config({ paths: { vs: '/monaco/vs' } });
 }
 
-export default function MonacoEditor({ value, language, path, onChange }: {
+export default function MonacoEditor({ value, language, path, onChange, readOnly = false, wordWrap = 'on' }: {
   value: string;
   language: string;
   path: string;
   onChange?: (value: string | undefined) => void;
+  /** 只读预览（图2 代码阅读视图；编辑态为 false） */
+  readOnly?: boolean;
+  /** 自动换行：预览关（横向滚动贴近 IDE），编辑默认开 */
+  wordWrap?: 'on' | 'off';
 }) {
   ensureLoader();
   const ref = useRef(false);
@@ -35,8 +39,12 @@ export default function MonacoEditor({ value, language, path, onChange }: {
         lineNumbersMinChars: 3,
         scrollBeyondLastLine: false,
         automaticLayout: true,
-        wordWrap: 'on',
+        wordWrap,
         tabSize: 4,
+        readOnly,
+        domReadOnly: readOnly,
+        // 新版 Monaco 默认开启作用域固定条（stickyScroll），透明底与代码行重叠发花，阅读视图关闭
+        stickyScroll: { enabled: false },
       }}
     />
   );

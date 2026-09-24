@@ -69,3 +69,66 @@ export async function getDashboardStats(): Promise<DashboardStats> {
 export async function getUsageStats(): Promise<UsageStats> {
   return unwrap(request.get<ApiResponse<UsageStats>>('/v1/stats/usage'));
 }
+
+// ==================== 用量明细统计（配额与统计专项） ====================
+
+export type UsageGranularity = 'day' | 'week' | 'month' | 'quarter' | 'year';
+
+/** 按模型分组的合计 */
+export interface ModelTotal {
+  modelId: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cost: number;
+}
+
+/** 单时间桶的 tokens/成本（含按模型分组） */
+export interface BucketUsage {
+  bucket: string;
+  inputTokens: number;
+  outputTokens: number;
+  totalTokens: number;
+  cost: number;
+  models: ModelTotal[];
+}
+
+/** 单时间桶的消息数 */
+export interface BucketMessages {
+  bucket: string;
+  userMessages: number;
+  agentMessages: number;
+  total: number;
+}
+
+export interface UsageDetail {
+  granularity: string;
+  from: number;
+  to: number;
+  /** SELF=本人 / ALL=全局（管理员） */
+  scope: string;
+  tokensSeries: BucketUsage[];
+  messageSeries: BucketMessages[];
+  modelTotals: ModelTotal[];
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  totalTokens: number;
+  totalCost: number;
+  totalUserMessages: number;
+  totalAgentMessages: number;
+  totalMessages: number;
+}
+
+/**
+ * 用量明细统计：tokens/成本（按模型分组与合计）+ 消息数（用户/智能体/合计）。
+ * @param all true=全局（仅 ADMIN 生效），false=仅本人
+ */
+export async function getUsageDetail(
+  granularity: UsageGranularity,
+  days: number,
+  all = false
+): Promise<UsageDetail> {
+  return unwrap(request.get<ApiResponse<UsageDetail>>(
+    `/v1/stats/usage-detail?granularity=${granularity}&days=${days}&all=${all}`
+  ));
+}

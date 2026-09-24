@@ -35,6 +35,16 @@ export interface ModelConfig {
   modelParams: string;
   description: string;
   status: number; // 1=启用 2=停用
+  /** 输入单价（元 / 每计价单位 token） */
+  pricePer1kInput?: number;
+  /** 输出单价（元 / 每计价单位 token） */
+  pricePer1kOutput?: number;
+  /** 计价基准 token 数（默认 1000） */
+  priceUnitTokens?: number;
+  /** 上下文输入窗口（tokens） */
+  contextWindowInput?: number;
+  /** 最大输出 tokens */
+  contextWindowOutput?: number;
 }
 
 // 创建供应商请求
@@ -69,6 +79,11 @@ export interface CreateModelRequest {
   modelParams?: string;
   description?: string;
   enableImmediately?: boolean;
+  pricePer1kInput?: number;
+  pricePer1kOutput?: number;
+  priceUnitTokens?: number;
+  contextWindowInput?: number;
+  contextWindowOutput?: number;
 }
 
 // 更新模型请求
@@ -77,6 +92,11 @@ export interface UpdateModelRequest {
   modelName?: string;
   modelParams?: string;
   description?: string;
+  pricePer1kInput?: number;
+  pricePer1kOutput?: number;
+  priceUnitTokens?: number;
+  contextWindowInput?: number;
+  contextWindowOutput?: number;
 }
 
 const API_BASE = typeof window !== 'undefined' && process.env.NEXT_PUBLIC_API_BASE

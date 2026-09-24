@@ -87,6 +87,49 @@ export async function createGraph(command: {
   return handleResponse(res);
 }
 
+/** 角色目录项（设计器 AGENT 节点 roleCode 下拉数据源） */
+export interface RoleOption {
+  roleCode: string;
+  roleName: string;
+  sdlcPhase: string;
+}
+
+/** 工具目录项：source=CODE 代码级工具 / CONFIG 配置工具 */
+export interface ToolOption {
+  name: string;
+  source: string;
+  description?: string;
+  toolType?: string;
+}
+
+/**
+ * 更新编排图定义（仅草稿可编辑，后端保存前执行图结构校验）。
+ */
+export async function updateGraph(graphId: string, command: {
+  name?: string;
+  graphDefinition: string;
+  graphType?: string;
+  mode?: string;
+}): Promise<OrchestrationGraphEntity> {
+  const res = await authFetch(`${BASE}/v1/orchestration/graphs/${graphId}`, {
+    method: 'PUT',
+    body: JSON.stringify(command),
+  });
+  return handleResponse(res);
+}
+
+/** 角色目录（RoleRegistry 内置 12 SDLC 角色 + SPI 扩展） */
+export async function listRoleCatalog(): Promise<RoleOption[]> {
+  const res = await authFetch(`${BASE}/v1/orchestration/catalog/roles`);
+  return handleResponse(res);
+}
+
+/** 工具目录（代码工具 + agent_tool 配置工具合并） */
+export async function listToolCatalog(): Promise<ToolOption[]> {
+  const res = await authFetch(`${BASE}/v1/orchestration/catalog/tools`);
+  return handleResponse(res);
+}
+
 export async function activateGraph(graphId: string): Promise<void> {
   const res = await authFetch(`${BASE}/v1/orchestration/graphs/${graphId}/activate`, { method: 'PUT' });
   await handleResponse(res);

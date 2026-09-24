@@ -3,8 +3,9 @@ import { useState, useEffect, useCallback } from 'react';
 import { Plus, Search, Play, Pause, Archive, Trash2, Edit, Copy, CheckCircle, XCircle, Bot, Eye, MoreVertical, Loader2, X, Upload, MessageSquare } from 'lucide-react';
 import CustomSelect from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
-import { listAgents, createAgent, deleteAgent, updateAgent, publishAgent, listAgentSkills, mountSkill, unmountSkill, type AgentDTO, type UpdateAgentCommand } from '@/lib/agent';
-import { listSkillLibrary, type SkillDTO } from '@/lib/skill';
+import { listAgents, createAgent, deleteAgent, publishAgent, listAgentSkills, type AgentDTO } from '@/lib/agent';
+import type { SkillDTO } from '@/lib/skill';
+import AgentEditModal from './AgentEditModal';
 import { useDispatch } from 'react-redux';
 import { setPage, setPendingAgentId } from '@/store';
 
@@ -35,15 +36,6 @@ export default function AgentManagePage() {
   const [selectedAgent, setSelectedAgent] = useState<AgentDTO | null>(null);
   const [actionMenuOpen, setActionMenuOpen] = useState<string | null>(null);
   const [editingAgent, setEditingAgent] = useState<AgentDTO | null>(null);
-  const [formName, setFormName] = useState('');
-  const [formDesc, setFormDesc] = useState('');
-  const [formProvider, setFormProvider] = useState('qwen');
-  const [formModel, setFormModel] = useState('qwen-plus');
-  const [formSystemPrompt, setFormSystemPrompt] = useState('');
-  const [formModelConfig, setFormModelConfig] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [allSkills, setAllSkills] = useState<SkillDTO[]>([]);
-  const [agentSkillIds, setAgentSkillIds] = useState<Set<string>>(new Set());
   const [detailSkills, setDetailSkills] = useState<SkillDTO[]>([]);
 
   const loadAgents = useCallback(async () => {
@@ -61,72 +53,12 @@ export default function AgentManagePage() {
 
   useEffect(() => { loadAgents(); }, [loadAgents]);
 
-  const resetForm = () => {
-    setFormName(''); setFormDesc(''); setFormProvider('qwen'); setFormModel('qwen-plus');
-    setFormSystemPrompt(''); setFormModelConfig('');
-  };
-
-  const openCreate = () => { resetForm(); setEditingAgent(null); setShowModal(true); };
-
-  const loadAllSkills = useCallback(() => {
-    listSkillLibrary().then(setAllSkills).catch(() => setAllSkills([]));
-  }, []);
+  const openCreate = () => { setEditingAgent(null); setShowModal(true); };
 
   const openEdit = (agent: AgentDTO) => {
     setEditingAgent(agent);
-    setFormName(agent.agentName);
-    setFormDesc(agent.description || '');
-    setFormProvider(agent.modelProvider || 'qwen');
-    setFormModel(agent.modelName || 'qwen-plus');
-    setFormSystemPrompt(agent.systemPrompt || '');
-    setFormModelConfig(agent.modelConfig || '');
     setActionMenuOpen(null);
-    loadAllSkills();
-    listAgentSkills(agent.agentId).then(s => setAgentSkillIds(new Set(s.map(k => k.skillId)))).catch(() => setAgentSkillIds(new Set()));
     setShowModal(true);
-  };
-
-  const handleToggleSkill = async (skillId: string) => {
-    if (!editingAgent) return;
-    const next = new Set(agentSkillIds);
-    try {
-      if (next.has(skillId)) { await unmountSkill(editingAgent.agentId, skillId); next.delete(skillId); }
-      else { await mountSkill(editingAgent.agentId, skillId); next.add(skillId); }
-      setAgentSkillIds(next);
-    } catch (e) {
-      toast('操作失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
-    }
-  };
-
-  const handleSave = async () => {
-    if (!formName.trim()) return;
-    setSaving(true);
-    try {
-      if (editingAgent) {
-        const cmd: UpdateAgentCommand = {
-          agentName: formName, description: formDesc, modelProvider: formProvider,
-          modelName: formModel, systemPrompt: formSystemPrompt || undefined,
-          modelConfig: formModelConfig || undefined,
-        };
-        await updateAgent(editingAgent.agentId, cmd);
-        toast('智能体已更新', 'success');
-      } else {
-        await createAgent({
-          agentName: formName, description: formDesc, modelProvider: formProvider,
-          modelName: formModel, status: 1,
-          systemPrompt: formSystemPrompt || undefined, modelConfig: formModelConfig || undefined,
-        });
-        toast('智能体创建成功', 'success');
-      }
-      setShowModal(false);
-      resetForm();
-      setEditingAgent(null);
-      loadAgents();
-    } catch (e) {
-      toast('保存失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
-    } finally {
-      setSaving(false);
-    }
   };
 
   const handleDelete = async (id: string) => {
@@ -144,7 +76,6 @@ export default function AgentManagePage() {
 
   const handleCopy = async (agent: AgentDTO) => {
     setActionMenuOpen(null);
-    setSaving(true);
     try {
       await createAgent({
         agentName: agent.agentName + ' (副本)', description: agent.description,
@@ -155,8 +86,6 @@ export default function AgentManagePage() {
       loadAgents();
     } catch (e) {
       toast('复制失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
-    } finally {
-      setSaving(false);
     }
   };
 
@@ -269,44 +198,7 @@ export default function AgentManagePage() {
       </div>
       )}
 
-      {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="glass-dark rounded-2xl w-full max-w-2xl p-6 shadow-2xl animate-fade-up border border-tech-500/10 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <div className="flex items-center justify-between mb-6">
-              <h3 className="text-lg font-semibold text-ink-50">{editingAgent ? '编辑智能体' : '创建智能体'}</h3>
-              <button onClick={() => setShowModal(false)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button>
-            </div>
-            <div className="space-y-4">
-              <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-xs text-ink-400 mb-1">智能体名称 <span className="text-cinnabar-400">*</span></label><input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="输入智能体名称" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30" /></div>
-                <div><label className="block text-xs text-ink-400 mb-1">模型提供商</label><CustomSelect value={formProvider} onChange={setFormProvider} options={[{ value: 'qwen', label: '通义千问' }, { value: 'deepseek', label: 'DeepSeek' }, { value: 'zhipu', label: '智谱' }]} /></div>
-              </div>
-              <div className="grid grid-cols-2 gap-4">
-                <div><label className="block text-xs text-ink-400 mb-1">模型名称</label><CustomSelect value={formModel} onChange={setFormModel} options={[{ value: 'qwen-plus', label: 'qwen-plus' }, { value: 'qwen-turbo', label: 'qwen-turbo' }, { value: 'deepseek-chat', label: 'deepseek-chat' }]} /></div>
-                <div><label className="block text-xs text-ink-400 mb-1">模型参数(JSON)</label><input type="text" value={formModelConfig} onChange={e => setFormModelConfig(e.target.value)} placeholder='{"temperature":0.7}' className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30" /></div>
-              </div>
-              <div><label className="block text-xs text-ink-400 mb-1">描述</label><textarea rows={2} value={formDesc} onChange={e => setFormDesc(e.target.value)} placeholder="描述智能体的功能和用途" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30 resize-none" /></div>
-              <div><label className="block text-xs text-ink-400 mb-1">系统提示词</label><textarea rows={4} value={formSystemPrompt} onChange={e => setFormSystemPrompt(e.target.value)} placeholder="定义智能体的角色、能力与行为约束" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30 resize-none" /></div>
-              {editingAgent && (
-              <div>
-                <label className="block text-xs text-ink-400 mb-2">已挂载技能 <span className="text-ink-500">（点击挂载/卸载，内容将注入对话）</span></label>
-                <div className="flex flex-wrap gap-2 max-h-32 overflow-y-auto scrollbar-thin">
-                  {allSkills.length === 0 ? <span className="text-xs text-ink-500">暂无可挂载技能</span> : allSkills.map(sk => (
-                    <button key={sk.skillId} type="button" onClick={() => handleToggleSkill(sk.skillId)} className={`px-2.5 py-1 text-xs rounded-lg border transition-all ${agentSkillIds.has(sk.skillId) ? 'bg-tech-500/15 text-tech-400 border-tech-500/30' : 'bg-ink-800/40 text-ink-400 border-tech-500/10 hover:border-tech-500/20'}`}>{sk.emoji || '⚡'} {sk.skillName}{agentSkillIds.has(sk.skillId) ? ' ✓' : ''}</button>
-                  ))}
-                </div>
-              </div>
-              )}
-            </div>
-            <div className="flex justify-end gap-3 mt-6">
-              <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-ink-300 hover:text-ink-100">取消</button>
-              <button onClick={handleSave} disabled={saving || !formName.trim()} className="px-5 py-2 btn-primary text-white text-sm rounded-lg disabled:opacity-50 flex items-center gap-2">
-                {saving && <Loader2 className="w-4 h-4 animate-spin" />}{editingAgent ? '保存' : '创建'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <AgentEditModal visible={showModal} editingAgent={editingAgent} onClose={() => setShowModal(false)} onSaved={loadAgents} />
 
       {showDetailDrawer && selectedAgent && (
         <div className="fixed inset-0 z-50 flex justify-end modal-overlay" onClick={() => setShowDetailDrawer(false)}>

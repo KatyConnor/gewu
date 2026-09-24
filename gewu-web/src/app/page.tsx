@@ -14,9 +14,6 @@ import AgentManagePage from '@/components/pages/AgentManagePage';
 import MyAgentsPage from '@/components/pages/MyAgentsPage';
 import SkillLibraryPage from '@/components/pages/SkillLibraryPage';
 import MySkillsPage from '@/components/pages/MySkillsPage';
-import SkillAuditPage from '@/components/pages/SkillAuditPage';
-import UserManagePage from '@/components/pages/UserManagePage';
-import RoleManagePage from '@/components/pages/RoleManagePage';
 import AuditCenterPage from '@/components/pages/AuditCenterPage';
 import PrototypePage from '@/components/pages/PrototypePage';
 import RequirementsPage from '@/components/pages/RequirementsPage';
@@ -26,8 +23,6 @@ import OrchestrationPage from '@/components/pages/OrchestrationPage';
 import UsagePage from '@/components/pages/UsagePage';
 import SandboxPage from '@/components/pages/SandboxPage';
 import McpServerPage from '@/components/pages/McpServerPage';
-import MenuManagePage from '@/components/pages/MenuManagePage';
-import OrgManagePage from '@/components/pages/OrgManagePage';
 import WorkspacePage from '@/components/pages/WorkspacePage';
 import DevWorkspacePage from '@/components/pages/DevWorkspacePage';
 
@@ -42,9 +37,6 @@ const pages: Record<string, React.ComponentType> = {
   'agent-manage': AgentManagePage,
   'skill-library': SkillLibraryPage,
   'my-skills': MySkillsPage,
-  'skill-audit': SkillAuditPage,
-  'user-manage': UserManagePage,
-  'role-manage': RoleManagePage,
   'audit-center': AuditCenterPage,
   prototype: PrototypePage,
   requirements: RequirementsPage,
@@ -53,8 +45,6 @@ const pages: Record<string, React.ComponentType> = {
   usage: UsagePage,
   sandbox: SandboxPage,
   'mcp-server': McpServerPage,
-  'menu-manage': MenuManagePage,
-  'org-manage': OrgManagePage,
   workspace: WorkspacePage,
   'dev-workspace': DevWorkspacePage,
 };

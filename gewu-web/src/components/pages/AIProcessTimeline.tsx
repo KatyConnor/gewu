@@ -1,12 +1,14 @@
 'use client';
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   Brain, Search, Loader2, ChevronDown, ChevronRight,
-  XCircle, ShieldCheck, Sparkles, Terminal, FileText, Pencil, Wrench,
+  XCircle, ShieldCheck, Sparkles, Terminal, FileText, Pencil, Wrench, Bot,
 } from 'lucide-react';
 import type { ProcessItem } from '@/lib/agentProcess';
 import { toolHeadline, humanizeDuration, hasProcessActivity } from '@/lib/agentProcess';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
+import ProcessEditDiff from './ProcessEditDiff';
+import { lineDiff } from '@/lib/lineDiff';
 
 /**
  * AI 处理过程时间线（zcode 风格）。
@@ -56,7 +58,7 @@ function toolRowInfo(name: string, args?: string): { icon: 'terminal' | 'read' |
 }
 
 export default function AIProcessTimeline({
-  items, status, streaming, totalMs, startAt, expanded, onToggle, hideContentSegments,
+  items, status, streaming, totalMs, startAt, expanded, onToggle, onItemClick,
 }: {
   items: ProcessItem[];
   /** 流式期间的后端阶段提示（如"正在继续推理..."） */
@@ -68,8 +70,8 @@ export default function AIProcessTimeline({
   startAt?: number;
   expanded: boolean;
   onToggle: () => void;
-  /** 完成态模式：隐藏交错在时间线中的正文段（正文由 msg.content 独立渲染在时间线之后，zcode 形态） */
-  hideContentSegments?: boolean;
+  /** 条目点击（二期：子智能体行 → 右侧面板展示该智能体流式过程/聚合结果） */
+  onItemClick?: (item: ProcessItem) => void;
 }) {
   const [now, setNow] = useState(Date.now());
   const bodyRef = useRef<HTMLDivElement>(null);
@@ -122,8 +124,8 @@ export default function AIProcessTimeline({
         <div ref={bodyRef} className="mt-0.5">
           {items.map((item, idx) => {
             if (item.kind === 'content') {
-              // 完成态隐藏正文段：正文由 msg.content 完整渲染在时间线之后
-              if (hideContentSegments) return null;
+              // 正文段保留在时间线内（用户实报问题3）：过程中的叙述按原位置交错展示，
+              // 仅最终正文由 msg.content 独立渲染在时间线之后
               return (
                 <div key={item.id} className="my-2">
                   <MarkdownRenderer content={item.text} isStreaming={streaming && idx === lastContentIdx} />
@@ -135,6 +137,10 @@ export default function AIProcessTimeline({
             }
             if (item.kind === 'tool') {
               return <ToolRow key={item.id} item={item} expanded={isItemExpanded(item)} onToggle={toggleItemById} />;
+            }
+            if (item.kind === 'subagent') {
+              return <SubagentRow key={item.id} item={item} streaming={streaming} now={now}
+                onClick={onItemClick ? () => onItemClick(item) : undefined} />;
             }
             return <SearchRow key={item.id} item={item} expanded={isItemExpanded(item)} onToggle={toggleItemById} />;
           })}
@@ -165,6 +171,64 @@ function tailPreview(text: string, max = 64): string {
   return clean.length > max ? `…${clean.slice(-max)}` : clean;
 }
 
+/** 已知文件工具失败前缀（ReactAgentExecutor 错误文案契约，同仓同步）：命中则该行按失败态展示 */
+const FILE_TOOL_ERROR_PREFIXES = [
+  '文件不存在:', '未找到要替换的文本', 'old_text 在文件中多处匹配',
+  '缺少 ', '文件操作失败:', '文件工具未配置', '未知内置工具:',
+];
+
+function fileToolError(result?: string): string | undefined {
+  if (!result) return undefined;
+  for (const p of FILE_TOOL_ERROR_PREFIXES) {
+    if (result.startsWith(p)) return result;
+  }
+  return undefined;
+}
+
+/** 编辑行 diff 入参：edit_file 取 old_text/new_text；write_file 取 content（视作全新增，无 -N 口径） */
+interface EditDiffInfo {
+  oldText: string;
+  newText: string;
+  additions: number;
+  deletions: number;
+}
+
+/** args 可解析且包含差异源时计算 diff；流式期间参数随 delta 累积，半截 JSON 返回 null 不渲染 */
+function editDiffInfo(name: string, args?: string): EditDiffInfo | null {
+  if (!args) return null;
+  let parsed: Record<string, unknown>;
+  try {
+    const p: unknown = JSON.parse(args);
+    if (!p || typeof p !== 'object') return null;
+    parsed = p as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+  const str = (v: unknown): string => (typeof v === 'string' ? v : '');
+  const oldText = str(parsed.old_text);
+  const newText = str(parsed.new_text);
+  if (oldText && newText) {
+    const d = lineDiff(oldText, newText);
+    return { oldText, newText, additions: d.additions, deletions: d.deletions };
+  }
+  if (/write|create/i.test(name) && parsed.content != null) {
+    const content = str(parsed.content);
+    const d = lineDiff('', content);
+    return { oldText: '', newText: content, additions: d.additions, deletions: 0 };
+  }
+  return null;
+}
+
+/** 后端 edit_file 结果文案解析：「已编辑 path（第 N 行起，+A -D）」→ 起始行/增删统计；旧文案返回 undefined */
+function parseEditStartLine(result?: string): number | undefined {
+  const m = result?.match(/（第 (\d+) 行起/);
+  return m ? Number(m[1]) : undefined;
+}
+function parseEditCounts(result?: string): { additions: number; deletions: number } | undefined {
+  const m = result?.match(/（(?:第 \d+ 行起，)?\+(\d+) -(\d+)）$/);
+  return m ? { additions: Number(m[1]), deletions: Number(m[2]) } : undefined;
+}
+
 /** 思考行：🧠 思考 · 持续了N秒，点击展开原文；流式期间单行滚动显示最新思考内容。
  * React.memo：now 仅在活跃行传入——已完成行不随 200ms 计时 tick 重渲染（S9 性能修复） */
 const ThinkingRow = React.memo(function ThinkingRow({ item, now, streaming, expanded, onToggle }: {
@@ -183,12 +247,16 @@ const ThinkingRow = React.memo(function ThinkingRow({ item, now, streaming, expa
       <button onClick={() => onToggle(item.id)} className="w-full flex items-center gap-2 py-1 text-left text-xs text-ink-500 hover:text-ink-300 transition-colors">
         <Brain className={`w-3.5 h-3.5 flex-shrink-0 ${active && streaming ? 'text-tech-400/90' : ''}`} />
         <span className="flex-shrink-0">思考</span>
-        {/* 流式期间：单行视图滚动显示最新思考内容（完成后回落为持续时长） */}
-        {active && streaming && item.text ? (
-          <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-400">
-            {tailPreview(item.text)}
-            <span className="inline-block w-1 h-3 bg-tech-400/80 animate-pulse ml-0.5 align-middle" />
-          </span>
+        {/* 单行尾部预览（用户实报问题3）：流式时滚动最新思考内容，完成态保留结尾
+            预览——此前完成态只剩时长，点开"已工作"后流式时见过的文字不可见 */}
+        {item.text ? (
+          <>
+            <span className="min-w-0 flex-1 truncate font-mono text-[11px] text-ink-400">
+              {tailPreview(item.text)}
+              {active && streaming && <span className="inline-block w-1 h-3 bg-tech-400/80 animate-pulse ml-0.5 align-middle" />}
+            </span>
+            <span className="flex-shrink-0 text-ink-600">· 持续了{duration}{active && '…'}</span>
+          </>
         ) : (
           <span className="text-ink-600">· 持续了{duration}{active && '…'}</span>
         )}
@@ -206,7 +274,56 @@ const ThinkingRow = React.memo(function ThinkingRow({ item, now, streaming, expa
   );
 });
 
-/** 工具行：动词化展示（终端/读取/编辑/查阅/工具名），点击展开参数与结果。memo：完成后不再重渲染 */
+/** 工具行：动词化展示（终端/读取/编辑/查阅/工具名），点击展开参数与结果。memo：完成后不再重渲染。
+ * 编辑行（zcode 风格增强）：折叠行右侧 +N -N 增删统计，展开渲染带行号的红绿差异块 */
+/** 子智能体行（二期）：显示名称与执行状态，点击在右侧面板展示该智能体的流式过程/聚合结果 */
+const SubagentRow = React.memo(function SubagentRow({ item, streaming, now, onClick }: {
+  item: Extract<ProcessItem, { kind: 'subagent' }>;
+  streaming: boolean;
+  now?: number;
+  onClick?: () => void;
+}) {
+  const running = item.status === 'running';
+  const elapsed = running
+    ? (now ? Math.max(0, now - item.startedAt) : 0)
+    : (item.endedAt ? item.endedAt - item.startedAt : 0);
+  const body = (
+    <>
+      <Bot className={`w-3.5 h-3.5 flex-shrink-0 ${running ? 'text-tech-400 animate-pulse' : 'text-cyber-400'}`} />
+      <span className="text-tech-300">子智能体</span>
+      <span className="text-ink-200">{item.name}</span>
+      <span className="text-ink-600">·</span>
+      {running ? (
+        <span className="flex items-center gap-1 text-ink-400">
+          <Loader2 className="w-3 h-3 animate-spin" /> 执行中
+          {streaming && now && <span className="text-ink-600">{humanizeDuration(elapsed)}</span>}
+        </span>
+      ) : (
+        <span className={item.status === 'success' ? 'text-green-400/90' : 'text-red-400/90'}>
+          {item.status === 'success' ? '已完成' : '失败'} · {humanizeDuration(elapsed)}
+        </span>
+      )}
+      {onClick && <span className="ml-auto text-[10px] text-ink-600 group-hover/sub:text-tech-400 transition-colors">查看 →</span>}
+    </>
+  );
+  if (!onClick) {
+    return (
+      <div className="py-1.5 flex items-center gap-2 text-xs">
+        {body}
+      </div>
+    );
+  }
+  return (
+    <button
+      onClick={onClick}
+      className="w-full group/sub py-1.5 px-1 -mx-1 rounded-md flex items-center gap-2 text-xs text-left hover:bg-tech-500/8 transition-colors"
+      title="在右侧面板查看该子智能体的执行过程"
+    >
+      {body}
+    </button>
+  );
+});
+
 const ToolRow = React.memo(function ToolRow({ item, expanded, onToggle }: {
   item: Extract<ProcessItem, { kind: 'tool' }>;
   expanded: boolean;
@@ -214,6 +331,15 @@ const ToolRow = React.memo(function ToolRow({ item, expanded, onToggle }: {
 }) {
   const running = item.status === 'executing' || item.status === 'pending';
   const info = toolRowInfo(item.name, item.args);
+  const isEditRow = info.icon === 'edit';
+  // 编辑行扩展：diff 入参（args 半截 JSON 时为 null）+ 失败态 + 后端文案中的真实起始行
+  const diffInfo = useMemo(() => (isEditRow ? editDiffInfo(item.name, item.args) : null), [isEditRow, item.name, item.args]);
+  const editError = isEditRow && !running ? fileToolError(item.result) : undefined;
+  const startLine = isEditRow ? parseEditStartLine(item.result) : undefined;
+  // 折叠行增删统计：后端结果文案优先（落库截断后仍可用），args 现算次之；失败行不显示
+  const rowCounts = isEditRow && !running && !editError
+    ? parseEditCounts(item.result) ?? (diffInfo ? { additions: diffInfo.additions, deletions: diffInfo.deletions } : undefined)
+    : undefined;
   return (
     <div>
       <button onClick={() => onToggle(item.id)} className="w-full flex items-center gap-2 py-1 text-left text-xs text-ink-500 hover:text-ink-300 transition-colors">
@@ -228,8 +354,20 @@ const ToolRow = React.memo(function ToolRow({ item, expanded, onToggle }: {
                     : <Wrench className="w-3.5 h-3.5 flex-shrink-0" />}
         <span className="flex-shrink-0">{info.verb}</span>
         <span className={`min-w-0 flex-1 truncate ${info.mono ? 'font-mono text-[11px]' : ''}`}>{info.detail}</span>
-        {/* 已完成且无展开：单行尾部预览最新执行结果（S9 F4 流式单行视图） */}
-        {!expanded && !running && item.result && (
+        {/* 编辑行：+N -N 增删统计（zcode 风格，删 0 时只显示 +N）；失败行：红色错误文本 */}
+        {rowCounts && !expanded && (
+          <span className="flex-shrink-0 font-mono text-[10px]">
+            <span className="text-green-400/80">+{rowCounts.additions}</span>
+            {rowCounts.deletions > 0 && <span className="ml-1 text-red-400/70">-{rowCounts.deletions}</span>}
+          </span>
+        )}
+        {editError && !expanded && (
+          <span className="hidden sm:inline-block flex-shrink-0 max-w-[160px] truncate font-mono text-[10px] text-red-400/70" title={editError}>
+            {tailPreview(editError, 40)}
+          </span>
+        )}
+        {/* 其余行（含无法算出统计的旧编辑行）：维持结果尾部预览 */}
+        {!expanded && !running && item.result && !rowCounts && !editError && (
           <span className="hidden sm:inline-block flex-shrink-0 max-w-[160px] truncate font-mono text-[10px] text-ink-600" title={item.result}>
             {tailPreview(item.result, 40)}
           </span>
@@ -237,20 +375,24 @@ const ToolRow = React.memo(function ToolRow({ item, expanded, onToggle }: {
         <span className="ml-auto flex-shrink-0 text-ink-600">{expanded ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}</span>
       </button>
       {expanded && (
-        <div className="mb-1.5 rounded-md bg-ink-900/40 px-3 py-2 space-y-1.5">
-          {item.args && (
-            <div>
-              <div className="text-[10px] text-ink-600 mb-0.5">调用参数</div>
-              <pre className="text-[10px] text-ink-500 whitespace-pre-wrap break-words font-mono leading-relaxed">{prettyJson(item.args)}</pre>
-            </div>
-          )}
-          {item.result && (
-            <div>
-              <div className="text-[10px] text-ink-600 mb-0.5">执行结果</div>
-              <pre className="text-[10px] text-ink-500 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-40 overflow-y-auto scrollbar-thin">{item.result}</pre>
-            </div>
-          )}
-        </div>
+        isEditRow && diffInfo && !editError ? (
+          <ProcessEditDiff oldText={diffInfo.oldText} newText={diffInfo.newText} startLine={startLine} />
+        ) : (
+          <div className="mb-1.5 rounded-md bg-ink-900/40 px-3 py-2 space-y-1.5">
+            {item.args && (
+              <div>
+                <div className="text-[10px] text-ink-600 mb-0.5">调用参数</div>
+                <pre className="text-[10px] text-ink-500 whitespace-pre-wrap break-words font-mono leading-relaxed">{prettyJson(item.args)}</pre>
+              </div>
+            )}
+            {item.result && (
+              <div>
+                <div className="text-[10px] text-ink-600 mb-0.5">执行结果</div>
+                <pre className="text-[10px] text-ink-500 whitespace-pre-wrap break-words font-mono leading-relaxed max-h-40 overflow-y-auto scrollbar-thin">{item.result}</pre>
+              </div>
+            )}
+          </div>
+        )
       )}
     </div>
   );

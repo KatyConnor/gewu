@@ -145,6 +145,29 @@ export async function publishAgent(data: PublishAgentCommand): Promise<AgentMark
   return unwrap(request.post<ApiResponse<AgentMarketDTO>>(API_ENDPOINTS.AGENT_MARKET, data));
 }
 
+/** 智能体执行记录（字段与后端 AgentExecutionDTO 一致） */
+export interface AgentExecutionDTO {
+  executionId: string;
+  agentId?: string;
+  sessionId?: string;
+  userId?: string;
+  /** pending / running / completed / failed / cancelled */
+  status: string;
+  input?: string;
+  output?: string;
+  errorMessage?: string;
+  tokensUsed?: number;
+  startedAt?: number;
+  completedAt?: number;
+  durationMs?: number;
+}
+
+/** 按智能体查询执行记录（分页，按开始时间倒序） */
+export async function listAgentExecutions(agentId: string, page = 1, size = 10): Promise<PageResult<AgentExecutionDTO>> {
+  return unwrap(request.get<ApiResponse<PageResult<AgentExecutionDTO>>>(
+    `${API_ENDPOINTS.AGENTS}/executions/agent/${agentId}?page=${page}&size=${size}`));
+}
+
 /** 获取智能体已挂载的技能列表 */
 export async function listAgentSkills(agentId: string): Promise<SkillDTO[]> {
   return unwrap(request.get<ApiResponse<SkillDTO[]>>(`${API_ENDPOINTS.AGENTS}/${agentId}/skills`));

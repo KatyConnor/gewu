@@ -1,8 +1,9 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
+import dynamic from 'next/dynamic';
 import {
   Plus, Search, Play, Pause, Square, Trash2, Send, Loader2,
-  Network, CheckCircle, XCircle, Clock, Zap, Eye,
+  Network, CheckCircle, XCircle, Clock, Zap, Eye, PencilRuler,
 } from 'lucide-react';
 import CustomSelect from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
@@ -11,6 +12,18 @@ import {
   listExecutions, pauseExecution, resumeExecution, cancelExecution,
   executeGraphStream, type OrchestrationGraphEntity, type OrchestrationExecutionEntity,
 } from '@/lib/orchestration';
+import { ORCHESTRATION_TEMPLATES, findTemplate } from '@/lib/orchestrationTemplates';
+import { serializeDefinition } from '@/lib/orchestrationDesigner';
+
+// 设计器含 React Flow 画布，仅客户端渲染
+const OrchestrationDesigner = dynamic(() => import('@/components/pages/OrchestrationDesigner'), {
+  ssr: false,
+  loading: () => (
+    <div className="flex items-center justify-center py-20 text-ink-500">
+      <Loader2 className="w-6 h-6 animate-spin mr-2" />加载设计器...
+    </div>
+  ),
+});
 
 interface StreamEvent {
   type: string;
@@ -54,11 +67,14 @@ export default function OrchestrationPage() {
   const [formName, setFormName] = useState('');
   const [formMode, setFormMode] = useState('PIPELINE');
   const [formDefinition, setFormDefinition] = useState('');
+  const [formTemplate, setFormTemplate] = useState('blank');
   // 执行面板
   const [execGraph, setExecGraph] = useState<OrchestrationGraphEntity | null>(null);
   const [execInput, setExecInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [streamEvents, setStreamEvents] = useState<StreamEvent[]>([]);
+  // 设计器视图：非空时整页切换为画布编排
+  const [designerGraph, setDesignerGraph] = useState<OrchestrationGraphEntity | null>(null);
   const toast = useToast();
 
   const loadGraphs = useCallback(async () => {
@@ -92,15 +108,17 @@ export default function OrchestrationPage() {
     if (!formName.trim()) return;
     setBusy('create');
     try {
-      await createGraph({
+      // 后端要求定义非空：留空时给空图骨架，创建后直接进入设计器补全
+      const created = await createGraph({
         name: formName.trim(),
-        graphDefinition: formDefinition.trim() || undefined,
+        graphDefinition: formDefinition.trim() || '{"nodes":[],"edges":[]}',
         mode: formMode,
       });
-      toast('编排图已创建', 'success');
+      toast('编排图已创建，已进入设计器', 'success');
       setShowCreateModal(false);
       setFormName(''); setFormDefinition('');
       await loadGraphs();
+      setDesignerGraph(created);
     } catch (e) {
       toast(e instanceof Error ? e.message : '创建失败', 'error');
     } finally {
@@ -173,6 +191,17 @@ export default function OrchestrationPage() {
       toast(e instanceof Error ? e.message : '操作失败', 'error');
     } finally { setBusy(null); }
   };
+
+  // 设计器视图：画布编排整页替换列表
+  if (designerGraph) {
+    return (
+      <OrchestrationDesigner
+        graph={designerGraph}
+        onBack={() => { setDesignerGraph(null); loadGraphs(); }}
+        onSaved={loadGraphs}
+      />
+    );
+  }
 
   return (
     <div>
@@ -252,6 +281,11 @@ export default function OrchestrationPage() {
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
+                    <button onClick={() => setDesignerGraph(g)} disabled={isBusy}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-cyan-300 border border-cyan-500/20 rounded-lg hover:bg-cyan-500/10 transition-colors disabled:opacity-40"
+                      title={g.status === 'active' ? '查看编排图（只读，支持运行预览）' : '在设计器中编排'}>
+                      <PencilRuler className="w-3.5 h-3.5" />{g.status === 'active' ? '查看' : '设计'}
+                    </button>
                     {g.status !== 'active' && (
                       <button onClick={() => handleActivate(g.id)} disabled={isBusy}
                         className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-tech-400 border border-tech-500/20 rounded-lg hover:bg-tech-500/10 transition-colors">
@@ -387,18 +421,39 @@ export default function OrchestrationPage() {
                   className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30" />
               </div>
               <div>
+                <label className="block text-xs text-ink-400 mb-1">从模板开始</label>
+                <CustomSelect value={formTemplate} onChange={value => {
+                  setFormTemplate(value);
+                  const template = findTemplate(value);
+                  if (template) {
+                    setFormDefinition(serializeDefinition(template.definition));
+                    setFormMode(template.mode);
+                  } else {
+                    setFormDefinition('');
+                  }
+                }} options={[
+                  { value: 'blank', label: '空白图（推荐，进设计器拖拽）' },
+                  ...ORCHESTRATION_TEMPLATES.map(t => ({ value: t.id, label: `${t.name}（${t.mode}）` })),
+                ]} />
+                {formTemplate !== 'blank' && (
+                  <p className="mt-1 text-[10px] text-ink-500">{findTemplate(formTemplate)?.description}</p>
+                )}
+              </div>
+              <div>
                 <label className="block text-xs text-ink-400 mb-1">编排模式</label>
                 <CustomSelect value={formMode} onChange={setFormMode} options={[
                   { value: 'PIPELINE', label: '流水线（Pipeline）' },
                   { value: 'SWARM', label: '群体协作（Swarm）' },
                   { value: 'SUPERVISOR', label: '监督者（Supervisor）' },
+                  { value: 'DEBATE', label: '辩论共识（Debate）' },
                 ]} />
               </div>
               <div>
-                <label className="block text-xs text-ink-400 mb-1">图定义 JSON（可选）</label>
+                <label className="block text-xs text-ink-400 mb-1">图定义 JSON（可选，留空创建空图）</label>
                 <textarea rows={5} value={formDefinition} onChange={e => setFormDefinition(e.target.value)}
-                  placeholder='{"nodes":[{"id":"n1","name":"步骤一"}],"edges":[]}'
+                  placeholder={'{\n  "nodes": [{ "nodeId": "n1", "type": "AGENT", "roleCode": "DEVELOPER" }],\n  "edges": []\n}'}
                   className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-xs text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30 font-mono resize-none" />
+                <p className="mt-1 text-[10px] text-ink-500">推荐留空或选模板：创建后进入可视化设计器拖拽编排，无需手写 JSON。</p>
               </div>
             </div>
             <div className="flex justify-end gap-3 mt-6">

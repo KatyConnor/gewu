@@ -82,7 +82,12 @@ export default function DashboardPage() {
               <div className="text-center py-10 text-ink-500 text-sm">暂无会话记录，点击右上角新建对话</div>
             )}
             {!loading && stats?.recentSessions?.slice(0, 6).map(session => (
-              <ClickableCard key={session.sessionId} onClick={() => dispatch(setPage('chat'))} className="flex items-center gap-4 p-3.5 rounded-lg hover:bg-tech-500/5 transition-all group border border-transparent hover:border-tech-500/10">
+              <ClickableCard key={session.sessionId} onClick={() => {
+                // 直达对应会话：经 ChatPage hash 入口按 sessionId 打开（修复此前只翻页
+                // 不带入 sessionId，用户落在空会话首页误以为"内容丢了"）
+                window.location.hash = `#/chat?sessionId=${encodeURIComponent(session.sessionId)}`;
+                dispatch(setPage('chat'));
+              }} className="flex items-center gap-4 p-3.5 rounded-lg hover:bg-tech-500/5 transition-all group border border-transparent hover:border-tech-500/10">
                 <div className="w-10 h-10 rounded-lg bg-tech-500/10 flex items-center justify-center flex-shrink-0">
                   <MessageSquare className="w-5 h-5 text-tech-400" />
                 </div>

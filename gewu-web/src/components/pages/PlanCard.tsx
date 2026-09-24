@@ -11,10 +11,14 @@ import type { PlanStepInfo } from '@/lib/chat';
  * 步骤清单（完成=绿色勾、进行中=旋转指示、待办=空心圆）。
  * 数据来自模型经内置 plan_task 工具提交的任务清单（plan_created/plan_updated 事件）。
  */
-export default function PlanCard({ title, steps, streaming }: {
+export default function PlanCard({ title, steps, streaming, planPath, onViewFullPlan }: {
   title: string;
   steps: PlanStepInfo[];
   streaming: boolean;
+  /** 计划文件路径（plan_task markdown 参数落盘于工作空间 plan/ 目录） */
+  planPath?: string;
+  /** 「查看完整计划」→ 右侧面板 Markdown 预览 */
+  onViewFullPlan?: (path: string) => void;
 }) {
   const [expanded, setExpanded] = useState(true);
   if (steps.length === 0) return null;
@@ -61,6 +65,16 @@ export default function PlanCard({ title, steps, streaming }: {
               }`}>{step.text}</p>
             </div>
           ))}
+          {/* 查看完整计划：右侧面板以 Markdown 预览模式展示 plan/ 目录下的计划文件 */}
+          {planPath && onViewFullPlan && (
+            <button
+              onClick={() => onViewFullPlan(planPath)}
+              className="mt-1.5 mb-1 w-full flex items-center justify-center gap-1.5 px-2 py-1.5 text-[11px] rounded-md bg-tech-500/10 border border-tech-500/25 text-tech-300 hover:bg-tech-500/20 transition-all"
+              title="在右侧面板预览计划文件（Markdown）"
+            >
+              查看完整计划 →
+            </button>
+          )}
         </div>
       )}
     </div>

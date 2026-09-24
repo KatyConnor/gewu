@@ -97,6 +97,15 @@ export default function ProjectDetailPage({ projectId, onBack }: { projectId: st
   // 当前阶段的会话管理
   const [phaseSessionId, setPhaseSessionId] = useState<string | null>(null);
   const [phaseSessionTitle, setPhaseSessionTitle] = useState('');
+  // 会话选择器（同名会话守卫）：阶段会话匹配失败时列出该项目已有会话，
+  // 由用户显式选择或新建——修复此前静默创建同名会话导致重复混淆
+  // （两条"测试项目 - 项目调研对话"即此隐患产物）
+  const [sessionChooser, setSessionChooser] = useState<{
+    phaseName: string;
+    candidates: SessionDTO[];
+    /** 发送场景暂存的输入，选择完成后继续发送；undefined=跳转场景 */
+    pendingInput?: string;
+  } | null>(null);
 
   const toast = useToast();
   const dispatch = useDispatch();
@@ -240,23 +249,70 @@ export default function ProjectDetailPage({ projectId, onBack }: { projectId: st
     } catch { toast('加载失败', 'error'); }
   };
 
+  /** 按模板标题创建阶段会话并登记为当前阶段会话 */
+  const createPhaseSession = async (phaseName: string): Promise<string> => {
+    const session = await createSession({
+      title: `${project?.projectName || '项目'} - ${phaseName || '阶段'}对话`,
+      type: 1,
+      projectId: projectId,
+    });
+    setPhaseSessionId(session.sessionId);
+    setPhaseSessionTitle(session.title);
+    return session.sessionId;
+  };
+
+  /** 阶段会话不存在时的守卫：项目下已有其他会话 → 弹出选择器（返回 null，
+   *  由选择器回调继续挂起的跳转/发送）；项目下无任何会话 → 直接新建（无歧义） */
+  const ensurePhaseSession = async (pendingInput?: string): Promise<string | null> => {
+    if (phaseSessionId) return phaseSessionId;
+    const phaseName = selectedPhase ? phaseDisplayMap[selectedPhase] || selectedPhase : '';
+    try {
+      const result = await listMySessions(1, 50, { projectId });
+      const candidates = (result.records || []).filter(s => s.projectId === projectId);
+      if (candidates.length === 0) {
+        return await createPhaseSession(phaseName);
+      }
+      setSessionChooser({ phaseName, candidates, pendingInput });
+      return null;
+    } catch {
+      toast('加载会话列表失败', 'error');
+      return null;
+    }
+  };
+
+  /** 选择器动作：选用已有会话（传 sessionId）或新建（传 null）→ 继续挂起的跳转/发送 */
+  const handleChooserSelect = async (sessionId: string | null) => {
+    const pending = sessionChooser;
+    setSessionChooser(null);
+    if (!pending) return;
+    try {
+      let sid = sessionId;
+      if (!sid) {
+        sid = await createPhaseSession(pending.phaseName);
+      } else {
+        const picked = pending.candidates.find(c => c.sessionId === sid);
+        setPhaseSessionId(sid);
+        setPhaseSessionTitle(picked?.title || '');
+      }
+      if (pending.pendingInput !== undefined) {
+        await doSendChatMessage(sid, pending.pendingInput);
+      } else {
+        window.location.hash = `#/chat?projectId=${projectId}&sessionId=${sid}`;
+        dispatch(setPage('chat'));
+        toast('已跳转到 ChatPage', 'success');
+      }
+    } catch {
+      toast('操作失败', 'error');
+    }
+  };
+
   const handleJumpToChat = async () => {
     if (jumpingToChat) return;
     setJumpingToChat(true);
     try {
-      let sessionId = phaseSessionId;
-      // 如果当前阶段没有会话，创建一个新的
-      if (!sessionId) {
-        const { createSession } = await import('@/lib/session');
-        const phaseName = selectedPhase ? phaseDisplayMap[selectedPhase] || selectedPhase : '';
-        const sessionTitle = `${project?.projectName || '项目'} - ${phaseName || '阶段'}对话`;
-        const session = await createSession({
-          title: sessionTitle,
-          type: 1,
-          projectId: projectId,
-        });
-        sessionId = session.sessionId;
-      }
+      // 同名会话守卫：阶段会话不存在时先弹出选择器（选择/新建后由回调继续跳转）
+      const sessionId = await ensurePhaseSession();
+      if (!sessionId) return;
       // 使用 URL hash 传递项目 ID 和会话 ID，让 ChatPage 可以筛选项目会话
       window.location.hash = `#/chat?projectId=${projectId}&sessionId=${sessionId}`;
       dispatch(setPage('chat'));
@@ -276,7 +332,14 @@ export default function ProjectDetailPage({ projectId, onBack }: { projectId: st
 
   const sendChatMessage = async () => {
     if (!chatPanel.input.trim() || chatPanel.streaming || !selectedPhase) return;
-    const userMsg = chatPanel.input;
+    // 同名会话守卫：阶段会话不存在时先选择/新建（选择器回调携带暂存输入继续发送）
+    const sessionId = await ensurePhaseSession(chatPanel.input);
+    if (!sessionId) return;
+    await doSendChatMessage(sessionId, chatPanel.input);
+  };
+
+  /** 实际发送（会话已确定）：从原 sendChatMessage 主体迁入 */
+  const doSendChatMessage = async (currentSessionId: string, userMsg: string) => {
     const resetStreaming = (p: ChatPanel): ChatPanel => ({ ...p, streaming: false, streamText: '', streamProcess: null });
     setChatPanel(p => ({
       ...p,
@@ -286,27 +349,6 @@ export default function ProjectDetailPage({ projectId, onBack }: { projectId: st
       streamText: '',
       streamProcess: null,
     }));
-
-    // 如果没有会话 ID，先创建一个
-    let currentSessionId = phaseSessionId;
-    if (!currentSessionId) {
-      try {
-        const phaseName = phaseDisplayMap[selectedPhase] || selectedPhase;
-        const sessionTitle = `${project?.projectName || '项目'} - ${phaseName || '阶段'}对话`;
-        const session = await createSession({
-          title: sessionTitle,
-          type: 1,
-          projectId: projectId,
-        });
-        currentSessionId = session.sessionId;
-        setPhaseSessionId(session.sessionId);
-        setPhaseSessionTitle(session.title);
-      } catch {
-        toast('创建会话失败', 'error');
-        setChatPanel(resetStreaming);
-        return;
-      }
-    }
 
     // 处理过程时间线：思考/工具/搜索事件按发生顺序实时累积渲染
     const proc = createProcessStreamHandler((snapshot) => {
@@ -565,6 +607,31 @@ export default function ProjectDetailPage({ projectId, onBack }: { projectId: st
                 <span className="text-[10px] text-ink-500 w-10 flex-shrink-0">思维</span>
                 <CustomSelect value={thinkingStyle} onChange={setThinkingStyle} options={thinkingStyleOptions} />
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 会话选择器弹窗（同名会话守卫）：阶段会话匹配失败时由用户显式选择或新建 */}
+      {sessionChooser && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setSessionChooser(null)}>
+          <div className="glass-dark rounded-xl border border-tech-500/20 w-[420px] max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="p-4 border-b border-tech-500/10">
+              <h4 className="text-sm font-semibold text-ink-100">选择「{sessionChooser.phaseName}」阶段的会话</h4>
+              <p className="text-xs text-ink-500 mt-1">检测到该项目下已有会话，请选择要继续的会话或新建（避免产生重复的同名会话）。</p>
+            </div>
+            <div className="flex-1 overflow-y-auto p-2 space-y-1">
+              {sessionChooser.candidates.map(c => (
+                <button key={c.sessionId} onClick={() => handleChooserSelect(c.sessionId)}
+                  className="w-full text-left px-3 py-2.5 rounded-lg hover:bg-tech-500/10 transition-all border border-transparent hover:border-tech-500/20">
+                  <p className="text-xs text-ink-100 truncate">{c.title || '未命名会话'}</p>
+                  <p className="text-[10px] text-ink-500 mt-0.5">{c.messageCount || 0} 条消息 · {c.lastMessageAt ? new Date(c.lastMessageAt).toLocaleString('zh-CN') : '无消息'}</p>
+                </button>
+              ))}
+            </div>
+            <div className="p-3 border-t border-tech-500/10 flex items-center justify-between">
+              <button onClick={() => setSessionChooser(null)} className="px-3 py-1.5 text-xs text-ink-400 hover:text-ink-200 rounded-lg">取消</button>
+              <button onClick={() => handleChooserSelect(null)} className="px-3 py-1.5 text-xs bg-tech-500/20 text-tech-400 rounded-lg hover:bg-tech-500/30">新建会话</button>
             </div>
           </div>
         </div>

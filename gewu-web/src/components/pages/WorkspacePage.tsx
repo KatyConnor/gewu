@@ -1,12 +1,18 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { Loader2, FolderPlus, Upload, Trash2, ChevronRight, ChevronDown, Folder, FileText, Save, Play, HardDrive } from 'lucide-react';
+import dynamic from 'next/dynamic';
+import { Loader2, FolderPlus, Upload, Trash2, ChevronRight, ChevronDown, Folder, FileText, Save, Play, HardDrive, Pencil, Undo2 } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
+import MarkdownReader from '@/components/ui/MarkdownReader';
+import { isMarkdownPath, isProbablyBinary, monacoLangOf } from '@/lib/fileLanguage';
 import {
   getMyWorkspace, listFiles, createDirectory, uploadFile,
   getFileContent, saveFileContent, deleteFile, createWorkspaceSandbox,
   type WorkspaceDTO, type FileNodeDTO,
 } from '@/lib/workspace';
+
+// Monaco 懒加载（自托管 public/monaco，免 CDN）
+const MonacoFileEditor = dynamic(() => import('./MonacoEditor'), { ssr: false });
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return bytes + ' B';
@@ -20,8 +26,12 @@ export default function WorkspacePage() {
   const [workspace, setWorkspace] = useState<WorkspaceDTO | null>(null);
   const [files, setFiles] = useState<FileNodeDTO[]>([]);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
+  const [dirChildren, setDirChildren] = useState<Record<string, FileNodeDTO[] | undefined>>({});
   const [selectedFile, setSelectedFile] = useState<FileNodeDTO | null>(null);
   const [fileContent, setFileContent] = useState('');
+  const [savedContent, setSavedContent] = useState('');
+  const [viewMode, setViewMode] = useState<'preview' | 'edit'>('preview');
+  const [dirty, setDirty] = useState(false);
   const [loading, setLoading] = useState(true);
   const [contentLoading, setContentLoading] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -48,9 +58,10 @@ export default function WorkspacePage() {
 
   const loadChildren = async (dirId: string) => {
     try {
-      return await listFiles(dirId);
+      const children = await listFiles(dirId);
+      setDirChildren(prev => ({ ...prev, [dirId]: children }));
     } catch {
-      return [];
+      setDirChildren(prev => ({ ...prev, [dirId]: [] }));
     }
   };
 
@@ -60,8 +71,19 @@ export default function WorkspacePage() {
       next.delete(dir.fileId);
     } else {
       next.add(dir.fileId);
+      await loadChildren(dir.fileId);
     }
     setExpandedDirs(next);
+  };
+
+  /** 刷新根列表与所有已展开目录的子列表（增删/上传后保持树视图一致） */
+  const refreshVisible = async () => {
+    try {
+      setFiles(await listFiles(undefined));
+    } catch {
+      // 根列表保持旧值，已展开目录的刷新继续执行
+    }
+    await Promise.all(Array.from(expandedDirs).map(id => loadChildren(id)));
   };
 
   const handleSelectFile = async (file: FileNodeDTO) => {
@@ -71,23 +93,29 @@ export default function WorkspacePage() {
     }
     setSelectedFile(file);
     setContentLoading(true);
+    setViewMode('preview');
+    setDirty(false);
     try {
       const content = await getFileContent(file.fileId);
       setFileContent(content);
+      setSavedContent(content);
     } catch (e) {
       toast('读取失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
       setFileContent('');
+      setSavedContent('');
     } finally {
       setContentLoading(false);
     }
   };
 
   const handleSave = async () => {
-    if (!selectedFile) return;
+    if (!selectedFile || viewMode !== 'edit') return;
     setSaving(true);
     try {
       const updated = await saveFileContent(selectedFile.fileId, fileContent);
       setSelectedFile(updated);
+      setSavedContent(fileContent);
+      setDirty(false);
       toast('已保存 (v' + updated.version + ')', 'success');
     } catch (e) {
       toast('保存失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
@@ -96,6 +124,27 @@ export default function WorkspacePage() {
     }
   };
 
+  /** 退出编辑：有未保存修改先确认，放弃则还原到最近保存内容 */
+  const exitEdit = () => {
+    if (dirty && !confirm('有未保存的修改，确定放弃并退出编辑？')) return;
+    setFileContent(savedContent);
+    setDirty(false);
+    setViewMode('preview');
+  };
+
+  // Ctrl+S 保存（仅编辑态生效）
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        if (viewMode === 'edit') handleSave();
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [viewMode, selectedFile, fileContent, saving]);
+
   const handleCreateDir = async () => {
     if (!newDirName.trim()) return;
     try {
@@ -103,12 +152,7 @@ export default function WorkspacePage() {
       toast('目录已创建', 'success');
       setShowNewDir(false);
       setNewDirName('');
-      const tree = await listFiles(currentParentId ?? undefined);
-      setFiles(tree);
-      if (currentParentId && expandedDirs.has(currentParentId)) {
-        await loadChildren(currentParentId);
-        setFiles(prev => [...prev]); // refresh handled by parent
-      }
+      await refreshVisible();
     } catch (e) {
       toast('创建失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     }
@@ -120,8 +164,7 @@ export default function WorkspacePage() {
     try {
       await uploadFile(file, currentParentId ?? undefined);
       toast('上传成功', 'success');
-      const tree = await listFiles(currentParentId ?? undefined);
-      setFiles(tree);
+      await refreshVisible();
     } catch (err) {
       toast('上传失败: ' + (err instanceof Error ? err.message : String(err)), 'error');
     }
@@ -136,9 +179,11 @@ export default function WorkspacePage() {
       if (selectedFile?.fileId === file.fileId) {
         setSelectedFile(null);
         setFileContent('');
+        setSavedContent('');
+        setDirty(false);
+        setViewMode('preview');
       }
-      const tree = await listFiles(currentParentId ?? undefined);
-      setFiles(tree);
+      await refreshVisible();
     } catch (e) {
       toast('删除失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     }
@@ -151,6 +196,59 @@ export default function WorkspacePage() {
     } catch (e) {
       toast('沙箱创建失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     }
+  };
+
+  /** 递归渲染树节点：目录展开时懒加载并渲染其子节点 */
+  const renderNode = (f: FileNodeDTO, depth: number) => (
+    <div key={f.fileId} className="group">
+      <div
+        onClick={() => handleSelectFile(f)}
+        className={`flex items-center gap-1.5 px-2 py-1.5 rounded cursor-pointer text-sm ${
+          selectedFile?.fileId === f.fileId
+            ? 'bg-tech-500/15 text-tech-400'
+            : 'text-ink-300 hover:bg-tech-500/5'
+        }`}
+        style={{ paddingLeft: 8 + depth * 16 }}
+      >
+        {f.fileType === 1 ? (
+          <>
+            {expandedDirs.has(f.fileId) ? (
+              <ChevronDown className="w-3.5 h-3.5 flex-shrink-0" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" />
+            )}
+            <Folder className="w-4 h-4 text-amber-400/70 flex-shrink-0" />
+          </>
+        ) : (
+          <>
+            <span className="w-3.5 flex-shrink-0" />
+            <FileText className="w-4 h-4 text-tech-400/70 flex-shrink-0" />
+          </>
+        )}
+        <span className="truncate flex-1">{f.fileName}</span>
+        {f.fileType === 2 && f.fileSize !== undefined && (
+          <span className="text-[10px] text-ink-600">{formatSize(f.fileSize)}</span>
+        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); handleDelete(f); }}
+          className="opacity-0 group-hover:opacity-100 p-0.5 text-ink-500 hover:text-cinnabar-400"
+        >
+          <Trash2 className="w-3 h-3" />
+        </button>
+      </div>
+      {f.fileType === 1 && expandedDirs.has(f.fileId) && renderChildren(f, depth)}
+    </div>
+  );
+
+  const renderChildren = (dir: FileNodeDTO, depth: number) => {
+    const children = dirChildren[dir.fileId];
+    if (children === undefined) {
+      return <Loader2 className="w-3 h-3 text-ink-600 animate-spin my-1" style={{ marginLeft: 24 + depth * 16 }} />;
+    }
+    if (children.length === 0) {
+      return <div className="text-ink-600 text-xs py-1" style={{ paddingLeft: 24 + depth * 16 }}>空目录</div>;
+    }
+    return <div className="space-y-0.5">{children.map(c => renderNode(c, depth + 1))}</div>;
   };
 
   if (loading) {
@@ -241,45 +339,7 @@ export default function WorkspacePage() {
             {files.length === 0 ? (
               <div className="text-center py-8 text-ink-500 text-xs">空目录</div>
             ) : (
-              files.map(f => (
-                <div key={f.fileId} className="group">
-                  <div
-                    onClick={() => handleSelectFile(f)}
-                    className={`flex items-center gap-1.5 px-2 py-1.5 rounded cursor-pointer text-sm ${
-                      selectedFile?.fileId === f.fileId
-                        ? 'bg-tech-500/15 text-tech-400'
-                        : 'text-ink-300 hover:bg-tech-500/5'
-                    }`}
-                  >
-                    {f.fileType === 1 ? (
-                      <>
-                        {expandedDirs.has(f.fileId) ? (
-                          <ChevronDown className="w-3.5 h-3.5 flex-shrink-0" />
-                        ) : (
-                          <ChevronRight className="w-3.5 h-3.5 flex-shrink-0" />
-                        )}
-                        <Folder className="w-4 h-4 text-amber-400/70 flex-shrink-0" />
-                      </>
-                    ) : (
-                      <>
-                        <span className="w-3.5 flex-shrink-0" />
-                        <FileText className="w-4 h-4 text-tech-400/70 flex-shrink-0" />
-                      </>
-                    )}
-                    <span className="truncate flex-1">{f.fileName}</span>
-                    {f.fileType === 2 && f.fileSize !== undefined && (
-                      <span className="text-[10px] text-ink-600">{formatSize(f.fileSize)}</span>
-                    )}
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(f); }}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 text-ink-500 hover:text-cinnabar-400"
-                    >
-                      <Trash2 className="w-3 h-3" />
-                    </button>
-                  </div>
-                  {/* Expanded children would be loaded on demand */}
-                </div>
-              ))
+              files.map(f => renderNode(f, 0))
             )}
           </div>
         </div>
@@ -296,33 +356,68 @@ export default function WorkspacePage() {
                     v{selectedFile.version || 1} · {selectedFile.filePath}
                   </span>
                 </div>
-                <button
-                  onClick={handleSave}
-                  disabled={saving}
-                  className="flex items-center gap-1.5 px-3 py-1.5 btn-primary text-white text-xs rounded-lg disabled:opacity-50"
-                >
-                  {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
-                  保存 Ctrl+S
-                </button>
+                <div className="flex items-center gap-2">
+                  {viewMode === 'edit' && dirty && <span className="text-[10px] text-amber-400">● 未保存</span>}
+                  {viewMode === 'edit' ? (
+                    <>
+                      <button
+                        onClick={handleSave}
+                        disabled={saving || !dirty}
+                        className="flex items-center gap-1.5 px-3 py-1.5 btn-primary text-white text-xs rounded-lg disabled:opacity-50"
+                      >
+                        {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+                        保存 Ctrl+S
+                      </button>
+                      <button
+                        onClick={exitEdit}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-ink-300 hover:text-ink-100 border border-ink-700/60 text-xs rounded-lg transition-all"
+                        title="退出编辑（未保存修改将还原）"
+                      >
+                        <Undo2 className="w-3 h-3" />退出
+                      </button>
+                    </>
+                  ) : (
+                    <button
+                      onClick={() => setViewMode('edit')}
+                      className="flex items-center gap-1.5 px-3 py-1.5 text-ink-300 hover:text-ink-100 border border-ink-700/60 text-xs rounded-lg transition-all"
+                      title="编辑此文件（Ctrl+S 保存）"
+                    >
+                      <Pencil className="w-3 h-3" />编辑
+                    </button>
+                  )}
+                </div>
               </div>
               {contentLoading ? (
                 <div className="flex items-center justify-center py-20">
                   <Loader2 className="w-5 h-5 text-tech-400 animate-spin" />
                 </div>
+              ) : viewMode === 'edit' ? (
+                <div className="flex-1 min-h-0" style={{ minHeight: '400px' }}>
+                  <MonacoFileEditor
+                    value={fileContent}
+                    language={monacoLangOf(selectedFile.fileName)}
+                    path={`ws-${selectedFile.fileId}`}
+                    wordWrap="on"
+                    onChange={(v) => { setFileContent(v ?? ''); setDirty(true); }}
+                  />
+                </div>
+              ) : isMarkdownPath(selectedFile.fileName) ? (
+                <MarkdownReader content={fileContent} />
+              ) : isProbablyBinary(fileContent) ? (
+                <div className="flex-1 flex flex-col items-center justify-center py-20 text-ink-500">
+                  <FileText className="w-10 h-10 mb-3 opacity-30" />
+                  <p className="text-sm">二进制文件不支持预览，请下载后查看</p>
+                </div>
               ) : (
-                <textarea
-                  value={fileContent}
-                  onChange={e => setFileContent(e.target.value)}
-                  onKeyDown={e => {
-                    if ((e.ctrlKey || e.metaKey) && e.key === 's') {
-                      e.preventDefault();
-                      handleSave();
-                    }
-                  }}
-                  className="flex-1 w-full bg-ink-900/50 border border-tech-500/10 rounded-lg p-3 text-sm text-ink-100 font-mono outline-none focus:border-tech-500/30 resize-none"
-                  style={{ minHeight: '400px' }}
-                  spellCheck={false}
-                />
+                <div className="flex-1 min-h-0" style={{ minHeight: '400px' }}>
+                  <MonacoFileEditor
+                    value={fileContent}
+                    language={monacoLangOf(selectedFile.fileName)}
+                    path={`ws-${selectedFile.fileId}`}
+                    readOnly
+                    wordWrap="off"
+                  />
+                </div>
               )}
             </>
           ) : (

@@ -40,49 +40,6 @@ export async function listCurrentMenus(): Promise<MenuDTO[]> {
   return unwrap(request.get<ApiResponse<MenuDTO[]>>('/v1/menus/current'));
 }
 
-/** 全量菜单树（管理员） */
-export async function listMenus(): Promise<MenuDTO[]> {
-  return unwrap(request.get<ApiResponse<MenuDTO[]>>('/v1/menus'));
-}
-
-/** 创建菜单 */
-export async function createMenu(data: {
-  parentId?: string;
-  menuName: string;
-  menuType?: number;
-  path?: string;
-  icon?: string;
-  sortOrder?: number;
-  permissionCode?: string;
-  visible?: number;
-}): Promise<MenuDTO> {
-  return unwrap(request.post<ApiResponse<MenuDTO>>('/v1/menus', data));
-}
-
-/** 更新菜单 */
-export async function updateMenu(menuId: string, data: {
-  parentId?: string;
-  menuName?: string;
-  menuType?: number;
-  path?: string;
-  icon?: string;
-  sortOrder?: number;
-  permissionCode?: string;
-  visible?: number;
-}): Promise<MenuDTO> {
-  return unwrap(request.put<ApiResponse<MenuDTO>>(`/v1/menus/${menuId}`, data));
-}
-
-/** 删除菜单（存在子菜单时无法删除） */
-export async function deleteMenu(menuId: string): Promise<void> {
-  return unwrap(request.delete<ApiResponse<void>>(`/v1/menus/${menuId}`));
-}
-
-/** 角色已分配的菜单ID列表 */
-export async function listRoleMenus(roleId: string): Promise<string[]> {
-  return unwrap(request.get<ApiResponse<string[]>>(`/v1/menus/roles/${roleId}`));
-}
-
 /** 分配角色菜单（替换） */
 export async function assignRoleMenus(roleId: string, menuIds: string[]): Promise<void> {
   return unwrap(request.put<ApiResponse<void>>(`/v1/menus/roles/${roleId}`, { menuIds }));

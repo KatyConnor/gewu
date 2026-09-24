@@ -103,6 +103,24 @@ export function classifyChatError(raw: string): ChatErrorInfo {
 }
 
 /**
+ * 可自动重连的网络类错误判定（断流自动重试用）：仅网络/超时类触发重连循环，
+ * 鉴权、参数、预算熔断等业务性错误直接终局展示，避免无意义重试。
+ */
+export function isRetryableChatError(raw: string): boolean {
+  const text = (raw || '').trim();
+  if (!text) return false;
+  // 鉴权/参数/资源类明确不重试（重试也不会成功）
+  if (/\b40[0139]\b|unauthorized|forbidden|api\s*key|invalid[_\s-]?token|预算|budget/i.test(text)) return false;
+  // 网络/超时类关键词命中即重试
+  if (/timeout|timed?\s*out|超时|ETIMEDOUT|ECONNRESET|ECONNREFUSED|ECONNABORTED|failed\s*to\s*fetch|network\s*error|networkerror|ERR_NETWORK|Load\s*failed|socket|连接|中断|断开|异常关闭|premature|closed|aborted/i.test(text)) {
+    return true;
+  }
+  // 兜底：按分类结果判断
+  const info = classifyChatError(text);
+  return info.category === '连接异常关闭' || info.category === '请求超时';
+}
+
+/**
  * 回复截断提示（S9）：done 事件携带 finishReason=length 时使用。
  * 引擎已自动加倍重试 2 次仍被 token 上限截断，保留部分内容并明示不完整。
  */

@@ -1,7 +1,11 @@
 'use client';
 import { useState } from 'react';
 import { FileCode, FileText, FileJson, FileSpreadsheet, FileType, Download, Eye, X, Loader2 } from 'lucide-react';
+import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
+import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
 import type { FileInfo } from '@/types';
+import MarkdownReader from '@/components/ui/MarkdownReader';
+import { prismLangOf } from '@/lib/prismHighlight';
 
 /**
  * 文件卡片组件 - 展示 AI 生成的文件，支持预览和下载。
@@ -124,13 +128,35 @@ export default function FileCard({ file }: { file: FileInfo }) {
                 </button>
               </div>
             </div>
-            {/* 内容 - 可滚动 */}
+            {/* 内容 - 可滚动（Markdown 走阅读模式渲染，代码走语法高亮，其余纯文本） */}
             <div className="flex-1 overflow-auto p-4 scrollbar-thin">
               {loadingPreview ? (
                 <div className="flex items-center justify-center py-12">
                   <Loader2 className="w-5 h-5 text-tech-400 animate-spin" />
                   <span className="ml-2 text-sm text-ink-400">加载文件内容...</span>
                 </div>
+              ) : isMarkdownFile(file) ? (
+                <MarkdownReader content={previewContent ?? ''} />
+              ) : previewHighlightLang(file) ? (
+                <SyntaxHighlighter
+                  language={previewHighlightLang(file)!}
+                  style={vscDarkPlus}
+                  showLineNumbers={(previewContent ?? '').split('\n').length > 3}
+                  customStyle={{
+                    margin: 0,
+                    padding: '12px 0',
+                    background: 'transparent',
+                    fontSize: '13px',
+                    lineHeight: '1.6',
+                  }}
+                  codeTagProps={{
+                    style: {
+                      fontFamily: "'JetBrains Mono', 'Fira Code', 'Cascadia Code', Consolas, monospace",
+                    },
+                  }}
+                >
+                  {previewContent ?? ''}
+                </SyntaxHighlighter>
               ) : (
                 <pre className="text-[13px] text-ink-200 whitespace-pre-wrap break-words font-mono leading-relaxed">
                   {previewContent}
@@ -144,8 +170,20 @@ export default function FileCard({ file }: { file: FileInfo }) {
   );
 }
 
-function getFileIcon(fileType: string) {
-  switch (fileType) {
+/** Markdown 文件判定：类型标记优先，扩展名兜底 */
+function isMarkdownFile(file: FileInfo): boolean {
+  if (file.fileType === 'markdown') return true;
+  const name = file.fileName.toLowerCase();
+  return name.endsWith('.md') || name.endsWith('.markdown');
+}
+
+/** 代码类文件的 Prism 高亮语言（code/json/yaml 且扩展名可识别）；不命中返回 null 走纯文本 */
+function previewHighlightLang(file: FileInfo): string | null {
+  if (file.fileType !== 'code' && file.fileType !== 'json' && file.fileType !== 'yaml') return null;
+  return prismLangOf(file.fileName);
+}
+
+function getFileIcon(fileType: string) {  switch (fileType) {
     case 'code':
       return <FileCode className="w-5 h-5" />;
     case 'markdown':
