@@ -1,0 +1,692 @@
+package com.gewu.agent.engine.config;
+
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.gewu.agent.engine.budget.BudgetController;
+import com.gewu.agent.engine.cognition.ArbiterEngine;
+import com.gewu.agent.engine.cognition.ConfidenceGate;
+import com.gewu.agent.engine.cognition.ComplexityRouter;
+import com.gewu.agent.engine.cognition.DualSystemRouter;
+import com.gewu.agent.engine.cognition.EvolutionHook;
+import com.gewu.agent.engine.cognition.NoOpArbiterEngine;
+import com.gewu.agent.engine.cognition.NoOpPerceptionEngine;
+import com.gewu.agent.engine.cognition.PerceptionEngine;
+import com.gewu.agent.engine.orchestration.AgentLifecycleManager;
+import com.gewu.agent.engine.orchestration.AntiRunawayGuard;
+import com.gewu.agent.engine.scenario.ScenarioAdapterRegistry;
+import com.gewu.agent.engine.spi.PolicyService;
+import com.gewu.agent.engine.spi.ResponseCache;
+import com.gewu.agent.engine.spi.TraceService;
+import com.gewu.agent.engine.spi.MetricService;
+import com.gewu.agent.engine.spi.ModelSelector;
+import com.gewu.agent.engine.tool.security.PromptInjectionDetector;
+import com.gewu.agent.engine.tool.security.OutputSanitizer;
+import com.gewu.agent.engine.tool.security.SecurityCheck;
+import com.gewu.agent.engine.cognition.NoOpEvolutionHook;
+import com.gewu.agent.engine.cognition.NoOpReasoningKernel;
+import com.gewu.agent.engine.cognition.NoOpReflectionEngine;
+import com.gewu.agent.engine.cognition.ReasoningKernel;
+import com.gewu.agent.engine.cognition.ReflectionEngine;
+import com.gewu.agent.engine.core.AgentEngine;
+import com.gewu.agent.engine.core.AgentEngineConfig;
+import com.gewu.agent.engine.core.AgentExecutor;
+import com.gewu.agent.engine.core.ReactAgentExecutor;
+import com.gewu.agent.engine.hitl.HitlGateway;
+import com.gewu.agent.engine.hitl.NoOpHitlGateway;
+import com.gewu.agent.engine.llm.LlmClient;
+import com.gewu.agent.engine.llm.LlmClientRegistry;
+import com.gewu.agent.engine.llm.LlmProvider;
+import com.gewu.agent.engine.llm.LlmRequestBodyBuilder;
+import com.gewu.agent.engine.message.DefaultMessageBuilder;
+import com.gewu.agent.engine.message.MessageBuilder;
+import com.gewu.agent.engine.message.SystemPromptComposer;
+import com.gewu.agent.engine.mcp.McpServerConfigSource;
+import com.gewu.agent.engine.mcp.McpServerManager;
+import com.gewu.agent.engine.mcp.NoOpMcpServerConfigSource;
+import com.gewu.agent.engine.contract.ArtifactValidator;
+import com.gewu.agent.engine.orchestration.ConflictResolver;
+import com.gewu.agent.engine.orchestration.ExecutionControl;
+import com.gewu.agent.engine.orchestration.GraphNodeExecutor;
+import com.gewu.agent.engine.verification.DualLoopVerifier;
+import com.gewu.agent.engine.orchestration.AutonomousExecutor;
+import com.gewu.agent.engine.orchestration.DefaultGoalPlanner;
+import com.gewu.agent.engine.orchestration.GoalPlanner;
+import com.gewu.agent.engine.orchestration.OrchestrationEngine;
+import com.gewu.agent.engine.orchestration.Orchestrator;
+import com.gewu.agent.engine.orchestration.role.NoOpRoleConfigSource;
+import com.gewu.agent.engine.orchestration.role.RoleConfigSource;
+import com.gewu.agent.engine.orchestration.role.RoleRegistry;
+import com.gewu.agent.engine.memory.MemoryRouter;
+import com.gewu.agent.engine.memory.MemoryStore;
+import com.gewu.agent.engine.memory.NoOpMemoryRouter;
+import com.gewu.agent.engine.memory.NoOpMemoryStore;
+import com.gewu.agent.engine.spi.ApiKeyDecryptor;
+import com.gewu.agent.engine.spi.AuditService;
+import com.gewu.agent.engine.spi.PermissionService;
+import com.gewu.agent.engine.spi.PersistenceService;
+import com.gewu.agent.engine.spi.SandboxExecutor;
+import com.gewu.agent.engine.spi.SessionContextService;
+import com.gewu.agent.engine.spi.defaults.NoOpApiKeyDecryptor;
+import com.gewu.agent.engine.spi.defaults.NoOpAuditService;
+import com.gewu.agent.engine.spi.defaults.NoOpLlmProvider;
+import com.gewu.agent.engine.spi.defaults.NoOpModelSelector;
+import com.gewu.agent.engine.spi.defaults.NoOpPermissionService;
+import com.gewu.agent.engine.spi.defaults.NoOpPersistenceService;
+import com.gewu.agent.engine.spi.defaults.NoOpSandboxExecutor;
+import com.gewu.agent.engine.spi.defaults.NoOpSessionContextService;
+import com.gewu.agent.engine.tool.NoOpToolConfigSource;
+import com.gewu.agent.engine.tool.Tool;
+import com.gewu.agent.engine.tool.ToolConfigSource;
+import com.gewu.agent.engine.tool.ToolExecutor;
+import com.gewu.agent.engine.tool.ToolRegistry;
+import com.gewu.agent.engine.tool.security.CodeScanner;
+import com.gewu.agent.engine.tool.security.CodeScannerCheck;
+import com.gewu.agent.engine.tool.security.DefaultCodeScanner;
+import com.gewu.agent.engine.tool.security.OutputSanitizer;
+import com.gewu.agent.engine.tool.security.PromptInjectionDetector;
+import com.gewu.agent.engine.tool.security.SchemaValidator;
+import com.gewu.agent.engine.tool.security.SecurityChain;
+import com.gewu.agent.engine.tool.security.SecurityCheck;
+import com.gewu.agent.engine.tool.security.SsrfValidator;
+import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
+import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.context.annotation.Bean;
+import org.springframework.context.annotation.Configuration;
+
+import java.net.http.HttpClient;
+import java.time.Duration;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.concurrent.ArrayBlockingQueue;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.ThreadPoolExecutor;
+import java.util.concurrent.TimeUnit;
+
+/**
+ * Agent 引擎自动配置。
+ * <p>装配 LLM 客户端注册中心、工具执行器、消息构建器、ReAct 执行器、Agent 引擎门面，
+ * 以及全部 SPI 的 NoOp 默认实现。使用方按需实现 SPI 接口注册为 Spring Bean 即可覆盖默认行为。
+ *
+ * @since 1.0.0
+ */
+@Configuration
+@EnableConfigurationProperties(AgentEngineProperties.class)
+public class AgentEngineAutoConfiguration {
+
+    // ==================== 基础设施 ====================
+
+    @Bean
+    @ConditionalOnMissingBean(name = "llmHttpClient")
+    public HttpClient llmHttpClient(AgentEngineProperties props) {
+        return HttpClient.newBuilder()
+                .connectTimeout(props.getLlm().getConnectTimeout())
+                .followRedirects(HttpClient.Redirect.NORMAL)
+                .build();
+    }
+
+    @Bean("agentEngineLlmRequestBodyBuilder")
+    @ConditionalOnMissingBean
+    public LlmRequestBodyBuilder agentEngineLlmRequestBodyBuilder(ObjectMapper objectMapper) {
+        return new LlmRequestBodyBuilder(objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public LlmProvider llmProvider() {
+        return new NoOpLlmProvider();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public LlmClientRegistry llmClientRegistry(List<LlmClient> clients, LlmProvider provider,
+                                                ObjectMapper objectMapper, HttpClient llmHttpClient,
+                                                LlmRequestBodyBuilder bodyBuilder,
+                                                AgentEngineProperties props) {
+        LlmClientRegistry registry = new LlmClientRegistry(clients, provider, objectMapper,
+                llmHttpClient, bodyBuilder);
+        registry.setRequestTimeout(props.getLlm().getRequestTimeout());
+        registry.setStreamIdleTimeoutMs(props.getLlm().getStreamIdleTimeoutMs());
+        return registry;
+    }
+
+    // ==================== 工具层 ====================
+
+    @Bean("agentEngineSsrfValidator")
+    @ConditionalOnMissingBean
+    public SsrfValidator agentEngineSsrfValidator(AgentEngineProperties props) {
+        return new SsrfValidator(props.getTool().getAllowedHosts());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public CodeScanner codeScanner() {
+        return new DefaultCodeScanner();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SchemaValidator schemaValidator(ObjectMapper objectMapper) {
+        return new SchemaValidator(objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SecurityChain securityChain(List<SecurityCheck> checks, SchemaValidator schemaValidator) {
+        List<SecurityCheck> all = new ArrayList<>(checks);
+        if (!all.contains(schemaValidator)) {
+            all.add(schemaValidator);
+        }
+        return new SecurityChain(all);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public CodeScannerCheck codeScannerCheck(CodeScanner codeScanner) {
+        return new CodeScannerCheck(codeScanner);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ToolRegistry toolRegistry(List<Tool> tools) {
+        return new ToolRegistry(tools);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ToolConfigSource toolConfigSource() {
+        return new NoOpToolConfigSource();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public McpServerConfigSource mcpServerConfigSource() {
+        return new NoOpMcpServerConfigSource();
+    }
+
+    @Bean("agentEngineMcpServerManager")
+    @ConditionalOnMissingBean
+    public McpServerManager agentEngineMcpServerManager(McpServerConfigSource configSource,
+                                                        ObjectMapper objectMapper) {
+        return new McpServerManager(configSource, objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ToolExecutor toolExecutor(ToolRegistry registry, SecurityChain securityChain,
+                                     PermissionService permissionService, AuditService auditService,
+                                     SandboxExecutor sandboxExecutor, McpServerManager mcpServerManager,
+                                     ObjectMapper objectMapper, AgentEngineProperties props) {
+        return new ToolExecutor(registry, securityChain, permissionService, auditService,
+                sandboxExecutor, mcpServerManager, objectMapper,
+                props.getTool().getMaxOutputSize(), props.getTool().getMaxRedirects(),
+                props.getTool().getDefaultTimeoutSeconds());
+    }
+
+    // ==================== SPI 默认实现 ====================
+
+    @Bean
+    @ConditionalOnMissingBean
+    public PersistenceService persistenceService() {
+        return new NoOpPersistenceService();
+    }
+
+    @Bean("agentEnginePermissionService")
+    @ConditionalOnMissingBean
+    public PermissionService agentEnginePermissionService() {
+        return new NoOpPermissionService();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AuditService auditService() {
+        return new NoOpAuditService();
+    }
+
+    @Bean("agentEngineSessionContextService")
+    @ConditionalOnMissingBean
+    public SessionContextService agentEngineSessionContextService() {
+        return new NoOpSessionContextService();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SandboxExecutor sandboxExecutor() {
+        return new NoOpSandboxExecutor();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ApiKeyDecryptor apiKeyDecryptor() {
+        return new NoOpApiKeyDecryptor();
+    }
+
+    // ==================== 消息构建 ====================
+
+    @Bean
+    @ConditionalOnMissingBean
+    public SystemPromptComposer systemPromptComposer() {
+        return new SystemPromptComposer();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public MessageBuilder messageBuilder(SystemPromptComposer composer) {
+        return new DefaultMessageBuilder(composer);
+    }
+
+    // ==================== 核心引擎 ====================
+
+    @Bean(destroyMethod = "shutdown")
+    @ConditionalOnMissingBean(name = "agentToolExecutor")
+    public ExecutorService agentToolExecutor(AgentEngineProperties props) {
+        AgentEngineProperties.Engine e = props.getEngine();
+        return new ThreadPoolExecutor(
+                e.getToolExecutorCorePoolSize(),
+                e.getToolExecutorMaxPoolSize(),
+                60L, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(e.getToolExecutorQueueCapacity()),
+                r -> {
+                    Thread t = new Thread(r, "agent-tool-exec");
+                    t.setDaemon(true);
+                    return t;
+                },
+                new ThreadPoolExecutor.CallerRunsPolicy());
+    }
+
+    /**
+     * 子代理并行执行线程池：与工具执行池隔离——spawn_subagents 在工具执行线程上
+     * 内嵌 join 等待子 ReAct 会话，共用池会嵌套占满线程导致死锁；
+     * 队列满时 CallerRuns 降级为派发线程串行执行（背压而非拒绝）。
+     */
+    @Bean(destroyMethod = "shutdown")
+    @ConditionalOnMissingBean(name = "agentSubAgentExecutor")
+    public ExecutorService agentSubAgentExecutor(AgentEngineProperties props) {
+        AgentEngineProperties.Subagents s = props.getEngine().getSubagents();
+        return new ThreadPoolExecutor(
+                s.getCorePoolSize(),
+                s.getMaxPoolSize(),
+                60L, TimeUnit.SECONDS,
+                new ArrayBlockingQueue<>(Math.max(16, s.getMaxPoolSize() * 4)),
+                r -> {
+                    Thread t = new Thread(r, "agent-subagent-exec");
+                    t.setDaemon(true);
+                    return t;
+                },
+                new ThreadPoolExecutor.CallerRunsPolicy());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AgentEngineConfig agentEngineConfig(AgentEngineProperties props,
+                                                ExecutorService agentToolExecutor,
+                                                ExecutorService agentSubAgentExecutor) {
+        AgentEngineProperties.Engine e = props.getEngine();
+        AgentEngineProperties.Subagents s = e.getSubagents();
+        return AgentEngineConfig.builder()
+                .maxToolRounds(e.getMaxToolRounds())
+                .defaultMaxTokens(e.getDefaultMaxTokens())
+                .defaultTemperature(e.getDefaultTemperature())
+                .toolExecutor(agentToolExecutor)
+                .defaultHistoryLimit(e.getDefaultHistoryLimit())
+                // 超限优雅降级与死循环检测（优化1/3）
+                .limitSummaryEnabled(e.isLimitSummaryEnabled())
+                .limitSummaryMaxTokens(e.getLimitSummaryMaxTokens())
+                .loopDetectionEnabled(e.isLoopDetectionEnabled())
+                .loopWarnThreshold(e.getLoopWarnThreshold())
+                .loopStopThreshold(e.getLoopStopThreshold())
+                // 上下文压缩续跑（配额与上下文自治）
+                .contextCompactThreshold(e.getContextCompactThreshold())
+                .contextCompactKeepRounds(e.getContextCompactKeepRounds())
+                // 轮次滚动扩容（与时间滚动续期同哲学：不误杀健康推进的长任务）
+                .roundsRenewEnabled(e.isRoundsRenewEnabled())
+                .roundsRenewMax(e.getRoundsRenewMax())
+                // 子代理派生（spawn_subagents）
+                .subAgentExecutor(agentSubAgentExecutor)
+                .subagents(AgentEngineConfig.Subagents.builder()
+                        .enabled(s.isEnabled())
+                        .maxPerSpawn(s.getMaxPerSpawn())
+                        .maxDepth(s.getMaxDepth())
+                        .timeoutSeconds(s.getTimeoutSeconds())
+                        .shareSessionHistory(s.isShareSessionHistory())
+                        .maxPromptChars(s.getMaxPromptChars())
+                        .maxOutputChars(s.getMaxOutputChars())
+                        .build())
+                .build();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AgentExecutor agentExecutor(LlmClientRegistry llmClientRegistry, ToolExecutor toolExecutor,
+                                       MessageBuilder messageBuilder, SessionContextService sessionContextService,
+                                       PersistenceService persistenceService, AgentEngineConfig config,
+                                       ObjectMapper objectMapper, MemoryRouter memoryRouter,
+                                       MemoryStore memoryStore, BudgetController budgetController,
+                                       PerceptionEngine perceptionEngine, ComplexityRouter complexityRouter,
+                                       TraceService traceService, MetricService metricService,
+                                       ResponseCache responseCache,
+                                       PromptInjectionDetector promptInjectionDetector,
+                                       OutputSanitizer outputSanitizer,
+                                       ModelSelector modelSelector,
+                                       com.gewu.agent.engine.tool.FileWorkspaceSpi fileWorkspaceSpi,
+                                       com.gewu.agent.engine.spi.ContextCompactor contextCompactor,
+                                       com.gewu.agent.engine.spi.ModelContextProvider modelContextProvider) {
+        return new ReactAgentExecutor(llmClientRegistry, toolExecutor, messageBuilder,
+                sessionContextService, persistenceService, config, objectMapper, memoryRouter, memoryStore,
+                budgetController, perceptionEngine, complexityRouter, traceService, metricService, responseCache,
+                promptInjectionDetector, outputSanitizer, modelSelector, fileWorkspaceSpi,
+                contextCompactor, modelContextProvider);
+    }
+
+    /** 上下文压缩器缺省实现：放弃压缩（仅配置上下文窗口时产生接近告警，不影响任务继续） */
+    @Bean
+    @ConditionalOnMissingBean(com.gewu.agent.engine.spi.ContextCompactor.class)
+    public com.gewu.agent.engine.spi.ContextCompactor contextCompactor() {
+        return (messages, keepRecentRounds) -> null;
+    }
+
+    /** 模型上下文窗口缺省实现：未知（跳过压缩与输出上限校验，行为与旧版一致） */
+    @Bean
+    @ConditionalOnMissingBean(com.gewu.agent.engine.spi.ModelContextProvider.class)
+    public com.gewu.agent.engine.spi.ModelContextProvider modelContextProvider() {
+        return new com.gewu.agent.engine.spi.ModelContextProvider() {
+            @Override public Integer contextWindowInput(String modelId) { return null; }
+            @Override public Integer contextWindowOutput(String modelId) { return null; }
+        };
+    }
+
+    /** 文件工作空间 SPI 缺省实现（S9 F3）：应用层提供沙箱实现时被覆盖 */
+    @Bean
+    @ConditionalOnMissingBean(com.gewu.agent.engine.tool.FileWorkspaceSpi.class)
+    public com.gewu.agent.engine.tool.FileWorkspaceSpi fileWorkspaceSpi() {
+        return new com.gewu.agent.engine.spi.defaults.NoOpFileWorkspaceSpi();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AgentEngine agentEngine(AgentExecutor executor) {
+        return new AgentEngine(executor);
+    }
+
+    // ==================== 记忆与认知 SPI ====================
+
+    @Bean
+    @ConditionalOnMissingBean
+    public BudgetController budgetController(AgentEngineProperties props, com.gewu.agent.engine.spi.CostCalculator costCalculator) {
+        AgentEngineProperties.Engine e = props.getEngine();
+        AgentEngineProperties.Budget b = props.getBudget();
+        BudgetController.Quotas quotas = new BudgetController.Quotas();
+        quotas.setL1TokenDivisor(b.getL1TokenDivisor());
+        quotas.setL1TimeBudgetMs(b.getL1TimeBudgetMs());
+        quotas.setL1MaxRounds(b.getL1MaxRounds());
+        quotas.setL3TokenMultiplier(b.getL3TokenMultiplier());
+        quotas.setL3TimeMultiplier(b.getL3TimeMultiplier());
+        quotas.setL3RoundsMultiplier(b.getL3RoundsMultiplier());
+        return new BudgetController(
+                b.getTokenBudget(),
+                b.getTimeBudgetMs(),
+                e.getMaxToolRounds(),
+                quotas,
+                // 金额上限（元）：>0 启用成本维熔断（优化2）
+                b.getCostBudgetYuan(),
+                costCalculator,
+                b.getAlertThreshold(),
+                b.getDegradeThreshold());
+    }
+
+    /** 成本计算器缺省实现：统一假单价（与历史行为一致）；宿主提供定价表实现时自动覆盖 */
+    @Bean
+    @ConditionalOnMissingBean(com.gewu.agent.engine.spi.CostCalculator.class)
+    public com.gewu.agent.engine.spi.CostCalculator costCalculator() {
+        return (modelId, promptTokens, completionTokens) ->
+                (promptTokens + completionTokens) * com.gewu.agent.engine.spi.CostCalculator.FALLBACK_PRICE_PER_TOKEN;
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ConfidenceGate confidenceGate() {
+        return new ConfidenceGate();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public MemoryStore memoryStore() {
+        return new NoOpMemoryStore();
+    }
+
+    @Bean("agentEngineMemoryRouter")
+    @ConditionalOnMissingBean
+    public MemoryRouter agentEngineMemoryRouter() {
+        return new NoOpMemoryRouter();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ReasoningKernel reasoningKernel() {
+        return new NoOpReasoningKernel();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public EvolutionHook evolutionHook() {
+        return new NoOpEvolutionHook();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ReflectionEngine reflectionEngine() {
+        return new NoOpReflectionEngine();
+    }
+
+    // ==================== 编排引擎 ====================
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RoleConfigSource roleConfigSource() {
+        return new NoOpRoleConfigSource();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public RoleRegistry roleRegistry(List<com.gewu.agent.engine.orchestration.role.AgentRoleSpec> specs,
+                                     RoleConfigSource configSource) {
+        var all = new ArrayList<com.gewu.agent.engine.orchestration.role.AgentRoleSpec>();
+        var external = configSource.loadRoles();
+        if (external != null) {
+            all.addAll(external);
+        }
+        if (specs != null) {
+            all.addAll(specs);
+        }
+        return new RoleRegistry(all);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public HitlGateway hitlGateway() {
+        return new NoOpHitlGateway();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public Orchestrator orchestrator(AgentExecutor executor, HitlGateway hitlGateway,
+                                      ObjectProvider<ConflictResolver> conflictResolverProvider,
+                                      ObjectProvider<ArtifactValidator> artifactValidatorProvider,
+                                      ObjectProvider<GraphNodeExecutor> graphNodeExecutorProvider,
+                                      ExecutionControl executionControl, GoalPlanner goalPlanner) {
+        return new Orchestrator(executor, hitlGateway,
+                conflictResolverProvider.getIfAvailable(), artifactValidatorProvider.getIfAvailable(),
+                graphNodeExecutorProvider.getIfAvailable(), executionControl, goalPlanner);
+    }
+
+    /** 执行控制注册表：在途编排的协作式暂停/取消信号与断点检查点 */
+    @Bean
+    @ConditionalOnMissingBean
+    public ExecutionControl executionControl() {
+        return new ExecutionControl();
+    }
+
+    /** 图节点执行器：TOOL 类型节点的安全管线执行（可被使用方覆盖） */
+    @Bean
+    @ConditionalOnMissingBean
+    public GraphNodeExecutor graphNodeExecutor(ToolExecutor toolExecutor) {
+        return new GraphNodeExecutor(toolExecutor);
+    }
+
+    /**
+     * LLM 规划器（B-1，默认关闭）：agent.engine.planner.llm.enabled=true 时覆盖
+     * DefaultGoalPlanner 单步兜底，提供真实 LLM 目标分解与并行波次计划图。
+     * Bean 定义置于 ConditionalOnMissingBean 之前，启用即生效、关闭回落默认。
+     */
+    @Bean
+    @ConditionalOnProperty(name = "agent.engine.planner.llm.enabled", havingValue = "true")
+    public GoalPlanner llmGoalPlanner(AgentEngineProperties props, LlmClientRegistry llmClientRegistry,
+                                      ObjectMapper objectMapper) {
+        var cfg = props.getPlanner().getLlm();
+        return new com.gewu.agent.engine.orchestration.LlmGoalPlanner(
+                llmClientRegistry, objectMapper, cfg.getProvider(), cfg.getModel(), cfg.getMaxSteps());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public GoalPlanner goalPlanner() {
+        return new DefaultGoalPlanner();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AutonomousExecutor autonomousExecutor(GoalPlanner goalPlanner, Orchestrator orchestrator,
+                                                  EvolutionHook evolutionHook, ReasoningKernel reasoningKernel,
+                                                  ConfidenceGate confidenceGate,
+                                                  BudgetController budgetController,
+                                                  AntiRunawayGuard antiRunawayGuard,
+                                                  AgentLifecycleManager agentLifecycleManager,
+                                                  ArbiterEngine arbiterEngine,
+                                                  com.gewu.agent.engine.spi.TraceService traceService) {
+        return new AutonomousExecutor(goalPlanner, orchestrator, evolutionHook, reasoningKernel,
+                confidenceGate, new DualLoopVerifier(arbiterEngine), budgetController, antiRunawayGuard,
+                agentLifecycleManager, traceService);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public OrchestrationEngine orchestrationEngine(Orchestrator orchestrator, GoalPlanner goalPlanner,
+                                                    AutonomousExecutor autonomousExecutor,
+                                                    ExecutionControl executionControl) {
+        return new OrchestrationEngine(orchestrator, goalPlanner, autonomousExecutor, executionControl);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ConflictResolver conflictResolver(ReasoningKernel reasoningKernel, HitlGateway hitlGateway,
+                                              ArbiterEngine arbiterEngine) {
+        return new ConflictResolver(reasoningKernel, hitlGateway, arbiterEngine);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ArtifactValidator artifactValidator(ObjectMapper objectMapper) {
+        return new ArtifactValidator(objectMapper);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public DualSystemRouter dualSystemRouter() {
+        return new DualSystemRouter();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AgentLifecycleManager agentLifecycleManager(AgentEngineProperties props) {
+        return new AgentLifecycleManager(
+                props.getLifecycle().getHeartbeatTimeoutMs(),
+                props.getLifecycle().getGlobalTimeoutMs());
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ScenarioAdapterRegistry scenarioAdapterRegistry() {
+        ScenarioAdapterRegistry registry = new ScenarioAdapterRegistry();
+        registry.register(ScenarioAdapterRegistry.DEFAULT);
+        registry.register(ScenarioAdapterRegistry.CODE_GENERATION);
+        registry.register(ScenarioAdapterRegistry.KNOWLEDGE_QA);
+        registry.register(ScenarioAdapterRegistry.ARCHITECTURE);
+        return registry;
+    }
+
+    // ==================== 阶段六：认知/治理/安全 SPI ====================
+
+    @Bean
+    @ConditionalOnMissingBean
+    public PerceptionEngine perceptionEngine() {
+        return new NoOpPerceptionEngine();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ArbiterEngine arbiterEngine() {
+        return new NoOpArbiterEngine();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ComplexityRouter complexityRouter(DualSystemRouter dualSystemRouter) {
+        return new ComplexityRouter(dualSystemRouter);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public AntiRunawayGuard antiRunawayGuard(BudgetController budgetController) {
+        return new AntiRunawayGuard(budgetController);
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public TraceService traceService() {
+        return new TraceService() {
+            @Override
+            public void recordTrace(String executionId, String nodeId, String phase, String action, String detail) {
+            }
+        };
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ResponseCache responseCache() {
+        return new ResponseCache() {};
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public ModelSelector modelSelector() {
+        return new NoOpModelSelector();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public MetricService metricService() {
+        return new MetricService() {
+            @Override
+            public void recordMetric(String name, double value, java.util.Map<String, String> tags) {
+            }
+        };
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public PolicyService policyService() {
+        return new PolicyService() {};
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public PromptInjectionDetector promptInjectionDetector() {
+        return new PromptInjectionDetector();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean
+    public OutputSanitizer outputSanitizer() {
+        return new OutputSanitizer();
+    }
+}

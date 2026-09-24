@@ -1,0 +1,47 @@
+# Ruff — Python lint + format
+# https://docs.astral.sh/ruff
+
+line-length = 88
+target-version = "py312"
+output-format = "grouped"
+
+[lint]
+select = [
+    "E",     # pycodestyle errors
+    "W",     # pycodestyle warnings
+    "F",     # pyflakes
+    "I",     # isort (import sorting)
+    "B",     # flake8-bugbear (common bugs)
+    "C4",    # flake8-comprehensions
+    "UP",    # pyupgrade
+    "N",     # pep8-naming
+    "SIM",   # flake8-simplify
+    "TCH",   # flake8-type-checking
+    "RUF",   # ruff-specific
+    "PL",    # pylint
+    "S",     # flake8-bandit (security)
+    "A",     # flake8-builtins
+    "C90",   # mccabe complexity
+]
+ignore = [
+    "E501",   # line too long (handled by formatter)
+    "PLR0913", # too many arguments (checked manually)
+]
+
+[lint.per-file-ignores]
+"tests/*" = ["S101", "PLR2004"]  # allow assert, magic numbers in tests
+"__init__.py" = ["F401"]  # allow unused imports in __init__
+
+[lint.mccabe]
+max-complexity = 15
+
+[format]
+quote-style = "double"
+indent-style = "space"
+indent-width = 4
+line-ending = "lf"
+docstring-code-format = true
+
+[isort]
+known-first-party = ["src"]
+force-single-line = false

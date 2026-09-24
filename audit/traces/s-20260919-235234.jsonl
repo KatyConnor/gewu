@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20260919-235234", "ts": "2026-09-19T23:52:34+08:00", "actor": "agent", "event": "CHECKPOINT", "summary": "检查点 cp-budget-ux", "detail": "类型:checkpoint 目标:cp-budget-ux", "prev_hash": null, "hash": "76dd7f7c801c4ef2835091087aff7298482b0de1d4d11758deafbe62a48bbfc5"}

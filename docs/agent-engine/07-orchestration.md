@@ -344,3 +344,57 @@ Flux<AgentEvent> goalStream = orchestrationEngine.executeGoal(goal);
 ## 7.14 小结
 
 编排引擎把"多个 Agent 怎么协作"抽象为可声明、可调度、可流式观测的编排图。四种模式覆盖从固定流水线到动态交接再到辩论共识的协作形态；三种运行时覆盖从单次 ReAct 到规划执行再到反思重做的推理策略；`AutonomousExecutor` 在六重边界下把"给个目标就交付"变成可控的现实能力。整套设计对标 LangGraph / AutoGen，但面向 Java + Spring Boot 生态，且与 HITL、记忆、认知 SPI 深度打通，形成自洽的 Agent 编排内核。
+## 7.15 并行波次映射与 PLAN 节点（"汇总→规划→派发实施"闭环）
+
+> 本节记录 2026-09 能力补齐（路线 B）：此前编排层 PARALLEL/MERGE 原语虽完整，但"多子代理并行 → 汇总 → 再规划 → 实施"无任何链路可跑通。本次补齐三件事：**波次映射**、**LLM 规划器**、**PLAN 节点**。
+
+### 7.15.1 计划图并行波次映射（`ExecutionGraph.fromPlanGraph`）
+
+`fromPlanGraph` 从"逐依赖直连"升级为 **Kahn 波次映射**：
+
+- 对步骤按依赖递归分层：`level(s) = 1 + max(level(dep))`（未知依赖忽略、自环/环路兜底）；
+- 同一波次内 n>1 个相互无依赖的步骤 → 生成 `__parallel_Lk`（PARALLEL）→ 各步骤 AGENT 节点 → `__merge_Lk`（MERGE）的并行段；
+- 单步骤波次直接串行链接；层与层按 尾→头 衔接。
+
+效果：计划图中"可并行的步骤"真正并行执行，而非退化为单链（此前 AGENT 节点多出边只走第一条，并行计划不可达）。
+
+### 7.15.2 LlmGoalPlanner（真实 LLM 分解，默认关闭）
+
+`orchestration/LlmGoalPlanner.java`：经 `LlmClientRegistry` 调 LLM 将目标分解为多步骤计划图
+（输出约定 `{"steps":[{"id","description","dependsOn","agentId?","roleCode?"}]}`，允许 ```json 围栏）。
+
+- **健壮解析**：剥围栏、字段校验、未知依赖/自环剔除、步骤数按 `maxSteps` 截断；
+- **单步兜底**：调用失败或解析失败回退单步骤计划（与 `DefaultGoalPlanner` 语义一致，分解永远可用）；
+- **装配**：`agent.engine.planner.llm.enabled=true` 时注册（`@ConditionalOnProperty`，置于
+  `@ConditionalOnMissingBean` 默认之前），配置项 `agent.engine.planner.llm.provider/model/max-steps`；
+- `PlanGraph.PlanStep` 新增可选 `agentId`（步骤绑定执行 Agent）；步骤未绑定时，AGENT 节点执行经
+  图变量 `modelProvider`/`modelName` 兜底解析模型（见 7.15.4），动态图无需预置 Agent 配置即可执行。
+
+### 7.15.3 PLAN 节点（NodeType.PLAN）
+
+PIPELINE 图中可声明 `type=PLAN` 的节点，执行语义：
+
+1. 取输入（通常是 MERGE 汇总产出）构造 `AutonomousGoal`，调用 `goalPlanner.plan` 产出计划图；
+2. 发 `PLAN_CREATED` 事件（步骤清单随事件透出，前端 PlanCard 可渲染）；
+3. 经波次映射生成子图，在**同一 OrchestrationContext 上内联执行**（复用 PIPELINE 全部节点能力）；
+4. 子图最终产出写回 PLAN 节点变量，并沿父图出边继续遍历。
+
+实现机制：`Walk` 增加 `completionCallback`（子图全部路径结束后回调宿主 Walk 继续，而非结束整图）
+与 `planDepth`（嵌套上限 1，子图内禁止再嵌 PLAN，防递归失控）。GoalPlanner 未注入时 PLAN 节点使图
+FAILED 并给出明确原因。
+
+> 至此"主 Agent 汇总多路并行结果 → PLAN 节点制定计划 → 派发实施"在编排图上形成完整闭环：
+> `AGENT(并行子任务)…→ PARALLEL → [AGENT×N] → MERGE → PLAN → [波次执行图] → 输出`。
+
+### 7.15.4 AGENT 节点 inputs 变量模板与模型回退
+
+- `GraphNode.inputs`（此前声明未消费）现已生效：`VariableTemplates.render`（与 TOOL 节点共用）
+  渲染 `${var}`；约定键 `message` 覆盖前驱输出，其余键以 `## 参考：<键>` 段追加——
+  MERGE 后的规划/执行节点可分别引用各并行分支产出（变量 key=节点 ID）；
+- AGENT 节点 `refId` 为空时，经图变量 `modelProvider`/`modelName` 兜底解析模型。
+
+### 7.15.5 ROUTER 跳过分支的 MERGE 计数修正
+
+原实现 `mergeExpect` 按静态入边数计数：ROUTER 跳过的分支若下游汇入 MERGE，该入边永不到达，
+汇聚开不了闸，图以部分产出 SUCCESS 收尾（静默丢分支）。现于 ROUTER 选路后对被跳过分支做
+可达性遍历（不展开 MERGE），将沿途指向 MERGE 的边从 `mergeExpect` 扣除。

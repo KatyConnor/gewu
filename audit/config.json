@@ -1,0 +1,32 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "meta": {
+    "name": "AETC Project Control Config",
+    "version": "1.0.0",
+    "spec": "AETC-STD-001 V1.0",
+    "updated_at": "2026-08-22"
+  },
+  "reviewers": [
+    {"name": "替换为复核人姓名或角色", "scope": ["R2", "R3", "G2", "G5"]}
+  ],
+  "policy": {
+    "batch_files_r2_threshold": 10,
+    "r1_sample_ratio": 0.1,
+    "checkpoint_retention": {"count": 20, "days": 30},
+    "traces_in_git": true
+  },
+  "extra_r2": [
+    "^.*/migrations/.*$",
+    "^.*/docker-compose.*\\.ya?ml$"
+  ],
+  "extra_r3": [
+    "^.*terraform (apply|destroy).*$",
+    "^.*kubectl (delete|rollout undo).*$"
+  ],
+  "deny_patterns": [
+    "^rm\\s+-rf\\s+/(?!tmp).*$",
+    "^git\\s+push\\s+.*--force.*$",
+    "^.*DROP\\s+(TABLE|DATABASE).*$",
+    "^curl.*\\|\\s*(ba)?sh.*$"
+  ]
+}

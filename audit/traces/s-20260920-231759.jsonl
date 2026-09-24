@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20260920-231759", "ts": "2026-09-20T23:17:59+08:00", "actor": "agent", "event": "CHECKPOINT", "summary": "检查点 cp-turn-changes-bar", "detail": "类型:checkpoint 目标:cp-turn-changes-bar", "prev_hash": null, "hash": "8ca44cd7d0b5320f0d3259ce0ec082e2d6cf8e6728021ccbe3ac489a3a24305c"}

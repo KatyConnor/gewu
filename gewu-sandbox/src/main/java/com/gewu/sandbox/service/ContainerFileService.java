@@ -142,6 +142,32 @@ public class ContainerFileService {
         return readFile(containerId, remotePath);
     }
 
+    /**
+     * 删除容器内文件（会话撤销新建文件场景）.
+     * <p>通过 docker exec rm 实现（内部受控路径，不经 CommandValidator）；
+     * 文件不存在时 rm -f 静默成功（幂等）。
+     */
+    public void deleteFile(String containerId, String remotePath) {
+        validatePath(remotePath);
+        String fullPath = WORKSPACE_ROOT + "/" + remotePath;
+        try {
+            com.github.dockerjava.api.command.ExecCreateCmdResponse exec = dockerClient
+                    .execCreateCmd(containerId)
+                    .withAttachStdout(true)
+                    .withAttachStderr(true)
+                    .withCmd("rm", "-f", fullPath)
+                    .exec();
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            dockerClient.execStartCmd(exec.getId())
+                    .exec(new com.github.dockerjava.core.command.ExecStartResultCallback(out, System.err))
+                    .awaitCompletion(10, java.util.concurrent.TimeUnit.SECONDS);
+            log.debug("删除容器文件: {}", fullPath);
+        } catch (Exception e) {
+            log.error("删除容器文件失败: path={}, error={}", remotePath, e.getMessage());
+            throw new RuntimeException("文件删除失败: " + e.getMessage());
+        }
+    }
+
     // ==================== 辅助方法 ====================
 
     private void validatePath(String path) {

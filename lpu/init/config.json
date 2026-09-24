@@ -1,0 +1,26 @@
+{
+  "spec": "LPU-STD-001",
+  "version": "V1.0",
+  "project": {
+    "name": null,
+    "initialized_at": null,
+    "sessions": 0
+  },
+  "stack": {
+    "language": null,
+    "framework": null,
+    "database": null,
+    "middleware": [],
+    "deploy_form": null,
+    "evidence": {}
+  },
+  "metrics": {
+    "source_files": null,
+    "source_lines": null,
+    "sql_files": null,
+    "top_large_files": []
+  },
+  "modules": [],
+  "db_access_mode": null,
+  "triggers": ["项目考古", "遗留项目", "历史项目", "老项目", "接手项目", "无文档项目", "逆向理解", "重构前调研", "系统梳理"]
+}

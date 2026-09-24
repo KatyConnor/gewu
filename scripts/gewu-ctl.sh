@@ -10,11 +10,12 @@ set -euo pipefail
 #   ./scripts/gewu-ctl.sh <命令> [目标]
 #
 # 命令:
-#   start     [all|gateway|interface|sandbox|web]   启动服务（默认 all）
-#   stop      [all|gateway|interface|sandbox|web]   停止服务（默认 all）
-#   restart   [all|gateway|interface|sandbox|web]   重启服务
+#   start     [all|gateway|interface|sandbox|admin-server|web|admin-web]   启动服务（默认 all）
+#   stop      [all|gateway|interface|sandbox|admin-server|web|admin-web]   停止服务（默认 all）
+#             服务无 pid 记录但端口被占时，按端口定位监听进程整树清理（孤儿兜底）
+#   restart   [all|gateway|interface|sandbox|admin-server|web|admin-web]   重启服务
 #   status                                          查看全部服务状态
-#   logs      [gateway|interface|sandbox|web] [-f]  查看服务日志
+#   logs      [gateway|interface|sandbox|admin-server|web|admin-web] [-f]  查看服务日志
 #   deps      [up|down|ps]                          中间件 docker-compose 管理
 #
 # 环境变量:
@@ -23,7 +24,7 @@ set -euo pipefail
 #   SPRING_PROFILES_ACTIVE      Spring Profile（透传给后端服务）
 #   GATEWAY_JAVA_OPTS 等        按服务覆盖 JVM 参数（<NAME>_JAVA_OPTS）
 #
-# 服务端口: gateway=8080  interface=8081  sandbox=8082  web=5001
+# 服务端口: gateway=8080  interface=8081  sandbox=8082  admin-server=8083  web=5001  admin-web=5002
 # ============================================================
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -44,9 +45,9 @@ RUN_DIR="$PROJECT_ROOT/run"
 LOG_DIR="$PROJECT_ROOT/logs"
 mkdir -p "$RUN_DIR" "$LOG_DIR"
 
-# 启动顺序：interface（被 web 代理依赖）→ sandbox → gateway → web
-ALL_SERVICES=(interface sandbox gateway web)
-BACKEND_SERVICES=(interface sandbox gateway)
+# 启动顺序：interface（被 web 代理依赖）→ sandbox → admin-server → gateway → web → admin-web
+ALL_SERVICES=(interface sandbox admin-server gateway web admin-web)
+BACKEND_SERVICES=(interface sandbox admin-server gateway)
 MIDDLEWARE_PORTS=(3306 5432 6379)
 
 # ------------------------------------------------------------
@@ -74,6 +75,7 @@ jar_of() {
         interface) echo "$PROJECT_ROOT/gewu-interface/target/gewu-interface-1.0.0-SNAPSHOT.jar" ;;
         sandbox)   echo "$PROJECT_ROOT/gewu-sandbox/target/gewu-sandbox-1.0.0-SNAPSHOT.jar" ;;
         gateway)   echo "$PROJECT_ROOT/gewu-gateway/target/gewu-gateway-1.0.0-SNAPSHOT.jar" ;;
+        admin-server) echo "$PROJECT_ROOT/gewu-admin-server/target/gewu-admin-server-1.0.0-SNAPSHOT.jar" ;;
     esac
 }
 
@@ -82,7 +84,9 @@ port_of() {
         interface) echo 8081 ;;
         sandbox)   echo 8082 ;;
         gateway)   echo 8080 ;;
+        admin-server) echo 8083 ;;
         web)       echo 5001 ;;
+        admin-web) echo 5002 ;;
     esac
 }
 
@@ -91,7 +95,7 @@ pid_file_of() { echo "$RUN_DIR/$1.pid"; }
 
 validate_service() {
     case "$1" in
-        interface|sandbox|gateway|web) return 0 ;;
+        interface|sandbox|gateway|web|admin-server|admin-web) return 0 ;;
         *) log_error "未知服务: $1（可选: ${ALL_SERVICES[*]}）"; exit 1 ;;
     esac
 }
@@ -106,6 +110,20 @@ port_open() {
 }
 
 pid_alive() { [[ -n "$1" ]] && kill -0 "$1" 2>/dev/null; }
+
+# 陈旧 jar 检测：运行中进程的 jar 在其启动后被重新构建替换 → Boot 懒加载
+# 会按旧偏移读新 jar，随机 NoClassDefFoundError（如 CGLIB/Validator 类）。
+# 命中说明该服务必须尽快重启。仅 Linux（ps -o etimes/stat -c）支持，其他平台跳过。
+jar_stale() { # jar_stale <svc> <pid> → 0=陈旧
+    local jar
+    jar="$(jar_of "$1")"
+    [[ -n "$jar" && -f "$jar" ]] || return 1
+    local jar_mtime etime
+    jar_mtime="$(stat -c %Y "$jar" 2>/dev/null)" || return 1
+    etime="$(ps -o etimes= -p "$2" 2>/dev/null | tr -d ' ')"
+    [[ -n "$etime" ]] || return 1
+    (( jar_mtime > $(date +%s) - etime ))
+}
 
 running_pid() {
     local pf
@@ -141,6 +159,31 @@ kill_tree() {
     kill -TERM "$pid" 2>/dev/null || true
 }
 
+# 按端口定位 LISTEN 态监听进程 PID（仅取监听者，避免把客户端连接进程误当清理目标；
+# 优先 ss，回退 lsof -sTCP:LISTEN，两者皆无返回空）
+pids_on_port() {
+    local pids=""
+    if command -v ss &>/dev/null; then
+        pids="$(ss -tlnp "sport = :$1" 2>/dev/null | grep -oE 'pid=[0-9]+' | cut -d= -f2 | sort -u || true)"
+    elif command -v lsof &>/dev/null; then
+        pids="$(lsof -ti ":$1" -sTCP:LISTEN 2>/dev/null | sort -u || true)"
+    fi
+    echo "$pids"
+}
+
+# 终止进程树：TERM 优雅退出 → 最多等待 30s → KILL 兜底
+stop_pid_tree() {
+    local pid="$1" waited=0
+    kill_tree "$pid"
+    while pid_alive "$pid" && (( waited < 30 )); do
+        sleep 1; waited=$((waited + 1))
+    done
+    if pid_alive "$pid"; then
+        log_warn "PID $pid 30s 未优雅退出，强制终止"
+        kill -KILL "$pid" 2>/dev/null || true
+    fi
+}
+
 # ------------------------------------------------------------
 # start / stop / status
 # ------------------------------------------------------------
@@ -162,7 +205,8 @@ start_backend_service() {
         return 1
     fi
 
-    local svc_opts_var="${svc^^}_JAVA_OPTS"
+    local svc_opts_var="${svc^^}"
+    svc_opts_var="${svc_opts_var//-/_}_JAVA_OPTS"
     local opts="${!svc_opts_var:-${JAVA_OPTS:--Xms256m -Xmx1024m -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError -XX:HeapDumpPath=/home/wnn/devcode/ai-code/gewu-platform/logs -Xlog:gc*:file=/home/wnn/devcode/ai-code/gewu-platform/logs/gc-$svc.log:time,uptime:filecount=5,filesize=20M}}"
 
     setup_java
@@ -182,21 +226,22 @@ start_backend_service() {
 }
 
 start_web_service() {
+    local svc="${1:-web}"
     local port web_dir
-    port="$(port_of web)"
+    port="$(port_of "$svc")"
     # 本机开发默认用源工程；部署场景可 WEB_DIR=/opt/gewu/web 指向 dist/web 产物
-    web_dir="${WEB_DIR:-$PROJECT_ROOT/gewu-web}"
+    web_dir="${WEB_DIR:-$PROJECT_ROOT/gewu-web}"; [ "$svc" = admin-web ] && web_dir="${ADMIN_WEB_DIR:-$PROJECT_ROOT/gewu-admin-web}"
 
-    if running_pid web >/dev/null; then
-        log_warn "web 已在运行（PID $(running_pid web)），跳过"
+    if running_pid "$svc" >/dev/null; then
+        log_warn "$svc 已在运行（PID $(running_pid "$svc")），跳过"
         return 0
     fi
     if port_open "$port"; then
-        log_warn "端口 $port 已被占用但无运行记录，请先排查后重试"
+        log_warn "端口 $port 已被占用但无运行记录，可执行 stop $svc 按端口清理后重试"
         return 1
     fi
     if [[ ! -d "$web_dir/.next" ]]; then
-        log_error "$web_dir/.next 不存在，请先执行 ./scripts/package.sh web（或用 WEB_DIR 指定正确目录）"
+        log_error "$web_dir/.next 不存在，请先执行 ./scripts/package.sh（或用 WEB_DIR/ADMIN_WEB_DIR 指定正确目录）"
         return 1
     fi
 
@@ -205,23 +250,23 @@ start_web_service() {
         log_error "未找到 pnpm 且 $web_dir/node_modules/.bin/next 不可用，无法启动 web"
         return 1
     fi
-    log_info "启动 web（端口 $port，目录 $web_dir）..."
+    log_info "启动 $svc（端口 $port，目录 $web_dir）..."
     (
         cd "$web_dir"
         if [[ -x node_modules/.bin/next ]]; then
-            nohup ./node_modules/.bin/next start -p "$port" >> "$(log_file_of web)" 2>&1 &
+            nohup ./node_modules/.bin/next start -p "$port" >> "$(log_file_of "$svc")" 2>&1 &
         else
-            nohup pnpm start >> "$(log_file_of web)" 2>&1 &
+            nohup pnpm start >> "$(log_file_of "$svc")" 2>&1 &
         fi
-        echo $! > "$(pid_file_of web)"
+        echo $! > "$(pid_file_of "$svc")"
     )
     local pid
-    pid="$(cat "$(pid_file_of web)")"
+    pid="$(cat "$(pid_file_of "$svc")")"
 
     if wait_port "$port" 60; then
-        log_info "web 启动成功（PID $pid，端口 $port 已就绪）"
+        log_info "$svc 启动成功（PID $pid，端口 $port 已就绪）"
     else
-        log_error "web 端口 $port 在 60s 内未就绪，请查看日志: $(log_file_of web)"
+        log_error "$svc 端口 $port 在 60s 内未就绪，请查看日志: $(log_file_of "$svc")"
         return 1
     fi
 }
@@ -239,8 +284,8 @@ do_start() {
     local failed=0
     for svc in "$@"; do
         case "$svc" in
-            interface|sandbox|gateway) start_backend_service "$svc" || failed=1 ;;
-            web)                       start_web_service || failed=1 ;;
+            interface|sandbox|gateway|admin-server) start_backend_service "$svc" || failed=1 ;;
+            web|admin-web)                          start_web_service "$svc" || failed=1 ;;
         esac
     done
     return $failed
@@ -249,20 +294,32 @@ do_start() {
 do_stop() {
     local failed=0
     for svc in "$@"; do
-        local pid
+        local pid port
+        port="$(port_of "$svc")"
         if pid="$(running_pid "$svc")"; then
             log_info "停止 $svc（PID $pid）..."
-            kill_tree "$pid"
-            local waited=0
-            while pid_alive "$pid" && (( waited < 30 )); do
-                sleep 1; waited=$((waited + 1))
-            done
-            if pid_alive "$pid"; then
-                log_warn "$svc 30s 未优雅退出，强制终止"
-                kill -KILL "$pid" 2>/dev/null || true
-            fi
+            stop_pid_tree "$pid"
             rm -f "$(pid_file_of "$svc")"
             log_info "$svc 已停止"
+        elif port_open "$port"; then
+            # 无运行记录但端口被占：孤儿进程兜底清理（按端口整树终止）
+            local orphans
+            orphans="$(pids_on_port "$port")"
+            if [[ -n "$orphans" ]]; then
+                log_warn "$svc 无运行记录但端口 $port 被占用，按端口清理（PID: $(echo "$orphans" | tr '\n' ' ')）"
+                for pid in $orphans; do
+                    stop_pid_tree "$pid"
+                done
+                if port_open "$port"; then
+                    log_error "$svc 端口 $port 清理后仍被占用，请人工排查: lsof -i :$port"
+                    failed=1
+                else
+                    log_info "$svc 端口 $port 已释放"
+                fi
+            else
+                log_error "$svc 端口 $port 被占用但无法识别监听进程（可能属于其他用户），请人工排查: sudo lsof -i :$port"
+                failed=1
+            fi
         else
             log_warn "$svc 未在运行"
         fi
@@ -277,6 +334,13 @@ do_status() {
         local pid state="STOPPED"
         if pid="$(running_pid "$svc")"; then
             state="RUNNING"
+            case "$svc" in
+                interface|sandbox|gateway|admin-server)
+                    if jar_stale "$svc" "$pid"; then
+                        state="STALE_JAR(jar已重建,须重启)"
+                    fi
+                    ;;
+            esac
         elif port_open "$(port_of "$svc")"; then
             state="PORT_BUSY(外部进程)"
             pid="-"
@@ -334,7 +398,7 @@ case "$CMD" in
         TARGET="${2:-all}"
         if [[ "$TARGET" == "all" ]]; then
             # 与启动相反的顺序停止
-            do_stop web gateway sandbox interface
+            do_stop admin-web web gateway admin-server sandbox interface
         else
             validate_service "$TARGET"
             do_stop "$TARGET"

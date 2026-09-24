@@ -28,6 +28,7 @@
         <module>gewu-interface</module>
         <module>gewu-sandbox</module>
         <module>gewu-agent-engine</module>
+        <module>gewu-admin-server</module>
     </modules>
 
     <properties>

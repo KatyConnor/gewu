@@ -1,0 +1,167 @@
+{
+  "$schema": "https://design-tokens.github.io/community-group/format/",
+  "meta": {
+    "name": "AI UI Design Tokens",
+    "version": "1.0.0",
+    "description": "AI前端UI设计规范体系V1.0 配套设计令牌 - AI生成代码必须引用本令牌，禁止裸值",
+    "updated_at": "2026-09-06"
+  },
+  "color": {
+    "gray": {
+      "50": { "value": "#f8f9fa" },
+      "100": { "value": "#f1f3f4" },
+      "200": { "value": "#e5e7ea" },
+      "300": { "value": "#d1d5d9" },
+      "400": { "value": "#9ca3af" },
+      "500": { "value": "#6b7280" },
+      "600": { "value": "#4b5563" },
+      "800": { "value": "#2d3239" },
+      "900": { "value": "#1a1d21" }
+    },
+    "primary": {
+      "50": { "value": "#eff6ff" },
+      "100": { "value": "#dbeafe" },
+      "500": { "value": "#2563eb" },
+      "600": { "value": "#1d4ed8" },
+      "700": { "value": "#1e40af" }
+    },
+    "semantic": {
+      "success": { "value": "#16a34a", "bg": "#f0fdf4", "border": "#bbf7d0" },
+      "warning": { "value": "#d97706", "bg": "#fffbeb", "border": "#fde68a" },
+      "error": { "value": "#dc2626", "bg": "#fef2f2", "border": "#fecaca" },
+      "info": { "value": "#0284c7", "bg": "#f0f9ff", "border": "#bae6fd" }
+    },
+    "dark": {
+      "bg": { "value": "#0f172a" },
+      "surface": { "value": "#1e293b" },
+      "border": { "value": "#334155" },
+      "text": { "value": "#f1f5f9" },
+      "textMuted": { "value": "#94a3b8" }
+    },
+    "usage": {
+      "textPrimary": "{color.gray.900}",
+      "textSecondary": "{color.gray.600}",
+      "textMuted": "{color.gray.400}",
+      "bgPage": "{color.gray.50}",
+      "bgCard": "#ffffff",
+      "borderDefault": "{color.gray.200}"
+    }
+  },
+  "space": {
+    "1": { "value": "4px" },
+    "2": { "value": "8px" },
+    "3": { "value": "12px" },
+    "4": { "value": "16px" },
+    "6": { "value": "24px" },
+    "8": { "value": "32px" },
+    "12": { "value": "48px" },
+    "16": { "value": "64px" },
+    "24": { "value": "96px" },
+    "usage": {
+      "inlineGap": "{space.2}",
+      "formItemGap": "{space.4}",
+      "formGroupGap": "{space.8}",
+      "sectionGap": "{space.12}",
+      "cardPadding": "{space.4}"
+    }
+  },
+  "fontSize": {
+    "caption": { "value": "12px", "lineHeight": "1.5" },
+    "body": { "value": "14px", "lineHeight": "1.6" },
+    "bodyLg": { "value": "16px", "lineHeight": "1.6" },
+    "h4": { "value": "20px", "lineHeight": "1.4" },
+    "h3": { "value": "24px", "lineHeight": "1.3" },
+    "h2": { "value": "32px", "lineHeight": "1.2" },
+    "h1": { "value": "48px", "lineHeight": "1.1" }
+  },
+  "fontWeight": {
+    "regular": { "value": "400" },
+    "medium": { "value": "500" },
+    "semibold": { "value": "600" },
+    "bold": { "value": "700" },
+    "usage": {
+      "body": "{fontWeight.regular}",
+      "emphasis": "{fontWeight.medium}",
+      "subheading": "{fontWeight.semibold}",
+      "heading": "{fontWeight.semibold}"
+    }
+  },
+  "fontFamily": {
+    "sans": {
+      "value": "-apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'PingFang SC', 'Hiragino Sans GB', 'Microsoft YaHei', sans-serif"
+    },
+    "mono": {
+      "value": "ui-monospace, 'SF Mono', SFMono-Regular, Menlo, Consolas, 'Liberation Mono', monospace"
+    }
+  },
+  "radius": {
+    "sm": { "value": "4px" },
+    "md": { "value": "8px" },
+    "lg": { "value": "12px" },
+    "full": { "value": "9999px" },
+    "usage": {
+      "button": "{radius.md}",
+      "input": "{radius.md}",
+      "card": "{radius.lg}",
+      "tag": "{radius.sm}",
+      "pillButton": "{radius.full}"
+    }
+  },
+  "shadow": {
+    "elevation1": { "value": "0 1px 2px rgba(0,0,0,0.06)" },
+    "elevation2": { "value": "0 4px 12px rgba(0,0,0,0.08)" },
+    "usage": {
+      "cardResting": "{shadow.elevation1}",
+      "dropdown": "{shadow.elevation2}",
+      "modal": "{shadow.elevation2}",
+      "forbidden": "多层阴影 / 彩色发光 / 大范围扩散阴影"
+    }
+  },
+  "motion": {
+    "duration": {
+      "micro": { "value": "150ms", "usage": "hover、按钮按下等微交互" },
+      "component": { "value": "200ms", "usage": "组件状态切换、展开收起" },
+      "page": { "value": "280ms", "usage": "页面级转场" }
+    },
+    "easing": {
+      "standard": { "value": "cubic-bezier(0.2, 0, 0, 1)" },
+      "entrance": { "value": "cubic-bezier(0, 0, 0.2, 1)" },
+      "exit": { "value": "cubic-bezier(0.4, 0, 1, 1)" },
+      "forbidden": "bounce、elastic、spring回弹曲线"
+    },
+    "transitionProperty": {
+      "allowed": ["opacity", "transform"],
+      "forbidden": ["width", "height", "top", "left", "margin", "padding"]
+    }
+  },
+  "breakpoint": {
+    "sm": { "value": "640px" },
+    "md": { "value": "768px" },
+    "lg": { "value": "1024px" },
+    "xl": { "value": "1280px" }
+  },
+  "sizing": {
+    "touchTarget": { "value": "44px", "description": "最小可点击区域" },
+    "controlHeight": {
+      "sm": { "value": "24px" },
+      "md": { "value": "32px" },
+      "lg": { "value": "40px" },
+      "xl": { "value": "48px" }
+    },
+    "tableRowHeight": { "value": "40px" },
+    "maxContentWidth": { "value": "1280px" },
+    "readingWidth": { "value": "720px", "description": "正文阅读区上限，约65-75字符" }
+  },
+  "accessibility": {
+    "contrastRatio": {
+      "bodyText": { "value": ">= 4.5:1" },
+      "largeText": { "value": ">= 3:1" },
+      "focusIndicator": { "value": ">= 3:1" }
+    },
+    "focusRing": {
+      "width": { "value": "2px" },
+      "offset": { "value": "2px" },
+      "color": "{color.primary.500}"
+    }
+  }
+}

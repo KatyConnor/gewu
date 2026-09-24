@@ -64,6 +64,7 @@ public enum ResultCode {
     SESSION_NOT_FOUND(13001, "会话不存在"),
     MESSAGE_NOT_FOUND(13002, "消息不存在"),
     MESSAGE_TOO_LONG(13003, "消息内容过长"),
+    SESSION_RUN_IN_PROGRESS(13004, "会话任务正在执行中，请等待完成后再发送"),
 
     AGENT_NOT_FOUND(14001, "Agent 不存在"),
     AGENT_EXECUTION_FAILED(14002, "Agent 执行失败"),
@@ -71,6 +72,7 @@ public enum ResultCode {
     TOOL_NOT_FOUND(14004, "工具不存在"),
     SKILL_NOT_FOUND(14005, "技能不存在"),
     AGENT_MARKET_NOT_FOUND(14006, "广场智能体不存在"),
+    AGENT_PAUSED(14007, "智能体已暂停，请先恢复运行"),
 
     WORKFLOW_NOT_FOUND(15001, "工作流不存在"),
     WORKFLOW_INVALID_STATE(15002, "工作流状态不允许此操作"),

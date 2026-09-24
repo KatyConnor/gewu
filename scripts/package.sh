@@ -7,7 +7,7 @@ set -euo pipefail
 # 产物统一汇总到 dist/ 目录。
 #
 # 用法:
-#   ./scripts/package.sh [all|backend|web] [选项]
+#   ./scripts/package.sh [all|backend|web|admin] [选项]
 #
 # 选项:
 #   --with-tests   执行后端单元测试（默认跳过）
@@ -22,6 +22,7 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+DIST_DIR="$PROJECT_ROOT/dist"
 cd "$PROJECT_ROOT"
 
 RED='\033[0;31m'
@@ -42,7 +43,7 @@ CLEAN=false
 
 for arg in "$@"; do
     case "$arg" in
-        all|backend|web) TARGET="$arg" ;;
+        all|backend|web|admin|admin) TARGET="$arg" ;;
         --with-tests)    WITH_TESTS=true ;;
         --archive)       ARCHIVE=true ;;
         --clean)         CLEAN=true ;;
@@ -109,11 +110,12 @@ setup_pnpm() {
 # ------------------------------------------------------------
 # 后端打包：gateway / interface / sandbox（-am 连带构建依赖模块）
 # ------------------------------------------------------------
-BACKEND_MODULES="gewu-gateway,gewu-interface,gewu-sandbox"
+BACKEND_MODULES="gewu-gateway,gewu-interface,gewu-sandbox,gewu-admin-server"
 BACKEND_JARS=(
     "gewu-gateway/target/gewu-gateway-1.0.0-SNAPSHOT.jar"
     "gewu-interface/target/gewu-interface-1.0.0-SNAPSHOT.jar"
     "gewu-sandbox/target/gewu-sandbox-1.0.0-SNAPSHOT.jar"
+    "gewu-admin-server/target/gewu-admin-server-1.0.0-SNAPSHOT.jar"
 )
 
 build_backend() {
@@ -142,44 +144,45 @@ build_backend() {
 # 前端打包：Next.js 构建 + 运行时依赖收集
 # ------------------------------------------------------------
 build_web() {
-    setup_node
-    setup_pnpm
-    log_step "前端 Next.js 打包（gewu-web，pnpm）"
+    local web_dir="${1:-$PROJECT_ROOT/gewu-web}"
+    local out_dir="${2:-$DIST_DIR/web}"
+    local port="${3:-5001}"
+    log_step "前端构建（$web_dir → $out_dir，端口 $port）"
+    (
+        cd "$web_dir" || exit 1
+        if command -v pnpm >/dev/null 2>&1; then
+            pnpm install --frozen-lockfile || pnpm install
+        else
+            npm install
+        fi
+        if command -v pnpm >/dev/null 2>&1; then
+            pnpm exec next build --no-lint
+        else
+            npx next build --no-lint
+        fi
+    ) || { log_error "前端构建失败"; exit 1; }
 
-    if [[ -f gewu-web/pnpm-lock.yaml ]]; then
-        install_cmd=(pnpm install --frozen-lockfile)
-        log_info "使用 pnpm 安装依赖（--frozen-lockfile）"
-    else
-        install_cmd=(pnpm install)
-        log_warn "未找到 gewu-web/pnpm-lock.yaml，使用 pnpm install 安装依赖"
-    fi
-
-    ( cd gewu-web && "${install_cmd[@]}" )
-    # --no-lint：ESLint 门禁在开发/CI 阶段执行，存量 lint 问题不阻塞产物打包
-    ( cd gewu-web && pnpm exec next build --no-lint )
-
-    log_info "收集前端运行时产物到 dist/web"
-    rm -rf dist/web
-    mkdir -p dist/web
-    cp -a gewu-web/.next dist/web/.next
-    cp -a gewu-web/public dist/web/public 2>/dev/null || mkdir -p dist/web/public
-    cp -f gewu-web/package.json gewu-web/next.config.mjs dist/web/
-    [[ -f gewu-web/pnpm-lock.yaml ]] && cp -f gewu-web/pnpm-lock.yaml dist/web/
-    # next start 需要 node_modules（next 位于 dependencies 中）；
-    # 用 pnpm 从本地 store 硬链接安装生产依赖，无需整份拷贝 node_modules
-    log_info "在 dist/web 安装生产依赖（pnpm install --prod）"
-    if ! ( cd dist/web && pnpm install --prod --frozen-lockfile --silent ); then
-        log_warn "按锁文件安装失败（锁文件可能与 package.json 不同步），改用普通模式重装"
-        ( cd dist/web && pnpm install --prod --silent )
-    fi
-    # .next/cache 是构建缓存，运行时不需要
-    rm -rf dist/web/.next/cache
+    mkdir -p "$out_dir"
+    cp -r "$web_dir/.next" "$out_dir/"
+    cp -r "$web_dir/public" "$out_dir/" 2>/dev/null || true
+    cp "$web_dir/package.json" "$out_dir/"
+    cp "$web_dir/next.config.mjs" "$out_dir/"
+    cp "$web_dir/pnpm-lock.yaml" "$out_dir/" 2>/dev/null || cp "$web_dir/package-lock.json" "$out_dir/" 2>/dev/null || true
+    (
+        cd "$out_dir" || exit 1
+        if command -v pnpm >/dev/null 2>&1; then pnpm install --prod; else npm install --omit=dev; fi
+    ) || { log_error "前端生产依赖安装失败"; exit 1; }
+    rm -rf "$out_dir/.next/cache"
+    log_info "前端构建完成: $out_dir"
 }
 
+build_admin_web() {
+    build_web "$PROJECT_ROOT/gewu-admin-web" "$DIST_DIR/admin-web" "5002"
+}
 # ------------------------------------------------------------
 # 主流程
 # ------------------------------------------------------------
-mkdir -p dist
+mkdir -p "$DIST_DIR"
 
 if [[ "$CLEAN" == true ]]; then
     log_step "清理旧产物（dist/、Maven target/、Next.js .next/）"
@@ -190,6 +193,9 @@ if [[ "$CLEAN" == true ]]; then
     if [[ "$TARGET" == "all" || "$TARGET" == "web" ]]; then
         rm -rf gewu-web/.next
     fi
+    if [[ "$TARGET" == "all" || "$TARGET" == "admin" ]]; then
+        rm -rf gewu-admin-web/.next
+    fi
 fi
 
 if [[ "$TARGET" == "all" || "$TARGET" == "backend" ]]; then
@@ -198,6 +204,10 @@ fi
 
 if [[ "$TARGET" == "all" || "$TARGET" == "web" ]]; then
     build_web
+fi
+
+if [[ "$TARGET" == "all" || "$TARGET" == "admin" ]]; then
+    build_admin_web
 fi
 
 # 构建清单（版本号从根 pom.xml 的 project 块解析）
@@ -223,6 +233,6 @@ fi
 echo
 log_info "===== 打包完成 ====="
 log_info "版本: $VERSION | Git: $GIT_SHA"
-du -sh dist/backend dist/web 2>/dev/null || true
+du -sh dist/backend dist/admin-server dist/web dist/admin-web 2>/dev/null || true
 log_info "产物目录: $PROJECT_ROOT/dist"
 log_info "后续操作: 使用 scripts/gewu-ctl.sh 启动服务（详见 scripts/README.md）"

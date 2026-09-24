@@ -28,7 +28,9 @@ log_error() { echo -e "${RED}[ERROR]${NC} $1"; }
 
 # ==================== 可调参数 ====================
 MANAGE_PORT="${MANAGE_PORT:-9081}"          # actuator 管理口（免认证）
-BIZ_PORT="${BIZ_PORT:-8081}"                # 业务口
+BIZ_PORT="${BIZ_PORT:-8081}"                # 业务口（主应用）
+ADMIN_PORT="${ADMIN_PORT:-8083}"            # 后台管理服务业务口
+ADMIN_WEB_PORT="${ADMIN_WEB_PORT:-5002}"    # 后台管理前端
 HEALTH_TIMEOUT="${HEALTH_TIMEOUT:-10}"      # curl --max-time 秒
 FAIL_THRESHOLD="${FAIL_THRESHOLD:-3}"       # 连续失败 N 次触发自愈重启
 STATE_FILE="${PROJECT_ROOT}/.health-state"
@@ -71,6 +73,8 @@ check_local() {
     # 2. 业务口深度探活（agents 列表需认证，退化为 TCP 探活 + 超时受控；
     #    挂起形态下 TCP 可通但请求不分发——用一次带超时的管理口 health 判别即可）
     check_port "localhost" "$BIZ_PORT" "业务口" || ((++ERRORS))
+    check_port "localhost" "$ADMIN_PORT" "管理服务口" || ((++ERRORS))
+    check_port "localhost" "$ADMIN_WEB_PORT" "管理前端" || ((++ERRORS))
 
     # 3. Prometheus 指标端点
     check_http "http://localhost:$MANAGE_PORT/actuator/prometheus" "jvm_memory_used_bytes" || ((++ERRORS))
@@ -81,6 +85,8 @@ check_remote() {
 
     check_http "http://$HOST:$MANAGE_PORT/actuator/health" '"status"' || ((++ERRORS))
     check_port "$HOST" "$BIZ_PORT" "业务口" || ((++ERRORS))
+    check_port "$HOST" "$ADMIN_PORT" "管理服务口" || ((++ERRORS))
+    check_port "$HOST" "$ADMIN_WEB_PORT" "管理前端" || ((++ERRORS))
 }
 
 # ==================== 自愈闭环 ====================

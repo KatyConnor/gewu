@@ -1,0 +1,18 @@
+{
+  "spec": "LR-STD-001",
+  "version": "1.0.0",
+  "updated_at": "2026-08-31",
+  "strategy": "strangler",
+  "behavior_change_budget": {"max_items": 10, "approval": "user"},
+  "observation_window": {"min_hours": 48, "or_business_cycles": 1},
+  "stage_gates": {
+    "R0": ["D-R0-01", "D-R0-02"],
+    "R1": ["D-R1-01", "D-R1-02", "D-R1-03", "D-R1-04"],
+    "R2": ["D-R2-01", "D-R2-02", "D-R2-03"],
+    "R3": ["D-R3-01", "D-R3-02", "D-R3-03"],
+    "R4": ["D-R4-01", "D-R4-02"],
+    "R5": ["D-R5-01", "D-R5-02", "D-R5-03"],
+    "R6": ["D-R6-01", "D-R6-02"]
+  },
+  "aetc_synergy": {"r2_ops": ["旧侧双轨期修补", "数据迁移脚本执行"], "r3_ops": ["流量切换", "旧系统下线归档"]}
+}
