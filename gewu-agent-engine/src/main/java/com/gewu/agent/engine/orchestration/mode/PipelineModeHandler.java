@@ -198,7 +198,7 @@ public class PipelineModeHandler implements ModeHandler {
         switch (node.getType() == null ? NodeType.AGENT : node.getType()) {
             case HUMAN -> handleHumanNode(walk, node, input);
             case TOOL -> executeToolNode(walk, node, input);
-            case ROUTER -> executeRouter(walk, node);
+            case ROUTER -> executeRouter(walk, node, input);
             case PARALLEL -> executeParallel(walk, node, input);
             case MERGE -> arriveMerge(walk, node, node.getNodeId(), "");
             case PLAN -> executePlanNode(walk, node, input);
@@ -247,6 +247,9 @@ public class PipelineModeHandler implements ModeHandler {
         }
         AgentTask task = taskBuilder.build();
         StringBuilder accumulated = new StringBuilder();
+        // 推理模型（如 glm-5.3-flash）的输出主要是 reasoning_content：
+        // content 为空时以最后的推理内容兜底作为节点产出，避免下游节点空输入（docs/design/47 问题一延伸）
+        StringBuilder lastReasoning = new StringBuilder();
         executor.executeStream(task).subscribe(
                 event -> {
                     // 失败传播（docs/design/47 问题一）：执行器把异常转为 error 事件而非 Flux error，
@@ -268,9 +271,19 @@ public class PipelineModeHandler implements ModeHandler {
                     if (AgentEvent.CONTENT.equals(event.getType()) && event.getContent() != null) {
                         accumulated.append(event.getContent());
                     }
+                    if (AgentEvent.THINKING.equals(event.getType()) && event.getReasoning() != null) {
+                        lastReasoning.setLength(0);
+                        lastReasoning.append(event.getReasoning());
+                    }
                 },
                 walk.sink::error,
-                () -> nodeCompleted(walk, node, accumulated.toString()));
+                () -> {
+                    String output = accumulated.toString();
+                    if (output.isBlank() && lastReasoning.length() > 0) {
+                        output = lastReasoning.toString();
+                    }
+                    nodeCompleted(walk, node, output);
+                });
     }
 
     /**
@@ -437,7 +450,7 @@ public class PipelineModeHandler implements ModeHandler {
     }
 
     /** ROUTER 节点：条件求值选择唯一后继 */
-    private void executeRouter(Walk walk, GraphNode node) {
+    private void executeRouter(Walk walk, GraphNode node, StringBuilder input) {
         List<GraphEdge> outgoing = walk.outgoing.get(node.getNodeId());
         GraphEdge selected = routeEvaluator.selectEdge(outgoing, walk.ctx);
         walk.sink.next(AgentEvent.builder()
@@ -456,7 +469,9 @@ public class PipelineModeHandler implements ModeHandler {
             adjustMergeExpectForSkipped(walk, outgoing, selected);
         }
         log.info("ROUTER 路由: nodeId={} -> {}", node.getNodeId(), selected.getToNode());
-        continueTo(walk, selected.getToNode(), "");
+        // 透传上游产出（docs/design/47 延伸修复）：路由节点只做决策不做处理，
+        // 原实现传空串会吞掉上游产出，导致下游节点空输入
+        continueTo(walk, selected.getToNode(), input != null ? input.toString() : "");
     }
 
     /**
