@@ -2,13 +2,16 @@
 /**
  * 智能体创建/编辑共用弹窗（从 AgentManagePage 抽取，供智能体管理与我的智能体两页复用）。
  * editingAgent 传值 = 编辑模式（含技能挂载管理），传 null = 创建模式。
+ * 模型提供商/模型名称下拉数据源 = 模型配置接口（model_provider/model_config），
+ * 与模型配置页保持一致；当前值不在列表时注入兜底项，避免回显丢失与保存覆盖。
  */
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { X, Loader2 } from 'lucide-react';
 import CustomSelect from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import { createAgent, updateAgent, listAgentSkills, mountSkill, unmountSkill, type AgentDTO, type UpdateAgentCommand } from '@/lib/agent';
 import { listSkillLibrary, type SkillDTO } from '@/lib/skill';
+import { listProviders, listModels, type Provider, type ModelConfig } from '@/lib/model-config';
 
 interface AgentEditModalProps {
   visible: boolean;
@@ -29,8 +32,10 @@ export default function AgentEditModal({ visible, editingAgent, onClose, onSaved
   const [saving, setSaving] = useState(false);
   const [allSkills, setAllSkills] = useState<SkillDTO[]>([]);
   const [agentSkillIds, setAgentSkillIds] = useState<Set<string>>(new Set());
+  const [providers, setProviders] = useState<Provider[]>([]);
+  const [allModels, setAllModels] = useState<ModelConfig[]>([]);
 
-  // 打开时回填表单（编辑）或重置（创建），编辑模式同时加载技能库与已挂载技能
+  // 打开时回填表单（编辑）或重置（创建），编辑模式同时加载技能库、已挂载技能与模型配置目录
   useEffect(() => {
     if (!visible) return;
     if (editingAgent) {
@@ -46,7 +51,38 @@ export default function AgentEditModal({ visible, editingAgent, onClose, onSaved
       setFormName(''); setFormDesc(''); setFormProvider('qwen'); setFormModel('qwen-plus');
       setFormSystemPrompt(''); setFormModelConfig('');
     }
+    listProviders().then(setProviders).catch(() => setProviders([]));
+    listModels().then(setAllModels).catch(() => setAllModels([]));
   }, [visible, editingAgent]);
+
+  /** 提供商下拉：模型配置中启用的供应商；当前值不在列表时注入兜底项 */
+  const providerOptions = useMemo(() => {
+    const opts = providers.filter(p => p.status === 1)
+      .map(p => ({ value: p.providerCode, label: p.providerName }));
+    if (formProvider && !opts.some(o => o.value === formProvider)) {
+      opts.unshift({ value: formProvider, label: `${formProvider}（当前配置）` });
+    }
+    return opts;
+  }, [providers, formProvider]);
+
+  /** 模型名称下拉：所选提供商下启用的模型；当前值不在列表时注入兜底项 */
+  const modelOptions = useMemo(() => {
+    const list = allModels.filter(m => m.providerCode === formProvider && m.status === 1)
+      .map(m => ({ value: m.modelId, label: `${m.modelName}（${m.modelId}）` }));
+    if (formModel && !list.some(o => o.value === formModel)) {
+      list.unshift({ value: formModel, label: `${formModel}（当前配置）` });
+    }
+    return list;
+  }, [allModels, formProvider, formModel]);
+
+  /** 切换提供商时，模型名称联动为该提供商下的启用模型（当前值仍有效则保留） */
+  const handleProviderChange = (code: string) => {
+    setFormProvider(code);
+    const list = allModels.filter(m => m.providerCode === code && m.status === 1);
+    if (!list.some(m => m.modelId === formModel)) {
+      setFormModel(list[0]?.modelId ?? '');
+    }
+  };
 
   const handleToggleSkill = async (skillId: string) => {
     if (!editingAgent) return;
@@ -101,10 +137,10 @@ export default function AgentEditModal({ visible, editingAgent, onClose, onSaved
         <div className="space-y-4">
           <div className="grid grid-cols-2 gap-4">
             <div><label className="block text-xs text-ink-400 mb-1">智能体名称 <span className="text-cinnabar-400">*</span></label><input type="text" value={formName} onChange={e => setFormName(e.target.value)} placeholder="输入智能体名称" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30" /></div>
-            <div><label className="block text-xs text-ink-400 mb-1">模型提供商</label><CustomSelect value={formProvider} onChange={setFormProvider} options={[{ value: 'qwen', label: '通义千问' }, { value: 'deepseek', label: 'DeepSeek' }, { value: 'zhipu', label: '智谱' }]} /></div>
+            <div><label className="block text-xs text-ink-400 mb-1">模型提供商</label><CustomSelect value={formProvider} onChange={handleProviderChange} options={providerOptions} /></div>
           </div>
           <div className="grid grid-cols-2 gap-4">
-            <div><label className="block text-xs text-ink-400 mb-1">模型名称</label><CustomSelect value={formModel} onChange={setFormModel} options={[{ value: 'qwen-plus', label: 'qwen-plus' }, { value: 'qwen-turbo', label: 'qwen-turbo' }, { value: 'deepseek-chat', label: 'deepseek-chat' }]} /></div>
+            <div><label className="block text-xs text-ink-400 mb-1">模型名称</label><CustomSelect value={formModel} onChange={setFormModel} options={modelOptions} /></div>
             <div><label className="block text-xs text-ink-400 mb-1">模型参数(JSON)</label><input type="text" value={formModelConfig} onChange={e => setFormModelConfig(e.target.value)} placeholder='{"temperature":0.7}' className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30" /></div>
           </div>
           <div><label className="block text-xs text-ink-400 mb-1">描述</label><textarea rows={2} value={formDesc} onChange={e => setFormDesc(e.target.value)} placeholder="描述智能体的功能和用途" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30 resize-none" /></div>
