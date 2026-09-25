@@ -157,7 +157,7 @@ export default function AgentManagePage() {
           const statusKey = getAgentStatus(agent);
           const status = statusConfig[statusKey] || statusConfig.draft;
           return (
-            <div key={agent.agentId} className="glass-dark rounded-xl p-5 card-hover">
+            <div key={agent.agentId} className={`glass-dark rounded-xl p-5 card-hover relative ${actionMenuOpen === agent.agentId ? 'z-20' : 'z-0'}`}>
               <div className="flex items-start justify-between mb-3">
                 <div className="flex items-center gap-3">
                   <div className={`w-10 h-10 rounded-lg flex items-center justify-center ${status.bg}`}>
