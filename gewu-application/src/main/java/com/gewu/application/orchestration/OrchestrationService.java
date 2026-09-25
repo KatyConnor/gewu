@@ -20,10 +20,12 @@ import com.gewu.common.ulid.Ulid;
 import com.gewu.domain.orchestration.ApprovalRequestEntity;
 import com.gewu.domain.orchestration.OrchestrationExecutionEntity;
 import com.gewu.domain.orchestration.OrchestrationGraphEntity;
+import com.gewu.domain.orchestration.OrchestrationGraphVersionEntity;
 import com.gewu.domain.orchestration.OrchestrationNodeExecutionEntity;
 import com.gewu.infrastructure.mapper.ApprovalRequestMapper;
 import com.gewu.infrastructure.mapper.OrchestrationExecutionMapper;
 import com.gewu.infrastructure.mapper.OrchestrationGraphMapper;
+import com.gewu.infrastructure.mapper.OrchestrationGraphVersionMapper;
 import com.gewu.infrastructure.mapper.OrchestrationNodeExecutionMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -58,6 +60,8 @@ public class OrchestrationService {
     private final com.gewu.infrastructure.trace.OrchestrationTracer orchestrationTracer;
     private final GraphDefinitionValidator graphValidator;
     private final OrchestrationNodeExecutionMapper nodeExecutionMapper;
+    /** 图版本快照（WFO-01）：激活即发布不可变版本，执行记录绑定版本引用 */
+    private final OrchestrationGraphVersionMapper versionMapper;
 
     /** HITL 网关（延迟解析，避免与 DbHitlGatewayAdapter 循环依赖） */
     @Autowired(required = false)
@@ -148,7 +152,9 @@ public class OrchestrationService {
     }
 
     /**
-     * 激活编排图（draft -> active）。
+     * 激活编排图（draft -> active），并将当前定义发布为不可变版本快照（WFO-01）。
+     * <p>版本快照是执行的取事实源：此后执行优先加载最新版本快照，
+     * 再激活产生新版本不影响既有执行记录的回放一致性。
      */
     public void activateGraph(String graphId, String userId) {
         OrchestrationGraphEntity entity = graphMapper.selectById(graphId);
@@ -159,10 +165,95 @@ public class OrchestrationService {
             throw BusinessException.of(ResultCode.PARAM_INVALID,
                     "编排图定义为空，不能激活。请先编辑保存编排图: " + graphId);
         }
+        // 激活即发布闸：结构校验通过才可激活（保存闸之外的第二道防线）
+        runDefinitionValidation(deserializeNormalized(entity.getGraphDefinition()), entity.getId());
+
+        OrchestrationGraphVersionEntity latest = latestVersion(graphId);
+        int nextVersion = latest != null ? latest.getVersion() + 1 : 1;
+        OrchestrationGraphVersionEntity snapshot = new OrchestrationGraphVersionEntity();
+        snapshot.setId(Ulid.next());
+        snapshot.setGraphId(graphId);
+        snapshot.setVersion(nextVersion);
+        snapshot.setGraphDefinition(entity.getGraphDefinition());
+        snapshot.setOrchestrationMode(entity.getOrchestrationMode());
+        snapshot.setActivatedBy(userId);
+        snapshot.setActivatedAt(Instant.now().toEpochMilli());
+        snapshot.setCreatedBy(userId);
+        snapshot.setUpdatedBy(userId);
+        versionMapper.insert(snapshot);
+
         entity.setStatus("active");
+        entity.setVersion(String.valueOf(nextVersion));
         entity.setUpdatedBy(userId);
         graphMapper.updateById(entity);
-        log.info("激活编排图: id={}", graphId);
+        log.info("激活编排图: id={}, version={}", graphId, nextVersion);
+    }
+
+    /**
+     * 下架编排图（active -> draft，WFO-02）：进入可编辑状态，执行入口关闭。
+     * 已有执行与审批数据保留；重新激活产生新版本快照。
+     */
+    public void deactivateGraph(String graphId, String userId) {
+        OrchestrationGraphEntity entity = graphMapper.selectById(graphId);
+        if (entity == null) {
+            throw new IllegalArgumentException("编排图不存在: " + graphId);
+        }
+        if (!"active".equals(entity.getStatus())) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID,
+                    "仅已激活状态的编排图可下架，当前状态: " + entity.getStatus());
+        }
+        entity.setStatus("draft");
+        entity.setUpdatedBy(userId);
+        graphMapper.updateById(entity);
+        log.info("下架编排图: id={}", graphId);
+    }
+
+    /**
+     * 查询编排图的版本快照列表（按版本号倒序，WFO-02）。
+     */
+    public List<OrchestrationGraphVersionEntity> listGraphVersions(String graphId) {
+        return versionMapper.selectList(new LambdaQueryWrapper<OrchestrationGraphVersionEntity>()
+                .eq(OrchestrationGraphVersionEntity::getGraphId, graphId)
+                .orderByDesc(OrchestrationGraphVersionEntity::getVersion));
+    }
+
+    /**
+     * 回滚到历史版本（WFO-02）：将指定版本快照写回草稿定义。
+     * 仅 draft 可回滚（active 图请先下架）；回滚后需再次激活才可执行。
+     */
+    public OrchestrationGraphEntity rollbackGraphVersion(String graphId, String versionId, String userId) {
+        OrchestrationGraphEntity entity = graphMapper.selectById(graphId);
+        if (entity == null) {
+            throw new IllegalArgumentException("编排图不存在: " + graphId);
+        }
+        if (!"draft".equals(entity.getStatus())) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID,
+                    "仅草稿状态可回滚版本，请先下架编排图。当前状态: " + entity.getStatus());
+        }
+        OrchestrationGraphVersionEntity snapshot = versionMapper.selectById(versionId);
+        if (snapshot == null || !graphId.equals(snapshot.getGraphId())) {
+            throw new IllegalArgumentException("版本快照不存在或不属于该编排图: " + versionId);
+        }
+        String restored = normalizeDefinitionJson(snapshot.getGraphDefinition(),
+                snapshot.getOrchestrationMode() != null ? snapshot.getOrchestrationMode() : "PIPELINE");
+        runDefinitionValidation(deserializeNormalized(restored), graphId);
+        entity.setGraphDefinition(restored);
+        if (snapshot.getOrchestrationMode() != null) {
+            entity.setOrchestrationMode(snapshot.getOrchestrationMode());
+        }
+        entity.setUpdatedBy(userId);
+        graphMapper.updateById(entity);
+        log.info("回滚编排图版本: graphId={}, version={}({})", graphId, snapshot.getVersion(), versionId);
+        return entity;
+    }
+
+    /** 查询图当前最新版本快照（无版本时返回 null：存量图或从未激活） */
+    private OrchestrationGraphVersionEntity latestVersion(String graphId) {
+        return versionMapper.selectList(new LambdaQueryWrapper<OrchestrationGraphVersionEntity>()
+                        .eq(OrchestrationGraphVersionEntity::getGraphId, graphId)
+                        .orderByDesc(OrchestrationGraphVersionEntity::getVersion)
+                        .last("LIMIT 1"))
+                .stream().findFirst().orElse(null);
     }
 
     /**
@@ -196,7 +287,8 @@ public class OrchestrationService {
             throw new IllegalArgumentException("编排图不存在: " + graphId);
         }
 
-        OrchestrationGraph graph = loadExecutableGraph(graphEntity);
+        ExecutableDefinition def = loadExecutableDefinition(graphEntity);
+        OrchestrationGraph graph = def.graph();
         String executionId = Ulid.next();
         OrchestrationContext ctx = OrchestrationContext.builder()
                 .executionId(executionId)
@@ -206,7 +298,8 @@ public class OrchestrationService {
                 .build();
 
         // 创建执行记录
-        OrchestrationExecutionEntity execEntity = createExecutionEntity(executionId, graphId, userId, sessionId, graphEntity);
+        OrchestrationExecutionEntity execEntity = createExecutionEntity(executionId, graphId, userId, sessionId,
+                graphEntity, def.versionId());
         execEntity.setStatus("RUNNING");
         execEntity.setStartedAt(Instant.now().toEpochMilli());
         executionMapper.updateById(execEntity);
@@ -250,7 +343,8 @@ public class OrchestrationService {
             return Flux.error(new IllegalArgumentException("编排图不存在: " + graphId));
         }
 
-        OrchestrationGraph graph = loadExecutableGraph(graphEntity);
+        ExecutableDefinition def = loadExecutableDefinition(graphEntity);
+        OrchestrationGraph graph = def.graph();
         String executionId = Ulid.next();
         OrchestrationContext ctx = OrchestrationContext.builder()
                 .executionId(executionId)
@@ -260,7 +354,8 @@ public class OrchestrationService {
                 .build();
 
         // 创建执行记录
-        OrchestrationExecutionEntity execEntity = createExecutionEntity(executionId, graphId, userId, sessionId, graphEntity);
+        OrchestrationExecutionEntity execEntity = createExecutionEntity(executionId, graphId, userId, sessionId,
+                graphEntity, def.versionId());
         execEntity.setStatus("RUNNING");
         execEntity.setStartedAt(Instant.now().toEpochMilli());
         executionMapper.updateById(execEntity);
@@ -424,9 +519,19 @@ public class OrchestrationService {
         }
         OrchestrationGraph graph = null;
         try {
-            OrchestrationGraphEntity graphEntity = graphMapper.selectById(entity.getGraphId());
-            if (graphEntity != null) {
-                graph = deserializeGraph(graphEntity);
+            // 图来源优先执行记录内快照（暂停前绑定的定义，回放语义一致），
+            // 缺失时回退图表现行定义
+            String definition = entity.getGraphSnapshot() != null && !entity.getGraphSnapshot().isBlank()
+                    ? entity.getGraphSnapshot()
+                    : null;
+            if (definition == null) {
+                OrchestrationGraphEntity graphEntity = graphMapper.selectById(entity.getGraphId());
+                if (graphEntity != null) {
+                    definition = graphEntity.getGraphDefinition();
+                }
+            }
+            if (definition != null && !definition.isBlank()) {
+                graph = objectMapper.readValue(definition, OrchestrationGraph.class);
             }
         } catch (Exception e) {
             log.warn("断点续跑加载图定义失败，节点执行记录不可用: {}", e.getMessage());
@@ -564,20 +669,25 @@ public class OrchestrationService {
 
     /**
      * 创建审批请求（供编排引擎 HITL 节点调用）。
+     * <p>assigneeId/assigneeRole 为 HUMAN 节点 config 圈定的审批人（WFO-07），
+     * 审批中心据此过滤待办可见性（未指定=全员可见）。
      */
     public ApprovalRequestEntity createApproval(String executionId, String nodeId,
                                                  String approvalType, String payloadJson,
-                                                 long timeoutMinutes) {
+                                                 long timeoutMinutes, String assigneeId, String assigneeRole) {
         ApprovalRequestEntity entity = new ApprovalRequestEntity();
         entity.setId(Ulid.next());
         entity.setExecutionId(executionId);
         entity.setNodeId(nodeId);
         entity.setApprovalType(approvalType != null ? approvalType : "MANUAL_REVIEW");
         entity.setPayload(payloadJson);
+        entity.setAssigneeId(assigneeId);
+        entity.setAssigneeRole(assigneeRole);
         entity.setStatus("pending");
         entity.setTimeoutAt(Instant.now().toEpochMilli() + timeoutMinutes * 60_000);
         approvalMapper.insert(entity);
-        log.info("创建审批请求: id={}, executionId={}, nodeId={}", entity.getId(), executionId, nodeId);
+        log.info("创建审批请求: id={}, executionId={}, nodeId={}, assigneeId={}",
+                entity.getId(), executionId, nodeId, assigneeId);
         return entity;
     }
 
@@ -585,13 +695,16 @@ public class OrchestrationService {
 
     private OrchestrationExecutionEntity createExecutionEntity(String executionId, String graphId,
                                                                 String userId, String sessionId,
-                                                                OrchestrationGraphEntity graphEntity) {
+                                                                OrchestrationGraphEntity graphEntity,
+                                                                String versionId) {
         OrchestrationExecutionEntity entity = new OrchestrationExecutionEntity();
         entity.setId(executionId);
         entity.setGraphId(graphId);
         entity.setGraphSnapshot(graphEntity.getGraphDefinition());
+        entity.setVersionId(versionId);
         entity.setUserId(userId);
         entity.setSessionId(sessionId);
+        entity.setTriggerType("MANUAL");
         entity.setStatus("PENDING");
         entity.setIterationCount(0);
         entity.setTokenUsed(0L);
@@ -602,7 +715,7 @@ public class OrchestrationService {
     }
 
     private void updateExecutionResult(OrchestrationExecutionEntity entity, OrchestrationResult result) {
-        entity.setStatus(result.getStatus());
+        entity.setStatus(mapEngineStatus(result.getStatus()));
         entity.setFinalOutput(result.getFinalOutput());
         entity.setErrorMessage(result.getErrorMessage());
         entity.setTokenUsed(result.getTokenUsed());
@@ -610,6 +723,18 @@ public class OrchestrationService {
         if (result.getDurationMs() > 0) {
             entity.setStartedAt(Instant.now().toEpochMilli() - result.getDurationMs());
         }
+    }
+
+    /**
+     * 引擎终态 -> 执行记录状态机字面量（冒烟发现项修复）：
+     * 同步路径 runSync 返回 SUCCESS，与流式路径写入的 SUCCEEDED 不一致，
+     * 导致执行列表徽标失真；在此统一映射为 DB 状态机字面量。
+     */
+    private String mapEngineStatus(String engineStatus) {
+        return switch (engineStatus == null ? "" : engineStatus) {
+            case "SUCCESS" -> "SUCCEEDED";
+            default -> engineStatus;
+        };
     }
 
     private OrchestrationGraph deserializeGraph(OrchestrationGraphEntity entity) {
@@ -627,13 +752,49 @@ public class OrchestrationService {
         }
     }
 
+    /** 可执行定义：图模型 + 绑定的版本快照 ID（active 图优先版本快照，WFO-01） */
+    private record ExecutableDefinition(OrchestrationGraph graph, String versionId) {
+    }
+
     /**
-     * 加载可执行图：反序列化 → 编排模式兜底 → 图结构校验（docs/design/46 报告 B2/B4）。
-     * <p>模式兜底：JSON 无 mode 字段时回填实体 orchestration_mode 列值（存量图兼容），
-     * 使创建弹窗选择的模式对执行生效；列值非法时回退 PIPELINE。
+     * 加载可执行图定义（WFO-01 版本化取数）：
+     * active 图优先加载最新版本快照（快照未命中回退 graph_definition，兼容存量图）；
+     * draft 图始终加载草稿定义。随后执行编排模式兜底与图结构校验
+     * （docs/design/46 报告 B2/B4）。
      */
-    private OrchestrationGraph loadExecutableGraph(OrchestrationGraphEntity entity) {
-        OrchestrationGraph graph = deserializeGraph(entity);
+    private ExecutableDefinition loadExecutableDefinition(OrchestrationGraphEntity entity) {
+        OrchestrationGraph graph;
+        String versionId = null;
+        if ("active".equals(entity.getStatus())) {
+            OrchestrationGraphVersionEntity latest = latestVersion(entity.getId());
+            if (latest != null) {
+                graph = deserializeVersionSnapshot(latest, entity);
+                versionId = latest.getId();
+            } else {
+                log.warn("激活图无版本快照（存量数据），回退草稿定义执行: graphId={}", entity.getId());
+                graph = deserializeGraph(entity);
+            }
+        } else {
+            graph = deserializeGraph(entity);
+        }
+        applyModeFallback(graph, entity);
+        runDefinitionValidation(graph, entity.getId());
+        return new ExecutableDefinition(graph, versionId);
+    }
+
+    /** 版本快照反序列化（失败按可读业务错误返回，与草稿路径一致） */
+    private OrchestrationGraph deserializeVersionSnapshot(OrchestrationGraphVersionEntity snapshot,
+                                                          OrchestrationGraphEntity entity) {
+        try {
+            return objectMapper.readValue(snapshot.getGraphDefinition(), OrchestrationGraph.class);
+        } catch (JsonProcessingException e) {
+            throw new IllegalArgumentException("编排图版本快照反序列化失败: graphId=" + entity.getId()
+                    + ", version=" + snapshot.getVersion(), e);
+        }
+    }
+
+    /** 模式兜底：JSON 无 mode 字段时回填实体 orchestration_mode 列值，列值非法回退引擎默认 */
+    private void applyModeFallback(OrchestrationGraph graph, OrchestrationGraphEntity entity) {
         if (graph.getMode() == null && entity.getOrchestrationMode() != null) {
             try {
                 graph.setMode(OrchestrationMode.valueOf(entity.getOrchestrationMode()));
@@ -642,8 +803,6 @@ public class OrchestrationService {
                         entity.getId(), entity.getOrchestrationMode());
             }
         }
-        runDefinitionValidation(graph, entity.getId());
-        return graph;
     }
 
     /**
@@ -753,6 +912,11 @@ public class OrchestrationService {
                 node.setCompletedAt(now);
                 if (node.getStartedAt() != null) {
                     node.setDurationMs(now - node.getStartedAt());
+                }
+                // WFO-05：node_complete 事件携带的重试次数写入节点记录
+                Object retries = event.getMetadata() != null ? event.getMetadata().get("retries") : null;
+                if (retries instanceof Number retryCount) {
+                    node.setRetryCount(retryCount.intValue());
                 }
             } else if (failed) {
                 node.setStatus("FAILED");

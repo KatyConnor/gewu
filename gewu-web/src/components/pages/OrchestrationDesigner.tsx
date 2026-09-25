@@ -23,7 +23,7 @@ import CustomSelect from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import {
   updateGraph, listRoleCatalog, listToolCatalog, executeGraphStream, cancelExecution,
-  listExecutions, listNodeExecutions,
+  listExecutions, listNodeExecutions, listGraphs,
   type OrchestrationGraphEntity, type OrchestrationExecutionEntity, type OrchestrationNodeExecution,
 } from '@/lib/orchestration';
 import { listAgents, type AgentDTO } from '@/lib/agent';
@@ -101,7 +101,7 @@ function DesignerInner({ graph, onBack, onSaved }: DesignerProps) {
   const [jsonText, setJsonText] = useState('');
   const [jsonError, setJsonError] = useState('');
   const [saving, setSaving] = useState(false);
-  const [catalogs, setCatalogs] = useState<Catalogs>({ roles: FALLBACK_ROLES, tools: [], agents: [] });
+  const [catalogs, setCatalogs] = useState<Catalogs>({ roles: FALLBACK_ROLES, tools: [], agents: [], activeGraphs: [] });
   // 运行预览（FR-09）：SSE 事件按 nodeId 归因到画布节点
   const [showRun, setShowRun] = useState(false);
   const [running, setRunning] = useState(false);
@@ -123,7 +123,12 @@ function DesignerInner({ graph, onBack, onSaved }: DesignerProps) {
       .catch(() => { /* 工具目录留空，属性面板仍允许手选历史值 */ });
     listAgents(1, 100).then(page => setCatalogs(c => ({ ...c, agents: page.records ?? [] })))
       .catch(() => { /* Agent 列表不可用时 refId 回退手填场景由后端校验兜底 */ });
-  }, [initial.parseError, toastFn]);
+    // 已激活编排图（WFO-04 SUBGRAPH refId 下拉数据源；排除当前图自身）
+    listGraphs('active').then(graphs => setCatalogs(c => ({
+      ...c,
+      activeGraphs: graphs.filter(g => g.id !== graph.id).map(g => ({ id: g.id, name: g.graphName })),
+    }))).catch(() => { /* 图列表不可用时 SUBGRAPH refId 由后端 VL-13 校验兜底 */ });
+  }, [initial.parseError, toastFn, graph.id]);
 
   const modeOption = MODE_OPTIONS.find(m => m.value === mode) ?? MODE_OPTIONS[0];
 

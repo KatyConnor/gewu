@@ -1,12 +1,14 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { CheckCircle, XCircle, Loader2, ClipboardCheck, Link2, ShieldCheck, UserCheck } from 'lucide-react';
+import { useSelector } from 'react-redux';
+import { CheckCircle, XCircle, Loader2, ClipboardCheck, Link2, ShieldCheck, UserCheck, Lock } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import {
   listPendingAudits, approveAudit, rejectAudit, type PendingAuditDTO,
   listPendingApprovals, approveHitl, rejectHitl, type ApprovalRequestDTO,
   verifyAuditChain, listAuditChain, type AuditChainRecordDTO,
 } from '@/lib/audit';
+import type { RootState } from '@/store';
 
 type Tab = 'content' | 'hitl' | 'chain';
 
@@ -37,6 +39,17 @@ export default function AuditCenterPage() {
   const [hitlList, setHitlList] = useState<ApprovalRequestDTO[]>([]);
   const [hitlLoading, setHitlLoading] = useState(false);
   const [hitlProcessing, setHitlProcessing] = useState<string | null>(null);
+
+  // 登录态（WFO-07 审批人圈定过滤用）
+  const currentUserId = useSelector((s: RootState) => s.app.user.userId);
+  const userRoles = useSelector((s: RootState) => s.app.user.roles);
+  /** 待办可见性过滤：未指定 assignee 全员可见；指定后仅本人/角色成员可见 */
+  const visibleHitl = hitlList.filter(r => {
+    if (!r.assigneeId && !r.assigneeRole) return true;
+    if (r.assigneeId && r.assigneeId === currentUserId) return true;
+    if (r.assigneeRole && (userRoles ?? []).includes(r.assigneeRole)) return true;
+    return false;
+  });
 
   // 审计链
   const [chain, setChain] = useState<AuditChainRecordDTO[]>([]);
@@ -146,7 +159,7 @@ export default function AuditCenterPage() {
 
   const tabs: { key: Tab; label: string; icon: React.ReactNode; count?: number }[] = [
     { key: 'content', label: '内容审批', icon: <ClipboardCheck className="w-3.5 h-3.5" />, count: audits.length },
-    { key: 'hitl', label: 'HITL 审批', icon: <UserCheck className="w-3.5 h-3.5" />, count: hitlList.length },
+    { key: 'hitl', label: 'HITL 审批', icon: <UserCheck className="w-3.5 h-3.5" />, count: visibleHitl.length },
     { key: 'chain', label: '审计链', icon: <Link2 className="w-3.5 h-3.5" />, count: chain.length },
   ];
 
@@ -220,11 +233,11 @@ export default function AuditCenterPage() {
           </div>
           {hitlLoading ? (
             <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 text-tech-400 animate-spin" /></div>
-          ) : hitlList.length === 0 ? (
-            <div className="text-center py-20 text-ink-500 text-sm">暂无待处理的 HITL 审批</div>
+          ) : visibleHitl.length === 0 ? (
+            <div className="text-center py-20 text-ink-500 text-sm">暂无可处理的 HITL 审批（指定审批人的请求仅对其可见）</div>
           ) : (
             <div className="space-y-4">
-              {hitlList.map(r => (
+              {visibleHitl.map(r => (
                 <div key={r.id} className="glass-dark rounded-xl p-5">
                   <div className="flex items-start justify-between mb-3">
                     <div className="flex items-center gap-3">
@@ -235,6 +248,7 @@ export default function AuditCenterPage() {
                         <h3 className="text-sm font-semibold text-ink-50">{r.approvalType || 'MANUAL_REVIEW'}</h3>
                         <p className="text-xs text-ink-500">
                           执行 {r.executionId || '-'} · 节点 {r.nodeId || '-'} · 超时 {formatTime(r.timeoutAt)}
+                          {r.assigneeId ? ` · 指定审批人` : ''}
                         </p>
                       </div>
                     </div>

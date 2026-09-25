@@ -21,6 +21,10 @@ public class ApprovalRequestEntity extends BaseEntity {
     private String approvalType;
     /** 审批内容 JSON */
     private String payload;
+    /** 指定审批人（用户 ID，空=全员可见，WFO-07） */
+    private String assigneeId;
+    /** 指定审批角色（角色编码，与 assigneeId 并用） */
+    private String assigneeRole;
     /** 状态: pending/approved/rejected/timeout */
     private String status;
     /** 审批人 */

@@ -89,7 +89,7 @@ export const NODE_CATALOG: Record<OrchNodeType, {
   PARALLEL: { label: '并行扇出', description: '同时触发全部出边分支', implemented: true },
   MERGE: { label: '汇聚合并', description: '等待全部分支到齐后合并产出', implemented: true },
   PLAN: { label: '动态规划', description: '输入经 GoalPlanner 拆解为子计划执行', implemented: true },
-  SUBGRAPH: { label: '嵌套子图', description: '引擎尚未实现，当前按 Agent 处理', implemented: false },
+  SUBGRAPH: { label: '嵌套子图', description: 'refId 引用已激活编排图，以沙箱上下文执行子图（深度≤2）', implemented: true },
 };
 
 // ==================== 模式与枚举常量 ====================
@@ -234,7 +234,8 @@ export interface ValidationIssue {
   message: string;
 }
 
-const VAR_REF = /\$\{var\.([A-Za-z0-9_.-]+)\}/g;
+// 变量引用：${name}（标准）与 ${var.name}（历史写法，解析名去前缀），与后端 WFO-06 对齐
+const VAR_REF = /\$\{(?:var\.)?([A-Za-z0-9_.-]+)\}/g;
 const HUMAN_TIMEOUT_MAX = 86400;
 
 export function validateDefinition(definition: GraphDefinition): ValidationIssue[] {
@@ -273,6 +274,9 @@ function validateNode(node: GraphNodeDef, resolvable: Set<string>, issues: Valid
   if (node.type === 'TOOL' && !String(config.toolName ?? '').trim()) {
     issues.push({ ruleId: 'VL-06', level: 'ERROR', nodeId: node.nodeId, message: `工具节点 ${node.nodeId} 缺少 config.toolName` });
   }
+  if (node.type === 'SUBGRAPH' && !String(node.refId ?? '').trim()) {
+    issues.push({ ruleId: 'VL-13', level: 'ERROR', nodeId: node.nodeId, message: `嵌套子图节点 ${node.nodeId} 缺少 refId（须指向已激活的编排图）` });
+  }
   if (node.type === 'HUMAN' && config.timeoutSeconds != null) {
     const timeout = Number(config.timeoutSeconds);
     if (!Number.isFinite(timeout) || timeout < 1 || timeout > HUMAN_TIMEOUT_MAX) {
@@ -294,7 +298,7 @@ function validateNode(node: GraphNodeDef, resolvable: Set<string>, issues: Valid
   for (const text of refTexts) {
     for (const match of Array.from(text.matchAll(VAR_REF))) {
       if (!resolvable.has(match[1])) {
-        issues.push({ ruleId: 'VL-09', level: 'WARNING', nodeId: node.nodeId, message: `变量 \${var.${match[1]}} 无法解析（未在图变量或前驱节点产出中声明）` });
+        issues.push({ ruleId: 'VL-09', level: 'WARNING', nodeId: node.nodeId, message: `变量 \${${match[1]}} 无法解析（未在图变量或前驱节点产出中声明）` });
       }
     }
   }

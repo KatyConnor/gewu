@@ -3,14 +3,15 @@ import { useState, useEffect, useCallback } from 'react';
 import dynamic from 'next/dynamic';
 import {
   Plus, Search, Play, Pause, Square, Trash2, Send, Loader2,
-  Network, CheckCircle, XCircle, Clock, Zap, Eye, PencilRuler,
+  Network, CheckCircle, XCircle, Clock, Zap, Eye, PencilRuler, History, RotateCcw, ArrowDownToLine,
 } from 'lucide-react';
 import CustomSelect from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import {
-  listGraphs, createGraph, activateGraph, deleteGraph, executeGraph,
+  listGraphs, createGraph, activateGraph, deactivateGraph, deleteGraph, executeGraph,
   listExecutions, pauseExecution, resumeExecution, cancelExecution,
-  executeGraphStream, type OrchestrationGraphEntity, type OrchestrationExecutionEntity,
+  executeGraphStream, resumeGraphStream, getGraph, listGraphVersions, rollbackGraphVersion,
+  type OrchestrationGraphEntity, type OrchestrationExecutionEntity, type OrchestrationGraphVersionEntity,
 } from '@/lib/orchestration';
 import { ORCHESTRATION_TEMPLATES, findTemplate } from '@/lib/orchestrationTemplates';
 import { serializeDefinition } from '@/lib/orchestrationDesigner';
@@ -55,6 +56,16 @@ function formatTime(ts?: number): string {
   return `${d.getMonth() + 1}-${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+const triggerLabel: Record<string, string> = {
+  MANUAL: '手动', API: 'API', AGENT_TOOL: 'Agent工具', SCHEDULE: '定时', WEBHOOK: 'Webhook',
+};
+
+/** JSON 美化（定义对比展示用，解析失败返回原文） */
+function prettyJson(text?: string): string {
+  if (!text) return '';
+  try { return JSON.stringify(JSON.parse(text), null, 2); } catch { return text; }
+}
+
 export default function OrchestrationPage() {
   const [graphs, setGraphs] = useState<OrchestrationGraphEntity[]>([]);
   const [executions, setExecutions] = useState<OrchestrationExecutionEntity[]>([]);
@@ -75,6 +86,11 @@ export default function OrchestrationPage() {
   const [streamEvents, setStreamEvents] = useState<StreamEvent[]>([]);
   // 设计器视图：非空时整页切换为画布编排
   const [designerGraph, setDesignerGraph] = useState<OrchestrationGraphEntity | null>(null);
+  // 版本历史弹窗（WFO-01/02）
+  const [versionGraph, setVersionGraph] = useState<OrchestrationGraphEntity | null>(null);
+  const [versions, setVersions] = useState<OrchestrationGraphVersionEntity[]>([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [selectedVersion, setSelectedVersion] = useState<OrchestrationGraphVersionEntity | null>(null);
   const toast = useToast();
 
   const loadGraphs = useCallback(async () => {
@@ -130,10 +146,48 @@ export default function OrchestrationPage() {
     setBusy(graphId);
     try {
       await activateGraph(graphId);
-      toast('编排图已激活', 'success');
+      toast('编排图已激活（当前定义已发布为版本快照）', 'success');
       await loadGraphs();
     } catch (e) {
       toast(e instanceof Error ? e.message : '激活失败', 'error');
+    } finally { setBusy(null); }
+  };
+
+  // 下架（WFO-02）：active -> draft，重新可编辑
+  const handleDeactivate = async (graphId: string) => {
+    setBusy(graphId);
+    try {
+      await deactivateGraph(graphId);
+      toast('已下架编排图，进入可编辑状态', 'success');
+      await loadGraphs();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '下架失败', 'error');
+    } finally { setBusy(null); }
+  };
+
+  const handleOpenVersions = async (graph: OrchestrationGraphEntity) => {
+    setVersionGraph(graph);
+    setSelectedVersion(null);
+    setVersionsLoading(true);
+    try {
+      setVersions(await listGraphVersions(graph.id));
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '加载版本失败', 'error');
+    } finally { setVersionsLoading(false); }
+  };
+
+  // 回滚版本（WFO-02）：版本快照写回草稿定义，需重新激活生效
+  const handleRollback = async (graphId: string, versionId: string) => {
+    setBusy(versionId);
+    try {
+      await rollbackGraphVersion(graphId, versionId);
+      toast('已回滚到该版本（写入草稿），重新激活后生效', 'success');
+      const refreshed = await getGraph(graphId);
+      setVersionGraph(refreshed);
+      setVersions(await listGraphVersions(graphId));
+      await loadGraphs();
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '回滚失败', 'error');
     } finally { setBusy(null); }
   };
 
@@ -178,17 +232,43 @@ export default function OrchestrationPage() {
     );
   };
 
-  // 生命周期操作
-  const handleLifecycle = async (executionId: string, action: 'pause' | 'resume' | 'cancel') => {
+  // 生命周期操作（暂停/取消；恢复单独处理以支持续跑流，WFO-09）
+  const handleLifecycle = async (executionId: string, action: 'pause' | 'cancel') => {
     setBusy(executionId);
     try {
       if (action === 'pause') await pauseExecution(executionId);
-      else if (action === 'resume') await resumeExecution(executionId);
       else await cancelExecution(executionId);
-      toast(`已${action === 'pause' ? '暂停' : action === 'resume' ? '恢复' : '取消'}执行`, 'success');
+      toast(`已${action === 'pause' ? '暂停' : '取消'}执行`, 'success');
       await loadExecutions();
     } catch (e) {
       toast(e instanceof Error ? e.message : '操作失败', 'error');
+    } finally { setBusy(null); }
+  };
+
+  // 断点续跑两步化（WFO-09）：恢复 → resumable=true 时自动续订续跑事件流到执行事件面板
+  const handleResumeWithStream = async (exec: OrchestrationExecutionEntity) => {
+    setBusy(exec.id);
+    try {
+      const resumable = await resumeExecution(exec.id);
+      toast('已恢复执行', 'success');
+      await loadExecutions();
+      if (!resumable) {
+        toast('引擎无断点检查点（服务可能已重启且检查点不可用），请重新发起一次执行', 'error');
+        return;
+      }
+      setExecGraph(prev => (prev && prev.id === exec.graphId
+        ? prev
+        : { id: exec.graphId, graphName: `续跑 ${exec.id.slice(0, 8)}…`, status: 'active' }));
+      setStreamEvents([]);
+      setStreaming(true);
+      resumeGraphStream(
+        exec.id,
+        event => setStreamEvents(prev => [...prev.slice(-200), event]),
+        () => { setStreaming(false); toast('断点续跑完成', 'success'); loadExecutions(); },
+        err => { setStreaming(false); toast(err.message, 'error'); }
+      );
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '恢复失败', 'error');
     } finally { setBusy(null); }
   };
 
@@ -286,12 +366,22 @@ export default function OrchestrationPage() {
                       title={g.status === 'active' ? '查看编排图（只读，支持运行预览）' : '在设计器中编排'}>
                       <PencilRuler className="w-3.5 h-3.5" />{g.status === 'active' ? '查看' : '设计'}
                     </button>
-                    {g.status !== 'active' && (
+                    {g.status !== 'active' ? (
                       <button onClick={() => handleActivate(g.id)} disabled={isBusy}
                         className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-tech-400 border border-tech-500/20 rounded-lg hover:bg-tech-500/10 transition-colors">
                         <Send className="w-3.5 h-3.5" />激活
                       </button>
+                    ) : (
+                      <button onClick={() => handleDeactivate(g.id)} disabled={isBusy}
+                        className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-gold-400 border border-gold-500/20 rounded-lg hover:bg-gold-500/10 transition-colors"
+                        title="下架为草稿，重新可编辑；执行与历史数据保留">
+                        <ArrowDownToLine className="w-3.5 h-3.5" />下架
+                      </button>
                     )}
+                    <button onClick={() => handleOpenVersions(g)} disabled={isBusy}
+                      className="p-1.5 text-ink-400 hover:text-tech-400 rounded transition-colors" title="版本历史">
+                      <History className="w-4 h-4" />
+                    </button>
                     <button onClick={() => handleExecute(g)} disabled={isBusy || g.status !== 'active'}
                       className="p-1.5 text-ink-400 hover:text-green-400 rounded transition-colors disabled:opacity-40" title={g.status === 'active' ? '同步执行' : '请先激活'}>
                       {isBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
@@ -375,6 +465,7 @@ export default function OrchestrationPage() {
                       图 {exec.graphId} · {formatTime(exec.startedAt || exec.createdAt)}
                       {exec.tokenUsed ? ` · ${exec.tokenUsed} tokens` : ''}
                       {exec.currentNodeId ? ` · 节点 ${exec.currentNodeId}` : ''}
+                      {exec.triggerType && triggerLabel[exec.triggerType] ? ` · ${triggerLabel[exec.triggerType]}触发` : ''}
                     </p>
                   </div>
                 </div>
@@ -387,7 +478,7 @@ export default function OrchestrationPage() {
                           {isBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Pause className="w-4 h-4" />}
                         </button>
                       ) : (
-                        <button onClick={() => handleLifecycle(exec.id, 'resume')} disabled={isBusy} className="p-1.5 text-green-400 hover:text-green-300 rounded" title="恢复">
+                        <button onClick={() => handleResumeWithStream(exec)} disabled={isBusy} className="p-1.5 text-green-400 hover:text-green-300 rounded" title="恢复（自动续跑）">
                           {isBusy ? <Loader2 className="w-4 h-4 animate-spin" /> : <Play className="w-4 h-4" />}
                         </button>
                       )}
@@ -405,6 +496,70 @@ export default function OrchestrationPage() {
           )}
         </div>
       </div>
+
+      {/* 版本历史弹窗（WFO-01/02：不可变版本快照 + 回滚） */}
+      {versionGraph && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setVersionGraph(null)}>
+          <div className="glass-dark rounded-2xl w-full max-w-3xl p-6 shadow-2xl animate-fade-up border border-tech-500/10 max-h-[85vh] overflow-y-auto scrollbar-thin" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <h3 className="text-base font-semibold text-ink-50">版本历史 - {versionGraph.graphName}</h3>
+                <p className="text-xs text-ink-500 mt-0.5">
+                  当前 v{versionGraph.version || '1'} · {versionGraph.status === 'active' ? '已激活' : '草稿'}
+                  {versionGraph.status !== 'draft' && ' · 回滚需先下架'}
+                </p>
+              </div>
+              <button onClick={() => setVersionGraph(null)} className="text-ink-500 hover:text-ink-300 text-lg">✕</button>
+            </div>
+            {versionsLoading ? (
+              <div className="flex items-center justify-center py-10 text-ink-500">
+                <Loader2 className="w-5 h-5 animate-spin mr-2" />加载版本...
+              </div>
+            ) : versions.length === 0 ? (
+              <p className="text-center py-10 text-ink-500 text-sm">该图还没有版本快照（从未激活过）。激活时当前定义会被发布为版本 v1。</p>
+            ) : (
+              <div className="space-y-2">
+                {versions.map(v => (
+                  <div key={v.id} className={`glass rounded-xl px-4 py-3 flex items-center justify-between ${selectedVersion?.id === v.id ? 'border border-tech-500/30' : ''}`}>
+                    <div className="min-w-0">
+                      <p className="text-sm text-ink-100">v{v.version}
+                        <span className="text-[10px] text-ink-500 ml-2">{v.orchestrationMode || 'PIPELINE'}</span>
+                        {versionGraph.version === String(v.version) && versionGraph.status === 'active'
+                          && <span className="text-[10px] text-tech-400 ml-2">当前执行版本</span>}
+                      </p>
+                      <p className="text-[10px] text-ink-500 mt-0.5">激活于 {formatTime(v.activatedAt || v.createdAt)}</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button onClick={() => setSelectedVersion(selectedVersion?.id === v.id ? null : v)}
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-cyan-300 border border-cyan-500/20 rounded-lg hover:bg-cyan-500/10 transition-colors">
+                        <Eye className="w-3.5 h-3.5" />{selectedVersion?.id === v.id ? '收起定义' : '查看定义'}
+                      </button>
+                      <button onClick={() => handleRollback(versionGraph.id, v.id)}
+                        disabled={busy === v.id || versionGraph.status !== 'draft'}
+                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs text-gold-400 border border-gold-500/20 rounded-lg hover:bg-gold-500/10 transition-colors disabled:opacity-40"
+                        title={versionGraph.status !== 'draft' ? '仅草稿状态可回滚，请先下架' : '将该版本快照写回草稿定义'}>
+                        {busy === v.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RotateCcw className="w-3.5 h-3.5" />}回滚
+                      </button>
+                    </div>
+                  </div>
+                ))}
+                {selectedVersion && (
+                  <div className="grid grid-cols-2 gap-3 mt-3">
+                    <div>
+                      <p className="text-xs text-ink-400 mb-1">当前草稿定义</p>
+                      <pre className="glass rounded-lg p-3 text-[10px] font-mono text-ink-300 max-h-64 overflow-auto scrollbar-thin whitespace-pre-wrap">{prettyJson(versionGraph.graphDefinition)}</pre>
+                    </div>
+                    <div>
+                      <p className="text-xs text-tech-400 mb-1">版本 v{selectedVersion.version} 定义</p>
+                      <pre className="glass rounded-lg p-3 text-[10px] font-mono text-ink-300 max-h-64 overflow-auto scrollbar-thin whitespace-pre-wrap">{prettyJson(selectedVersion.graphDefinition)}</pre>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 创建编排图弹窗 */}
       {showCreateModal && (

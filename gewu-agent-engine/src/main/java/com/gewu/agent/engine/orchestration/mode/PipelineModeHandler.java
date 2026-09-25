@@ -55,6 +55,10 @@ public class PipelineModeHandler implements ModeHandler {
     private final ExecutionControl executionControl;
     /** 目标分解器（null 时 PLAN 节点报错；PLAN 节点动态规划为并行波次子图内联执行） */
     private final com.gewu.agent.engine.orchestration.GoalPlanner goalPlanner;
+    /** 子图解析器（null 或开关关闭时 SUBGRAPH 节点退回按 AGENT 执行） */
+    private final com.gewu.agent.engine.orchestration.SubgraphResolver subgraphResolver;
+    /** SUBGRAPH 特性开关（WFO-04：agent.engine.orchestration.subgraph.enabled，默认关闭） */
+    private final boolean subgraphEnabled;
     private final RouteConditionEvaluator routeEvaluator = new RouteConditionEvaluator();
 
     /** HUMAN 节点默认审批超时（秒） */
@@ -63,6 +67,27 @@ public class PipelineModeHandler implements ModeHandler {
     private static final int SUMMARY_MAX_LENGTH = 500;
     /** PLAN 节点嵌套深度上限（子图内不再允许再嵌 PLAN，防递归失控） */
     private static final int MAX_PLAN_DEPTH = 1;
+    /** SUBGRAPH 嵌套深度上限（WFO-04，防跨图环失控；静态环检测由 VL-13 兜底） */
+    private static final int MAX_SUBGRAPH_DEPTH = 2;
+    /** 节点级重试次数上限（WFO-05） */
+    private static final int MAX_NODE_RETRY_COUNT = 3;
+    /** 节点级重试默认退避（毫秒，WFO-05） */
+    private static final int DEFAULT_RETRY_BACKOFF_MS = 1000;
+    /** 节点级超时上限（秒，WFO-05） */
+    private static final long MAX_NODE_TIMEOUT_SECONDS = 86400L;
+    /**
+     * TOOL 节点超时执行专用池（WFO-05）：有界队列 + CallerRunsPolicy（CR-022 模式），
+     * 不占用 commonPool；队列满时退化为提交线程同步执行（超时保护降级，可接受）。
+     */
+    private static final java.util.concurrent.ExecutorService TOOL_TIMEOUT_EXECUTOR =
+            new java.util.concurrent.ThreadPoolExecutor(1, 4, 60L, java.util.concurrent.TimeUnit.SECONDS,
+                    new java.util.concurrent.LinkedBlockingQueue<>(32),
+                    runnable -> {
+                        Thread thread = new Thread(runnable, "orch-tool-timeout");
+                        thread.setDaemon(true);
+                        return thread;
+                    },
+                    new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
 
     public PipelineModeHandler(AgentExecutor executor, HitlGateway hitlGateway) {
         this(executor, hitlGateway, null, null, null);
@@ -76,11 +101,21 @@ public class PipelineModeHandler implements ModeHandler {
     public PipelineModeHandler(AgentExecutor executor, HitlGateway hitlGateway,
                                GraphNodeExecutor nodeExecutor, ExecutionControl executionControl,
                                com.gewu.agent.engine.orchestration.GoalPlanner goalPlanner) {
+        this(executor, hitlGateway, nodeExecutor, executionControl, goalPlanner, null, false);
+    }
+
+    public PipelineModeHandler(AgentExecutor executor, HitlGateway hitlGateway,
+                               GraphNodeExecutor nodeExecutor, ExecutionControl executionControl,
+                               com.gewu.agent.engine.orchestration.GoalPlanner goalPlanner,
+                               com.gewu.agent.engine.orchestration.SubgraphResolver subgraphResolver,
+                               boolean subgraphEnabled) {
         this.executor = executor;
         this.hitlGateway = hitlGateway;
         this.nodeExecutor = nodeExecutor;
         this.executionControl = executionControl;
         this.goalPlanner = goalPlanner;
+        this.subgraphResolver = subgraphResolver;
+        this.subgraphEnabled = subgraphEnabled;
     }
 
     @Override
@@ -103,8 +138,12 @@ public class PipelineModeHandler implements ModeHandler {
         Runnable completionCallback;
         /** PLAN 节点嵌套深度（子图继承父深度+1，达到上限拒绝再嵌） */
         int planDepth;
+        /** SUBGRAPH 嵌套深度（WFO-04，子图继承父深度+1，达到上限拒绝再嵌） */
+        int subgraphDepth;
         /** 失败节点登记（nodeId → 原因）：终态判定与 best-effort 级联防重 */
         final Map<String, String> failedNodes = new LinkedHashMap<>();
+        /** 节点重试计数（nodeId → 成功前的额外尝试次数，WFO-05，随 node_complete 事件透出） */
+        final Map<String, Integer> nodeRetries = new ConcurrentHashMap<>();
         boolean terminal = false;
         boolean paused = false;
 
@@ -202,8 +241,82 @@ public class PipelineModeHandler implements ModeHandler {
             case PARALLEL -> executeParallel(walk, node, input);
             case MERGE -> arriveMerge(walk, node, node.getNodeId(), "");
             case PLAN -> executePlanNode(walk, node, input);
+            case SUBGRAPH -> executeSubgraphNode(walk, node, input);
             default -> executeAgentNode(walk, node, input);
         }
+    }
+
+    /**
+     * SUBGRAPH 嵌套子图节点（WFO-04）。
+     * <p>特性开关关闭时保持历史行为（按 AGENT 节点执行）。开启后：
+     * refId 经 {@link com.gewu.agent.engine.orchestration.SubgraphResolver} 加载可执行子图
+     * （active、优先版本快照），以父上下文变量快照为初始变量沙箱执行（子图内部变量写入
+     * 不回渗父图），子图最终产出作为本节点输出继续父图遍历；嵌套深度上限 2，
+     * 断点续跑从 SUBGRAPH 节点恢复时子图整体重跑（子图内部无断点语义）。
+     */
+    private void executeSubgraphNode(Walk walk, GraphNode node, StringBuilder input) {
+        if (!subgraphEnabled) {
+            executeAgentNode(walk, node, input);
+            return;
+        }
+        if (subgraphResolver == null) {
+            handleNodeFailure(walk, node, "SUBGRAPH 节点需要 SubgraphResolver（未配置）: " + node.getNodeId());
+            return;
+        }
+        if (walk.subgraphDepth >= MAX_SUBGRAPH_DEPTH) {
+            handleNodeFailure(walk, node, "子图嵌套深度超限（上限 " + MAX_SUBGRAPH_DEPTH + "）: " + node.getNodeId());
+            return;
+        }
+        String subGraphId = node.getRefId();
+        if (subGraphId == null || subGraphId.isBlank()) {
+            handleNodeFailure(walk, node, "SUBGRAPH 节点缺少 refId: " + node.getNodeId());
+            return;
+        }
+        OrchestrationGraph subGraph;
+        try {
+            subGraph = subgraphResolver.resolve(subGraphId);
+        } catch (Exception e) {
+            log.error("加载子图失败: refId={}", subGraphId, e);
+            handleNodeFailure(walk, node, "加载子图失败 " + subGraphId + ": " + e.getMessage());
+            return;
+        }
+        if (subGraph == null) {
+            handleNodeFailure(walk, node, "子图不存在或不可执行（需已激活）: " + subGraphId);
+            return;
+        }
+        String goalText = input != null ? input.toString() : "";
+        // 沙箱上下文：子图自身 variables 为基础（如子图级模型兜底配置），
+        // 父上下文变量快照覆盖同名键（父传参优先），子图内部新写入不回渗父图
+        OrchestrationContext subCtx = OrchestrationContext.builder()
+                .executionId(walk.ctx.getExecutionId())
+                .graphId(subGraph.getGraphId())
+                .userId(walk.ctx.getUserId())
+                .sessionId(walk.ctx.getSessionId())
+                .currentNodeId(walk.ctx.getCurrentNodeId())
+                .build();
+        Map<String, Object> subVars = new HashMap<>();
+        if (subGraph.getVariables() != null) {
+            subVars.putAll(subGraph.getVariables());
+        }
+        subVars.putAll(walk.ctx.snapshotVariables());
+        subCtx.setVariables(subVars);
+        subCtx.putVariable("input", goalText);
+        Walk subWalk = new Walk(subGraph, subCtx, walk.sink);
+        subWalk.subgraphDepth = walk.subgraphDepth + 1;
+        subWalk.completionCallback = () -> {
+            // 子图收尾：最终产出写回 SUBGRAPH 节点变量并沿父图出边继续
+            nodeCompleted(walk, node, subWalk.finalOutput.get());
+        };
+        List<GraphNode> subNodes = subGraph.getNodes();
+        if (subNodes == null || subNodes.isEmpty()) {
+            nodeCompleted(walk, node, "");
+            return;
+        }
+        log.info("SUBGRAPH 节点执行: nodeId={}, subGraphId={}, depth={}",
+                node.getNodeId(), subGraphId, subWalk.subgraphDepth);
+        GraphNode subStart = selectStartNode(subWalk, subNodes);
+        subWalk.activePaths.incrementAndGet();
+        visit(subWalk, subStart, new StringBuilder(goalText));
     }
 
     /** AGENT 节点：LLM 流式执行，产出累积后传递给后继 */
@@ -246,16 +359,34 @@ public class PipelineModeHandler implements ModeHandler {
             }
         }
         AgentTask task = taskBuilder.build();
+        executeAgentStream(walk, node, task, 0);
+    }
+
+    /**
+     * AGENT 节点流式执行（WFO-05 节点级超时与重试）。
+     * <p>超时：config.timeoutSeconds > 0 时对流式执行加超时上限（缺省 0 不启用，
+     * 由 LLM 客户端级超时兜底）；重试：仅对流异常/超时重试（config.retryCount，上限 3），
+     * 执行器转发的 error 事件属业务失败、有副作用风险，不重试。
+     */
+    private void executeAgentStream(Walk walk, GraphNode node, AgentTask task, int attempt) {
+        if (walk.terminal) {
+            return; // 重试等待期间图已终止，丢弃本次执行
+        }
+        long timeoutSeconds = nodeTimeoutSeconds(node);
+        Flux<AgentEvent> stream = executor.executeStream(task);
+        if (timeoutSeconds > 0) {
+            stream = stream.timeout(java.time.Duration.ofSeconds(timeoutSeconds));
+        }
         StringBuilder accumulated = new StringBuilder();
         // 推理模型（如 glm-5.3-flash）的输出主要是 reasoning_content：
         // content 为空时以最后的推理内容兜底作为节点产出，避免下游节点空输入（docs/design/47 问题一延伸）
         StringBuilder lastReasoning = new StringBuilder();
-        executor.executeStream(task).subscribe(
+        stream.subscribe(
                 event -> {
                     // 失败传播（docs/design/47 问题一）：执行器把异常转为 error 事件而非 Flux error，
                     // 必须在此识别，否则失败被伪装成成功继续推进（冒烟实证）
                     if (AgentEvent.ERROR.equals(event.getType())) {
-                        handleAgentFailure(walk, node, event.getErrorMessage());
+                        handleNodeFailure(walk, node, event.getErrorMessage());
                         return;
                     }
                     walk.sink.next(AgentEvent.builder()
@@ -276,7 +407,13 @@ public class PipelineModeHandler implements ModeHandler {
                         lastReasoning.append(event.getReasoning());
                     }
                 },
-                walk.sink::error,
+                error -> {
+                    if (attempt < nodeRetryCount(node) && !walk.terminal) {
+                        scheduleAgentRetry(walk, node, task, attempt, describeStreamError(error, timeoutSeconds));
+                        return;
+                    }
+                    handleNodeFailure(walk, node, describeStreamError(error, timeoutSeconds));
+                },
                 () -> {
                     String output = accumulated.toString();
                     if (output.isBlank() && lastReasoning.length() > 0) {
@@ -286,14 +423,70 @@ public class PipelineModeHandler implements ModeHandler {
                 });
     }
 
+    /** AGENT 流式执行的非阻塞退避重试（WFO-05） */
+    private void scheduleAgentRetry(Walk walk, GraphNode node, AgentTask task, int attempt, String cause) {
+        walk.nodeRetries.merge(node.getNodeId(), 1, Integer::sum);
+        int backoffMs = Math.max(0, intConfig(node, "retryBackoffMs", DEFAULT_RETRY_BACKOFF_MS));
+        int nextAttempt = attempt + 1;
+        log.warn("AGENT 节点执行失败，准备第 {} 次重试: nodeId={}, backoffMs={}, cause={}",
+                nextAttempt, node.getNodeId(), backoffMs, cause);
+        if (backoffMs > 0) {
+            reactor.core.publisher.Mono.delay(java.time.Duration.ofMillis(backoffMs))
+                    .subscribe(ignored -> executeAgentStream(walk, node, task, nextAttempt));
+        } else {
+            executeAgentStream(walk, node, task, nextAttempt);
+        }
+    }
+
+    /** 流异常可读描述（区分节点级超时与其他异常） */
+    private String describeStreamError(Throwable error, long timeoutSeconds) {
+        if (error instanceof java.util.concurrent.TimeoutException) {
+            return "节点执行超时（" + timeoutSeconds + "s）";
+        }
+        return error.getMessage();
+    }
+
+    /** 节点配置读取：数字键（非法值回退默认） */
+    private int intConfig(GraphNode node, String key, int defaultValue) {
+        if (node.getConfig() == null) {
+            return defaultValue;
+        }
+        Object value = node.getConfig().get(key);
+        if (value instanceof Number n) {
+            return n.intValue();
+        }
+        if (value != null) {
+            try {
+                return Integer.parseInt(value.toString());
+            } catch (NumberFormatException ignored) {
+                // 非数字配置按缺省处理
+            }
+        }
+        return defaultValue;
+    }
+
+    /** 节点级重试次数（WFO-05，上限 3；缺省 0 = 保持 fail-fast 现行为） */
+    private int nodeRetryCount(GraphNode node) {
+        return Math.min(Math.max(intConfig(node, "retryCount", 0), 0), MAX_NODE_RETRY_COUNT);
+    }
+
+    /** 节点级超时秒数（WFO-05，[1, 86400]；缺省/非正数 = 不启用，由引擎级超时兜底） */
+    private long nodeTimeoutSeconds(GraphNode node) {
+        long value = intConfig(node, "timeoutSeconds", 0);
+        if (value <= 0) {
+            return 0;
+        }
+        return Math.min(value, MAX_NODE_TIMEOUT_SECONDS);
+    }
+
     /**
-     * AGENT 节点失败处理（docs/design/47 问题一）。
+     * 节点失败统一处理（docs/design/47 问题一 + WFO-05 泛化，AGENT/TOOL 共用）。
      * <p>默认 fail-fast：整图 FAILED 终止，与 TOOL/PLAN/HUMAN 失败语义对齐；
      * 图变量或节点 config 设 {@code continueOnFailure=true} 时转为 best-effort：
      * 失败节点不发 node_complete、不写产出，向下游传播失败占位（MERGE 到账空产出、
      * 非 MERGE 后继级联跳过），整图终态仍如实判 FAILED。
      */
-    private void handleAgentFailure(Walk walk, GraphNode node, String errorMessage) {
+    private void handleNodeFailure(Walk walk, GraphNode node, String errorMessage) {
         if (walk.terminal || walk.failedNodes.containsKey(node.getNodeId())) {
             return;
         }
@@ -311,7 +504,7 @@ public class PipelineModeHandler implements ModeHandler {
             failGraph(walk, reason);
             return;
         }
-        log.warn("AGENT 节点失败（best-effort 继续）: {}", reason);
+        log.warn("节点失败（best-effort 继续）: {}", reason);
         propagateFailure(walk, node, reason, new java.util.HashSet<>());
     }
 
@@ -433,20 +626,77 @@ public class PipelineModeHandler implements ModeHandler {
         visit(subWalk, subStart, new StringBuilder(goalText));
     }
 
-    /** TOOL 节点：模板渲染参数 -> 安全管线执行 -> 产出传递后继 */
+    /**
+     * TOOL 节点：模板渲染参数 -> 安全管线执行 -> 产出传递后继。
+     * <p>WFO-05：支持节点级重试（retryCount，仅对执行异常重试）与超时
+     * （timeoutSeconds，缺省不启用、由工具执行管线内部超时兜底）；
+     * 重试耗尽后走与 AGENT 一致的失败语义（fail-fast / continueOnFailure）。
+     */
     private void executeToolNode(Walk walk, GraphNode node, StringBuilder input) {
-        String output;
-        try {
-            if (nodeExecutor == null) {
-                throw new IllegalStateException("TOOL 节点需要 GraphNodeExecutor（未配置）: " + node.getNodeId());
-            }
-            output = nodeExecutor.executeToolNode(node, walk.ctx);
-        } catch (Exception e) {
-            log.error("TOOL 节点执行失败: {}", node.getNodeId(), e);
-            failGraph(walk, "TOOL 节点执行失败: " + node.getNodeId() + " - " + e.getMessage());
+        if (nodeExecutor == null) {
+            handleNodeFailure(walk, node, "TOOL 节点需要 GraphNodeExecutor（未配置）: " + node.getNodeId());
             return;
         }
-        nodeCompleted(walk, node, output);
+        int retryCount = nodeRetryCount(node);
+        int attempt = 0;
+        String lastError = null;
+        while (true) {
+            try {
+                String output = executeToolWithTimeout(node, walk.ctx);
+                nodeCompleted(walk, node, output);
+                return;
+            } catch (Exception e) {
+                lastError = e.getMessage();
+                if (walk.terminal) {
+                    return; // 重试期间图已终止
+                }
+                if (attempt < retryCount) {
+                    attempt++;
+                    walk.nodeRetries.merge(node.getNodeId(), 1, Integer::sum);
+                    int backoffMs = Math.max(0, intConfig(node, "retryBackoffMs", DEFAULT_RETRY_BACKOFF_MS));
+                    log.warn("TOOL 节点执行失败，第 {} 次重试: nodeId={}, backoffMs={}, cause={}",
+                            attempt, node.getNodeId(), backoffMs, lastError);
+                    if (backoffMs > 0) {
+                        try {
+                            Thread.sleep(backoffMs);
+                        } catch (InterruptedException ie) {
+                            Thread.currentThread().interrupt();
+                            break;
+                        }
+                    }
+                    continue;
+                }
+                break;
+            }
+        }
+        log.error("TOOL 节点执行失败: {}", node.getNodeId());
+        handleNodeFailure(walk, node, "TOOL 节点执行失败: " + node.getNodeId() + " - " + lastError);
+    }
+
+    /** 工具调用包节点级超时（WFO-05）：同步等待上限，超时尽力中断底层任务 */
+    private String executeToolWithTimeout(GraphNode node, OrchestrationContext ctx) throws Exception {
+        long timeoutSeconds = nodeTimeoutSeconds(node);
+        if (timeoutSeconds <= 0) {
+            return nodeExecutor.executeToolNode(node, ctx);
+        }
+        java.util.concurrent.CompletableFuture<String> future =
+                java.util.concurrent.CompletableFuture.supplyAsync(
+                        () -> nodeExecutor.executeToolNode(node, ctx), TOOL_TIMEOUT_EXECUTOR);
+        try {
+            return future.get(timeoutSeconds, java.util.concurrent.TimeUnit.SECONDS);
+        } catch (java.util.concurrent.TimeoutException e) {
+            future.cancel(true);
+            throw new IllegalStateException("节点执行超时（" + timeoutSeconds + "s）", e);
+        } catch (java.util.concurrent.ExecutionException e) {
+            Throwable cause = e.getCause() != null ? e.getCause() : e;
+            if (cause instanceof RuntimeException runtime) {
+                throw runtime;
+            }
+            if (cause instanceof Error error) {
+                throw error;
+            }
+            throw new IllegalStateException(cause.getMessage(), cause);
+        }
     }
 
     /** ROUTER 节点：条件求值选择唯一后继 */
@@ -571,11 +821,18 @@ public class PipelineModeHandler implements ModeHandler {
         if (walk.terminal) {
             return; // 图已失败/完成后到达的迟来回调，不产生 node_complete（失败传播守卫）
         }
+        Map<String, Object> metadata = new LinkedHashMap<>();
+        metadata.put("outputLen", output != null ? output.length() : 0);
+        // WFO-05：带重试的成功把重试次数透出（应用层落库节点记录 retry_count）
+        Integer retries = walk.nodeRetries.get(node.getNodeId());
+        if (retries != null && retries > 0) {
+            metadata.put("retries", retries);
+        }
         walk.sink.next(AgentEvent.builder()
                 .type(AgentEvent.NODE_COMPLETE)
                 .nodeId(node.getNodeId())
                 .role(node.getRoleCode())
-                .metadata(Map.of("outputLen", output != null ? output.length() : 0))
+                .metadata(metadata)
                 .build());
         walk.ctx.putVariable(node.getNodeId(), output != null ? output : "");
         String next = firstOutgoing(walk, node.getNodeId());
@@ -642,21 +899,35 @@ public class PipelineModeHandler implements ModeHandler {
         if (node.getConfig() != null && node.getConfig().get("timeoutSeconds") instanceof Number n) {
             timeoutSeconds = n.intValue();
         }
+        // 审批人圈定（WFO-07）：config.assigneeId / assigneeRole 透传给审批中心做可见性过滤
+        Object assigneeId = node.getConfig() != null ? node.getConfig().get("assigneeId") : null;
+        Object assigneeRole = node.getConfig() != null ? node.getConfig().get("assigneeRole") : null;
 
-        ApprovalRequest request = ApprovalRequest.builder()
+        ApprovalRequest.ApprovalRequestBuilder requestBuilder = ApprovalRequest.builder()
                 .approvalId(UUID.randomUUID().toString())
                 .executionId(walk.ctx.getExecutionId())
                 .nodeId(node.getNodeId())
                 .type("APPROVE_REJECT")
                 .summary(summary)
-                .timeoutSeconds(timeoutSeconds)
-                .build();
+                .timeoutSeconds(timeoutSeconds);
+        if (assigneeId != null && !String.valueOf(assigneeId).isBlank()) {
+            requestBuilder.assigneeId(String.valueOf(assigneeId));
+        }
+        if (assigneeRole != null && !String.valueOf(assigneeRole).isBlank()) {
+            requestBuilder.assigneeRole(String.valueOf(assigneeRole));
+        }
+        ApprovalRequest request = requestBuilder.build();
 
+        Map<String, Object> approvalMeta = new LinkedHashMap<>();
+        approvalMeta.put("approvalId", request.getApprovalId());
+        approvalMeta.put("timeoutSeconds", timeoutSeconds);
+        if (request.getAssigneeId() != null) {
+            approvalMeta.put("assigneeId", request.getAssigneeId());
+        }
         walk.sink.next(AgentEvent.builder()
                 .type(AgentEvent.APPROVAL_REQUIRED)
                 .nodeId(node.getNodeId())
-                .metadata(Map.of("approvalId", request.getApprovalId(),
-                        "timeoutSeconds", timeoutSeconds))
+                .metadata(approvalMeta)
                 .build());
 
         hitlGateway.requestApproval(request).subscribe(
@@ -812,18 +1083,24 @@ public class PipelineModeHandler implements ModeHandler {
         }
         String status = "SUCCESS";
         String output = "";
+        String reason = null;
         for (AgentEvent event : events) {
             if (AgentEvent.GRAPH_COMPLETE.equals(event.getType())) {
-                Object s = event.getMetadata() != null ? event.getMetadata().get("status") : null;
+                Map<String, Object> metadata = event.getMetadata();
+                Object s = metadata != null ? metadata.get("status") : null;
                 status = s != null ? String.valueOf(s) : status;
-                output = event.getMetadata() != null && event.getMetadata().get("output") != null
-                        ? String.valueOf(event.getMetadata().get("output")) : output;
+                output = metadata != null && metadata.get("output") != null
+                        ? String.valueOf(metadata.get("output")) : output;
+                // 失败原因透传（冒烟发现项修复）：此前 failure 只带 output，error_message 落库为空
+                Object r = metadata != null ? metadata.get("reason") : null;
+                reason = r != null ? String.valueOf(r) : reason;
             }
         }
         if ("SUCCESS".equals(status)) {
             return OrchestrationResult.success(context.getExecutionId(), output);
         }
-        return OrchestrationResult.failure(context.getExecutionId(), output);
+        return OrchestrationResult.failure(context.getExecutionId(),
+                reason != null && !reason.isBlank() ? reason : output);
     }
 
     /** 兼容旧调用：按节点声明顺序返回（图遍历已改为边驱动，此方法仅供调试） */

@@ -50,6 +50,9 @@ export interface OrchestrationExecutionEntity {
   id: string;
   graphId: string;
   status: string;
+  versionId?: string;
+  /** MANUAL/API/AGENT_TOOL/SCHEDULE/WEBHOOK */
+  triggerType?: string;
   currentNodeId?: string;
   variables?: string;
   finalOutput?: string;
@@ -58,6 +61,18 @@ export interface OrchestrationExecutionEntity {
   tokenUsed?: number;
   startedAt?: number;
   completedAt?: number;
+  createdAt?: number;
+}
+
+/** 编排图版本快照（WFO-01，不可变） */
+export interface OrchestrationGraphVersionEntity {
+  id: string;
+  graphId: string;
+  version: number;
+  graphDefinition: string;
+  orchestrationMode?: string;
+  activatedBy?: string;
+  activatedAt?: number;
   createdAt?: number;
 }
 
@@ -111,6 +126,8 @@ export interface OrchestrationNodeExecution {
   roleCode?: string;
   status: string;
   durationMs?: number;
+  /** 成功前的额外尝试次数（WFO-05） */
+  retryCount?: number;
   errorMessage?: string;
   startedAt?: number;
   completedAt?: number;
@@ -156,6 +173,26 @@ export async function activateGraph(graphId: string): Promise<void> {
   await handleResponse(res);
 }
 
+/** 下架编排图（active -> draft，可重新编辑；执行与审批数据保留，WFO-02） */
+export async function deactivateGraph(graphId: string): Promise<void> {
+  const res = await authFetch(`${BASE}/v1/orchestration/graphs/${graphId}/deactivate`, { method: 'PUT' });
+  await handleResponse(res);
+}
+
+/** 查询编排图版本快照列表（按版本号倒序，WFO-02） */
+export async function listGraphVersions(graphId: string): Promise<OrchestrationGraphVersionEntity[]> {
+  const res = await authFetch(`${BASE}/v1/orchestration/graphs/${graphId}/versions`);
+  return handleResponse(res);
+}
+
+/** 回滚到历史版本：将版本快照写回草稿定义（仅 draft 可回滚，WFO-02） */
+export async function rollbackGraphVersion(graphId: string, versionId: string): Promise<OrchestrationGraphEntity> {
+  const res = await authFetch(`${BASE}/v1/orchestration/graphs/${graphId}/versions/${versionId}/rollback`, {
+    method: 'POST',
+  });
+  return handleResponse(res);
+}
+
 export async function deleteGraph(graphId: string): Promise<void> {
   const res = await authFetch(`${BASE}/v1/orchestration/graphs/${graphId}`, { method: 'DELETE' });
   await handleResponse(res);
@@ -193,14 +230,69 @@ export async function pauseExecution(executionId: string): Promise<void> {
   await handleResponse(res);
 }
 
-export async function resumeExecution(executionId: string): Promise<void> {
+/**
+ * 恢复执行（两步操作第一步，WFO-09）：DB 状态置 RUNNING 并返回 resumable；
+ * resumable=true 时调用 resumeGraphStream 订阅断点续跑事件流。
+ */
+export async function resumeExecution(executionId: string): Promise<boolean> {
   const res = await authFetch(`${BASE}/v1/orchestration/executions/${executionId}/resume`, { method: 'POST' });
-  await handleResponse(res);
+  return handleResponse<boolean>(res);
 }
 
 export async function cancelExecution(executionId: string): Promise<void> {
   const res = await authFetch(`${BASE}/v1/orchestration/executions/${executionId}/cancel`, { method: 'POST' });
   await handleResponse(res);
+}
+
+/**
+ * 断点续跑事件流（SSE，WFO-09）：resumable=true 时调用，
+ * 从引擎检查点恢复执行（跳过已完成节点），事件结构同 executeGraphStream。
+ * 返回 AbortController 供调用方中断流。
+ */
+export function resumeGraphStream(
+  executionId: string,
+  onEvent: (event: { type: string; content?: string; reasoning?: string; nodeId?: string; errorMessage?: string; metadata?: Record<string, unknown> }) => void,
+  onDone: () => void,
+  onError: (err: Error) => void
+): AbortController {
+  const controller = new AbortController();
+  const token = getAccessToken();
+  fetch(`${BASE}/v1/orchestration/executions/${executionId}/resume/stream`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      Accept: 'text/event-stream',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    signal: controller.signal,
+  })
+    .then(async res => {
+      if (!res.ok || !res.body) throw new Error(`续跑流请求失败: ${res.status}`);
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+      for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const blocks = buffer.split('\n\n');
+        buffer = blocks.pop() || '';
+        for (const block of blocks) {
+          const dataLine = block.split('\n').find(l => l.startsWith('data:'));
+          if (!dataLine) continue;
+          const payload = dataLine.slice(5).trim();
+          if (!payload || payload === '[DONE]') continue;
+          try {
+            onEvent(JSON.parse(payload));
+          } catch { /* 跳过非 JSON 心跳行 */ }
+        }
+      }
+      onDone();
+    })
+    .catch(err => {
+      if ((err as Error).name !== 'AbortError') onError(err instanceof Error ? err : new Error(String(err)));
+    });
+  return controller;
 }
 
 /**

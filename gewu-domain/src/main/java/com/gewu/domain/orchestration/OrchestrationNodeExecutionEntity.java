@@ -29,6 +29,8 @@ public class OrchestrationNodeExecutionEntity extends BaseEntity {
     private String output;
     /** Token 消耗 */
     private Integer tokenUsed;
+    /** 节点重试次数（成功前的额外尝试次数，WFO-05） */
+    private Integer retryCount;
     /** 执行时长（毫秒） */
     private Long durationMs;
     /** 错误信息 */

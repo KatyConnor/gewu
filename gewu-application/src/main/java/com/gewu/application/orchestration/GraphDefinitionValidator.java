@@ -8,6 +8,8 @@ import com.gewu.agent.engine.orchestration.model.GraphNode;
 import com.gewu.agent.engine.orchestration.model.NodeType;
 import com.gewu.agent.engine.orchestration.model.OrchestrationGraph;
 import com.gewu.agent.engine.orchestration.model.OrchestrationMode;
+import com.gewu.domain.orchestration.OrchestrationGraphEntity;
+import com.gewu.infrastructure.mapper.OrchestrationGraphMapper;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -25,6 +27,8 @@ import java.util.regex.Pattern;
  * 编排图定义结构校验器（VL 规则，docs/design/46 调研报告 §7.5）。
  * <p>在编排图保存与执行前双闸执行：ERROR 级阻断，WARNING 级放行并记录。
  * 枚举合法性（VL-07）由 Jackson 反序列化保证，不在此重复校验。
+ * <p>VL-13（WFO-04）需要跨图查询子图状态与引用链，注入图 Mapper 完成；
+ * 查询异常时降级为 WARNING（运行时由引擎深度上限与 resolver 兜底）。
  *
  * @since 1.0.0
  */
@@ -36,14 +40,22 @@ public class GraphDefinitionValidator {
     /** 校验级别：警告（放行） */
     public static final String LEVEL_WARNING = "WARNING";
 
-    private static final Pattern VAR_REF = Pattern.compile("\\$\\{var\\.([A-Za-z0-9_.-]+)}");
+    /** 变量引用占位符：${name}（标准）与 ${var.name}（历史写法，解析名去前缀），WFO-06 对齐 */
+    private static final Pattern VAR_REF = Pattern.compile("\\$\\{(?:var\\.)?([A-Za-z0-9_.-]+)}");
     private static final long MIN_HUMAN_TIMEOUT_SECONDS = 1L;
     private static final long MAX_HUMAN_TIMEOUT_SECONDS = 86400L;
+    private static final long MIN_NODE_TIMEOUT_SECONDS = 1L;
+    /** 节点级重试次数上限（与引擎 PipelineModeHandler 对齐） */
+    private static final int MAX_NODE_RETRY_COUNT = 3;
+    /** SUBGRAPH 引用链遍历深度上限（VL-13 环检测防失控） */
+    private static final int MAX_SUBGRAPH_CHAIN_DEPTH = 10;
 
     private final ObjectMapper objectMapper;
+    private final OrchestrationGraphMapper graphMapper;
 
-    public GraphDefinitionValidator(ObjectMapper objectMapper) {
+    public GraphDefinitionValidator(ObjectMapper objectMapper, OrchestrationGraphMapper graphMapper) {
         this.objectMapper = objectMapper;
+        this.graphMapper = graphMapper;
     }
 
     /**
@@ -69,6 +81,7 @@ public class GraphDefinitionValidator {
         List<GraphEdge> edges = graph.getEdges() == null ? List.of() : graph.getEdges();
         List<ValidationIssue> issues = new ArrayList<>();
         validateCommonRules(nodes, edges, graph.getVariables(), issues);
+        validateSubgraphRefs(nodes, graph.getGraphId(), issues);
         validateModeRules(graph.getMode(), nodes, edges, issues);
         return issues;
     }
@@ -117,7 +130,7 @@ public class GraphDefinitionValidator {
         }
     }
 
-    /** VL-06 / VL-08 / VL-09 / VL-10：节点配置合法性。 */
+    /** VL-06 / VL-08 / VL-09 / VL-10 / VL-14：节点配置合法性。 */
     private void validateNodeConfig(GraphNode node, Set<String> resolvableVars, List<ValidationIssue> issues) {
         Map<String, Object> config = node.getConfig();
         if (NodeType.TOOL == node.getType()
@@ -127,7 +140,41 @@ public class GraphDefinitionValidator {
         }
         validateHumanTimeout(node, config, issues);
         validateOutputSchema(node, issues);
+        validateNodeRetryAndTimeout(node, config, issues);
         validateVariableReferences(node, config, resolvableVars, issues);
+    }
+
+    /** VL-14：节点级重试/超时配置范围（WFO-05；超出范围按边界生效，WARNING 提示）。 */
+    private void validateNodeRetryAndTimeout(GraphNode node, Map<String, Object> config, List<ValidationIssue> issues) {
+        if (config == null) {
+            return;
+        }
+        Object retry = config.get("retryCount");
+        if (retry != null) {
+            try {
+                int value = Integer.parseInt(retry.toString());
+                if (value < 0 || value > MAX_NODE_RETRY_COUNT) {
+                    issues.add(new ValidationIssue("VL-14", LEVEL_WARNING, node.getNodeId(), null,
+                            "重试次数 retryCount=" + value + " 超出 [0, " + MAX_NODE_RETRY_COUNT + "]，将按边界值生效"));
+                }
+            } catch (NumberFormatException e) {
+                issues.add(new ValidationIssue("VL-14", LEVEL_WARNING, node.getNodeId(), null,
+                        "重试次数 retryCount 不是数字: " + retry));
+            }
+        }
+        Object timeout = config.get("timeoutSeconds");
+        if (timeout != null) {
+            try {
+                long value = Long.parseLong(timeout.toString());
+                if (value != 0 && (value < MIN_NODE_TIMEOUT_SECONDS || value > MAX_HUMAN_TIMEOUT_SECONDS)) {
+                    issues.add(new ValidationIssue("VL-14", LEVEL_WARNING, node.getNodeId(), null,
+                            "节点超时 timeoutSeconds=" + value + " 超出 [0(不启用), 86400]，将按边界值生效"));
+                }
+            } catch (NumberFormatException e) {
+                issues.add(new ValidationIssue("VL-14", LEVEL_WARNING, node.getNodeId(), null,
+                        "节点超时 timeoutSeconds 不是数字: " + timeout));
+            }
+        }
     }
 
     /** VL-08：HUMAN 节点审批超时范围。 */
@@ -173,7 +220,7 @@ public class GraphDefinitionValidator {
                 "outputSchema 类型不支持: " + schema.getClass().getSimpleName()));
     }
 
-    /** VL-09：inputs 与工具参数中的 ${var.xxx} 引用必须可解析（图变量 / input / 前驱节点产出）。 */
+    /** VL-09：inputs 与工具参数中的 ${name} / ${var.name} 引用必须可解析（图变量 / input / 前驱节点产出）。 */
     private void validateVariableReferences(GraphNode node, Map<String, Object> config,
                                             Set<String> resolvableVars, List<ValidationIssue> issues) {
         List<String> texts = new ArrayList<>();
@@ -189,7 +236,7 @@ public class GraphDefinitionValidator {
                 String varName = matcher.group(1);
                 if (!resolvableVars.contains(varName)) {
                     issues.add(new ValidationIssue("VL-09", LEVEL_WARNING, node.getNodeId(), null,
-                            "变量引用 ${var." + varName + "} 无法解析（未在图变量或前驱节点产出中声明）"));
+                            "变量引用 ${" + varName + "} 无法解析（未在图变量或前驱节点产出中声明）"));
                 }
             }
         }
@@ -208,6 +255,88 @@ public class GraphDefinitionValidator {
             }
         }
         return resolvable;
+    }
+
+    // ==================== VL-13：SUBGRAPH 引用（WFO-04） ====================
+
+    /**
+     * VL-13：SUBGRAPH 节点 refId 必填、禁止自引用、目标图存在且 active、
+     * 引用链不成环（沿子图 SUBGRAPH refId BFS，深度上限 10）。
+     * 跨图查询失败时降级 WARNING（运行时由引擎深度上限与 resolver 兜底）。
+     */
+    private void validateSubgraphRefs(List<GraphNode> nodes, String selfGraphId, List<ValidationIssue> issues) {
+        for (GraphNode node : nodes) {
+            if (NodeType.SUBGRAPH != node.getType()) {
+                continue;
+            }
+            String refId = node.getRefId();
+            if (refId == null || refId.isBlank()) {
+                issues.add(new ValidationIssue("VL-13", LEVEL_ERROR, node.getNodeId(), null,
+                        "嵌套子图节点 " + node.getNodeId() + " 缺少 refId（须指向已激活的编排图）"));
+                continue;
+            }
+            if (selfGraphId != null && selfGraphId.equals(refId)) {
+                issues.add(new ValidationIssue("VL-13", LEVEL_ERROR, node.getNodeId(), null,
+                        "嵌套子图节点 " + node.getNodeId() + " 引用了自身，禁止自引用"));
+                continue;
+            }
+            validateSubgraphChain(node.getNodeId(), refId, selfGraphId, issues);
+        }
+    }
+
+    /** 校验子图可达性与引用链成环（BFS，visited 防重，深度上限防失控） */
+    private void validateSubgraphChain(String sourceNodeId, String rootRefId, String selfGraphId,
+                                       List<ValidationIssue> issues) {
+        Set<String> visited = new HashSet<>();
+        java.util.ArrayDeque<String> queue = new java.util.ArrayDeque<>();
+        queue.add(rootRefId);
+        int depth = 0;
+        while (!queue.isEmpty() && depth++ < MAX_SUBGRAPH_CHAIN_DEPTH) {
+            String graphId = queue.poll();
+            if (graphId == null || !visited.add(graphId)) {
+                issues.add(new ValidationIssue("VL-13", LEVEL_ERROR, sourceNodeId, null,
+                        "子图引用链存在环（" + rootRefId + " 链路重复引用）"));
+                return;
+            }
+            if (selfGraphId != null && graphId.equals(selfGraphId)) {
+                issues.add(new ValidationIssue("VL-13", LEVEL_ERROR, sourceNodeId, null,
+                        "子图引用链回到当前图，跨图环将导致执行失控"));
+                return;
+            }
+            OrchestrationGraphEntity target;
+            try {
+                target = graphMapper.selectById(graphId);
+            } catch (Exception e) {
+                issues.add(new ValidationIssue("VL-13", LEVEL_WARNING, sourceNodeId, null,
+                        "子图 " + graphId + " 状态校验暂不可用（查询失败，运行时兜底校验）"));
+                return;
+            }
+            if (target == null) {
+                issues.add(new ValidationIssue("VL-13", LEVEL_ERROR, sourceNodeId, null,
+                        "子图不存在: " + graphId));
+                return;
+            }
+            if (!"active".equals(target.getStatus())) {
+                issues.add(new ValidationIssue("VL-13", LEVEL_ERROR, sourceNodeId, null,
+                        "子图未激活（当前状态 " + target.getStatus() + "）: " + graphId));
+                return;
+            }
+            // 沿目标图的 SUBGRAPH refId 继续链路检测
+            try {
+                OrchestrationGraph targetGraph = objectMapper.readValue(target.getGraphDefinition(),
+                        OrchestrationGraph.class);
+                if (targetGraph.getNodes() != null) {
+                    targetGraph.getNodes().stream()
+                            .filter(n -> NodeType.SUBGRAPH == n.getType() && n.getRefId() != null)
+                            .map(GraphNode::getRefId)
+                            .forEach(queue::add);
+                }
+            } catch (Exception e) {
+                issues.add(new ValidationIssue("VL-13", LEVEL_WARNING, sourceNodeId, null,
+                        "子图 " + graphId + " 定义解析失败，引用链检测到此中断"));
+                return;
+            }
+        }
     }
 
     // ==================== 模式相关规则 ====================

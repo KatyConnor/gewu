@@ -43,6 +43,7 @@ class OrchestrationNodeExecutionPersistTest {
     @Mock com.gewu.application.governance.FourPhasePipeline fourPhasePipeline;
     @Mock com.gewu.infrastructure.trace.OrchestrationTracer orchestrationTracer;
     @Mock OrchestrationNodeExecutionMapper nodeExecutionMapper;
+    @Mock com.gewu.infrastructure.mapper.OrchestrationGraphVersionMapper versionMapper;
 
     private OrchestrationService service;
     /** 内存存储：模拟按 executionId+nodeId 的 upsert 目标 */
@@ -54,7 +55,7 @@ class OrchestrationNodeExecutionPersistTest {
     void setUp() {
         service = new OrchestrationService(orchestrationEngine, graphMapper, executionMapper,
                 approvalMapper, new ObjectMapper(), fourPhasePipeline, orchestrationTracer,
-                new GraphDefinitionValidator(new ObjectMapper()), nodeExecutionMapper);
+                new GraphDefinitionValidator(new ObjectMapper(), graphMapper), nodeExecutionMapper, versionMapper);
         when(nodeExecutionMapper.insert(any())).thenAnswer(inv -> {
             // 模拟持久化：记录 insert 时刻的状态快照
             OrchestrationNodeExecutionEntity source = inv.getArgument(0);

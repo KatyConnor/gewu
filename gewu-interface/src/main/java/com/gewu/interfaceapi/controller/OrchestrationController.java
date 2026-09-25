@@ -86,10 +86,32 @@ public class OrchestrationController {
     }
 
     @PutMapping("/graphs/{graphId}/activate")
-    @Operation(summary = "激活编排图", description = "将编排图从 draft 状态切换为 active")
+    @Operation(summary = "激活编排图", description = "draft -> active，同时将当前定义发布为不可变版本快照（WFO-01）")
     public Result<Void> activateGraph(@PathVariable String graphId) {
         orchestrationService.activateGraph(graphId, UserContext.currentUserId());
         return Result.success();
+    }
+
+    @PutMapping("/graphs/{graphId}/deactivate")
+    @Operation(summary = "下架编排图", description = "active -> draft，进入可编辑状态；执行与审批数据保留（WFO-02）")
+    public Result<Void> deactivateGraph(@PathVariable String graphId) {
+        orchestrationService.deactivateGraph(graphId, UserContext.currentUserId());
+        return Result.success();
+    }
+
+    @GetMapping("/graphs/{graphId}/versions")
+    @Operation(summary = "查询编排图版本列表", description = "按版本号倒序返回不可变版本快照（WFO-02）")
+    public Result<List<com.gewu.domain.orchestration.OrchestrationGraphVersionEntity>> listGraphVersions(
+            @PathVariable String graphId) {
+        return Result.success(orchestrationService.listGraphVersions(graphId));
+    }
+
+    @PostMapping("/graphs/{graphId}/versions/{versionId}/rollback")
+    @Operation(summary = "回滚到历史版本", description = "将指定版本快照写回草稿定义（仅 draft 可回滚，需重新激活才可执行）")
+    public Result<OrchestrationGraphEntity> rollbackGraphVersion(
+            @PathVariable String graphId, @PathVariable String versionId) {
+        return Result.success(orchestrationService.rollbackGraphVersion(
+                graphId, versionId, UserContext.currentUserId()));
     }
 
     @DeleteMapping("/graphs/{graphId}")

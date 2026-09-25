@@ -31,4 +31,8 @@ public class ApprovalRequest {
     private java.util.List<String> options;
     /** 超时（秒） */
     private Integer timeoutSeconds;
+    /** 指定审批人（用户 ID，WFO-07；空=全员可见） */
+    private String assigneeId;
+    /** 指定审批角色（角色编码，WFO-07；与 assigneeId 并用） */
+    private String assigneeRole;
 }

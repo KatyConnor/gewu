@@ -65,7 +65,9 @@ public class DbHitlGatewayAdapter implements HitlGateway {
                     request.getNodeId(),
                     mapType(request.getType()),
                     request.getSummary(),
-                    timeoutMinutes);
+                    timeoutMinutes,
+                    request.getAssigneeId(),
+                    request.getAssigneeRole());
         }
 
         // 建立 Mono Sink 等待人工决策

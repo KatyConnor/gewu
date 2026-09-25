@@ -88,6 +88,7 @@ import com.gewu.agent.engine.tool.security.SecurityChain;
 import com.gewu.agent.engine.tool.security.SecurityCheck;
 import com.gewu.agent.engine.tool.security.SsrfValidator;
 import org.springframework.beans.factory.ObjectProvider;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
@@ -522,17 +523,25 @@ public class AgentEngineAutoConfiguration {
                                       ObjectProvider<ConflictResolver> conflictResolverProvider,
                                       ObjectProvider<ArtifactValidator> artifactValidatorProvider,
                                       ObjectProvider<GraphNodeExecutor> graphNodeExecutorProvider,
-                                      ExecutionControl executionControl, GoalPlanner goalPlanner) {
+                                      ExecutionControl executionControl, GoalPlanner goalPlanner,
+                                      ObjectProvider<com.gewu.agent.engine.orchestration.SubgraphResolver> subgraphResolverProvider,
+                                      @Value("${agent.engine.orchestration.subgraph.enabled:false}") boolean subgraphEnabled) {
         return new Orchestrator(executor, hitlGateway,
                 conflictResolverProvider.getIfAvailable(), artifactValidatorProvider.getIfAvailable(),
-                graphNodeExecutorProvider.getIfAvailable(), executionControl, goalPlanner);
+                graphNodeExecutorProvider.getIfAvailable(), executionControl, goalPlanner,
+                subgraphResolverProvider.getIfAvailable(), subgraphEnabled);
     }
 
-    /** 执行控制注册表：在途编排的协作式暂停/取消信号与断点检查点 */
+    /**
+     * 执行控制注册表：在途编排的协作式暂停/取消信号与断点检查点。
+     * <p>注入使用方的 {@link com.gewu.agent.engine.orchestration.OrchestrationCheckpointStore}
+     * 时检查点双写持久层（WFO-03，进程重启可恢复）；未提供时保持纯内存行为。
+     */
     @Bean
     @ConditionalOnMissingBean
-    public ExecutionControl executionControl() {
-        return new ExecutionControl();
+    public ExecutionControl executionControl(
+            ObjectProvider<com.gewu.agent.engine.orchestration.OrchestrationCheckpointStore> checkpointStoreProvider) {
+        return new ExecutionControl(checkpointStoreProvider.getIfAvailable());
     }
 
     /** 图节点执行器：TOOL 类型节点的安全管线执行（可被使用方覆盖） */

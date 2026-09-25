@@ -5,7 +5,7 @@ import { useState } from 'react';
 import { Trash2, Info } from 'lucide-react';
 import CustomSelect from '@/components/ui/Select';
 import {
-  EXECUTION_MODE_OPTIONS, NODE_CATALOG, type DesignerFlowNode,
+  NODE_CATALOG, type DesignerFlowNode,
   type GraphNodeDef, type GraphNodeDef as NodeDef,
 } from '@/lib/orchestrationDesigner';
 import type { RoleOption, ToolOption } from '@/lib/orchestration';
@@ -16,6 +16,8 @@ export interface Catalogs {
   roles: RoleOption[];
   tools: ToolOption[];
   agents: AgentDTO[];
+  /** 已激活编排图（SUBGRAPH 节点 refId 下拉数据源，WFO-04；排除当前图） */
+  activeGraphs: { id: string; name: string }[];
 }
 
 export interface GraphSettings {
@@ -101,6 +103,41 @@ function NoSelection({ mode }: { mode: ModeOption }) {
   );
 }
 
+/** 节点级重试与超时字段（WFO-05，AGENT/TOOL 共用；默认不改变引擎现行为） */
+function RetryTimeoutFields({ def, patchConfig }: {
+  def: NodeDef;
+  patchConfig: (patch: Record<string, unknown>) => void;
+}) {
+  return (
+    <details className="rounded-lg bg-ink-800/40 px-2.5 py-2">
+      <summary className="cursor-pointer text-xs text-ink-300">重试与超时（可选）</summary>
+      <div className="mt-2 space-y-2.5">
+        <div>
+          <label className="mb-1 block text-xs text-ink-400">重试次数 retryCount（0-3）</label>
+          <input type="number" min={0} max={3} value={String(def.config?.retryCount ?? '')}
+            className={inputClass} placeholder="默认 0（不重试）"
+            onChange={e => patchConfig({ retryCount: e.target.value === '' ? undefined : Number(e.target.value) })} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-ink-400">重试退避 retryBackoffMs</label>
+          <input type="number" min={0} value={String(def.config?.retryBackoffMs ?? '')}
+            className={inputClass} placeholder="默认 1000 毫秒"
+            onChange={e => patchConfig({ retryBackoffMs: e.target.value === '' ? undefined : Number(e.target.value) })} />
+        </div>
+        <div>
+          <label className="mb-1 block text-xs text-ink-400">超时 timeoutSeconds</label>
+          <input type="number" min={0} max={86400} value={String(def.config?.timeoutSeconds ?? '')}
+            className={inputClass} placeholder="0 = 不启用节点级超时"
+            onChange={e => patchConfig({ timeoutSeconds: e.target.value === '' ? undefined : Number(e.target.value) })} />
+          <p className="mt-1 text-[10px] leading-relaxed text-ink-500">
+            仅对执行异常/超时重试；超时按失败处理并受失败传播语义约束。
+          </p>
+        </div>
+      </div>
+    </details>
+  );
+}
+
 function EdgeForm({ edge, onUpdateEdgeCondition, onDeleteEdge }: {
   edge: SelectedEdgeView;
   onUpdateEdgeCondition: (edgeId: string, condition: string) => void;
@@ -154,17 +191,12 @@ function NodeForm({ def, catalogs, onUpdate }: { def: NodeDef; catalogs: Catalog
               options={[{ value: '', label: '未指定' },
                 ...catalogs.roles.map(r => ({ value: r.roleCode, label: `${r.roleName}（${r.roleCode}）` }))]} />
           </div>
-          <div>
-            <label className="mb-1 block text-xs text-ink-400">执行模式</label>
-            <CustomSelect value={def.executionMode ?? 'REACT'} onChange={v => onUpdate({ executionMode: v })}
-              options={EXECUTION_MODE_OPTIONS} />
-            <p className="mt-1 text-[10px] text-gold-400">当前引擎版本该字段未参与节点级执行，仅作声明。</p>
-          </div>
-          <JsonField label="输入映射 inputs" hint="支持 ${var.xxx} 引用；键 message 会覆盖前驱节点产出"
+          <JsonField label="输入映射 inputs" hint="支持 ${名称} 引用（如 ${input}、${节点ID}）；键 message 会覆盖前驱节点产出"
             value={def.inputs} onApply={parsed => onUpdate({ inputs: parsed })} />
           <JsonField label="输出契约 outputSchema" hint="JSON Schema 对象或逗号分隔字段串"
             value={def.config?.outputSchema}
             onApply={parsed => patchConfig({ outputSchema: parsed })} />
+          <RetryTimeoutFields def={def} patchConfig={patchConfig} />
         </>
       )}
       {nodeType === 'TOOL' && (
@@ -175,7 +207,7 @@ function NodeForm({ def, catalogs, onUpdate }: { def: NodeDef; catalogs: Catalog
               options={[{ value: '', label: '请选择工具' },
                 ...catalogs.tools.map(t => ({ value: t.name, label: `${t.source === 'CODE' ? '[代码]' : '[配置]'} ${t.name}` }))]} />
           </div>
-          <JsonField label="工具参数 arguments" hint="支持 ${var.xxx} 占位" value={def.config?.arguments}
+          <JsonField label="工具参数 arguments" hint="支持 ${名称} 占位（如 ${input}、${节点ID}）" value={def.config?.arguments}
             onApply={parsed => patchConfig({ arguments: parsed })} />
           <div>
             <label className="mb-1 block text-xs text-ink-400">产出变量名（outputVar）</label>
@@ -183,6 +215,7 @@ function NodeForm({ def, catalogs, onUpdate }: { def: NodeDef; catalogs: Catalog
               placeholder="缺省写入以 nodeId 命名的变量"
               onChange={e => patchConfig({ outputVar: e.target.value || undefined })} />
           </div>
+          <RetryTimeoutFields def={def} patchConfig={patchConfig} />
         </>
       )}
       {nodeType === 'HUMAN' && (
@@ -198,6 +231,18 @@ function NodeForm({ def, catalogs, onUpdate }: { def: NodeDef; catalogs: Catalog
             <input type="number" min={1} max={86400} value={String(def.config?.timeoutSeconds ?? '')}
               className={inputClass} placeholder="默认 1800"
               onChange={e => patchConfig({ timeoutSeconds: e.target.value ? Number(e.target.value) : undefined })} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-ink-400">指定审批人（assigneeId）</label>
+            <input type="text" value={String(def.config?.assigneeId ?? '')} className={inputClass}
+              placeholder="用户 ID，留空=全员可见待办"
+              onChange={e => patchConfig({ assigneeId: e.target.value || undefined })} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-ink-400">指定审批角色（assigneeRole）</label>
+            <input type="text" value={String(def.config?.assigneeRole ?? '')} className={inputClass}
+              placeholder="角色编码（与审批人并用）"
+              onChange={e => patchConfig({ assigneeRole: e.target.value || undefined })} />
           </div>
         </>
       )}
@@ -222,9 +267,15 @@ function NodeForm({ def, catalogs, onUpdate }: { def: NodeDef; catalogs: Catalog
         </div>
       )}
       {nodeType === 'SUBGRAPH' && (
-        <p className="rounded-lg bg-gold-500/10 p-2.5 text-[11px] text-gold-400">
-          引擎尚未实现子图嵌套，当前按 Agent 节点处理。
-        </p>
+        <div>
+          <label className="mb-1 block text-xs text-ink-400">子图（refId）<span className="text-cinnabar-400">*</span></label>
+          <CustomSelect value={def.refId ?? ''} onChange={v => onUpdate({ refId: v || undefined })}
+            options={[{ value: '', label: '请选择已激活的编排图' },
+              ...catalogs.activeGraphs.map(g => ({ value: g.id, label: `${g.name}（${g.id.slice(0, 8)}…）` }))]} />
+          <p className="mt-1 text-[10px] leading-relaxed text-ink-500">
+            以父图变量快照为初始变量沙箱执行（子图内部变量不回渗），子图最终产出作为本节点输出；嵌套深度上限 2。
+          </p>
+        </div>
       )}
     </div>
   );

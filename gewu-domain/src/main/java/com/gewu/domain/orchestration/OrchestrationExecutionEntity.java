@@ -19,10 +19,14 @@ public class OrchestrationExecutionEntity extends BaseEntity {
     private String graphId;
     /** 执行时图快照 JSON */
     private String graphSnapshot;
+    /** 执行绑定的图版本 ID（无版本快照的存量执行为 NULL） */
+    private String versionId;
     /** 发起用户 ID */
     private String userId;
     /** 会话 ID */
     private String sessionId;
+    /** 触发方式: MANUAL/API/AGENT_TOOL/SCHEDULE/WEBHOOK */
+    private String triggerType;
     /** 状态: PENDING/RUNNING/PAUSED/SUCCEEDED/FAILED/CANCELLED */
     private String status;
     /** 迭代次数 */

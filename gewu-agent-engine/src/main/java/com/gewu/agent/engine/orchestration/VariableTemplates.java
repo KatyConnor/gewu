@@ -24,6 +24,8 @@ public final class VariableTemplates {
 
     /**
      * 渲染模板：将 {@code ${varName}} 替换为上下文变量值（未知变量替换为空串并告警）。
+     * <p>兼容降级（WFO-06）：历史写法 {@code ${var.xxx}} 按字面查不到变量时
+     * 去掉 {@code var.} 前缀重查一次，命中则按 {@code ${xxx}} 解析并告警提示迁移。
      */
     public static String render(String template, OrchestrationContext ctx) {
         if (template == null || !template.contains("${")) {
@@ -34,6 +36,15 @@ public final class VariableTemplates {
         while (matcher.find()) {
             String varName = matcher.group(1);
             Object value = ctx.getVariable(varName);
+            if (value == null && varName.startsWith("var.")) {
+                String stripped = varName.substring("var.".length());
+                Object fallback = ctx.getVariable(stripped);
+                if (fallback != null) {
+                    log.warn("变量引用使用历史前缀写法，已降级解析（推荐写法: ${}）: ${var.}",
+                            stripped, stripped);
+                    value = fallback;
+                }
+            }
             if (value == null) {
                 log.warn("模板变量未定义，替换为空串: {} (节点参数渲染)", varName);
             }

@@ -60,6 +60,10 @@ export interface ApprovalRequestDTO {
   nodeId?: string;
   approvalType?: string;
   payload?: string;
+  /** 指定审批人（用户 ID，空=全员可见，WFO-07） */
+  assigneeId?: string;
+  /** 指定审批角色（角色编码，与 assigneeId 并用） */
+  assigneeRole?: string;
   status: string;
   approver?: string;
   approvalComment?: string;

@@ -82,10 +82,23 @@ public class Orchestrator {
                         ConflictResolver conflictResolver, ArtifactValidator artifactValidator,
                         GraphNodeExecutor graphNodeExecutor, ExecutionControl executionControl,
                         GoalPlanner goalPlanner) {
+        this(executor, hitlGateway, conflictResolver, artifactValidator,
+                graphNodeExecutor, executionControl, goalPlanner, null, false);
+    }
+
+    /**
+     * 全参构造（WFO-04）：传入 {@link SubgraphResolver} 与开关后，Pipeline 模式
+     * 获得 SUBGRAPH 嵌套子图执行能力（开关关闭时保持按 AGENT 执行的历史行为）。
+     */
+    public Orchestrator(AgentExecutor executor, com.gewu.agent.engine.hitl.HitlGateway hitlGateway,
+                        ConflictResolver conflictResolver, ArtifactValidator artifactValidator,
+                        GraphNodeExecutor graphNodeExecutor, ExecutionControl executionControl,
+                        GoalPlanner goalPlanner, SubgraphResolver subgraphResolver, boolean subgraphEnabled) {
         this.modeHandlers = new HashMap<>();
         this.conflictResolver = conflictResolver;
         this.artifactValidator = artifactValidator;
-        register(new PipelineModeHandler(executor, hitlGateway, graphNodeExecutor, executionControl, goalPlanner));
+        register(new PipelineModeHandler(executor, hitlGateway, graphNodeExecutor, executionControl,
+                goalPlanner, subgraphResolver, subgraphEnabled));
         register(new SupervisorModeHandler(executor));
         register(new SwarmModeHandler(executor));
         register(new DebateModeHandler(executor));
