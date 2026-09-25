@@ -62,6 +62,8 @@ public class OrchestrationService {
     private final OrchestrationNodeExecutionMapper nodeExecutionMapper;
     /** 图版本快照（WFO-01）：激活即发布不可变版本，执行记录绑定版本引用 */
     private final OrchestrationGraphVersionMapper versionMapper;
+    /** 定时触发配置（WFC-02） */
+    private final com.gewu.infrastructure.mapper.OrchestrationScheduleMapper scheduleMapper;
 
     /** HITL 网关（延迟解析，避免与 DbHitlGatewayAdapter 循环依赖） */
     @Autowired(required = false)
@@ -278,10 +280,34 @@ public class OrchestrationService {
     // ==================== 执行管理 ====================
 
     /**
-     * 同步执行编排图。
+     * 同步执行编排图（手动/API 触发）。
      */
     public OrchestrationExecutionEntity executeGraph(String graphId, String userId,
                                                       String sessionId, String input) {
+        return executeGraphInternal(graphId, userId, sessionId, input, "MANUAL");
+    }
+
+    /**
+     * Agent 工具化调用入口（WFC-01）：仅允许 active 图（草稿不可经工具运行），
+     * triggerType=AGENT_TOOL，执行记录挂靠发起会话（sessionId 贯通可追溯）。
+     */
+    public OrchestrationExecutionEntity executeGraphForAgentTool(String graphId, String userId,
+                                                                  String sessionId, String input) {
+        OrchestrationGraphEntity graphEntity = graphMapper.selectById(graphId);
+        if (graphEntity == null || !"active".equals(graphEntity.getStatus())) {
+            throw new IllegalArgumentException("编排图不存在或未激活，无法通过 Agent 工具运行: " + graphId);
+        }
+        return executeGraphInternal(graphId, userId, sessionId, input, "AGENT_TOOL");
+    }
+
+    /**
+     * 同步执行编排图（指定触发类型）。
+     * <p>triggerType：MANUAL / AGENT_TOOL（WFC-01，Agent 会话工具化调用）/
+     * SCHEDULE（WFC-02，定时触发）/ WEBHOOK（WFC-03）。
+     */
+    public OrchestrationExecutionEntity executeGraphInternal(String graphId, String userId,
+                                                              String sessionId, String input,
+                                                              String triggerType) {
         OrchestrationGraphEntity graphEntity = graphMapper.selectById(graphId);
         if (graphEntity == null) {
             throw new IllegalArgumentException("编排图不存在: " + graphId);
@@ -299,7 +325,7 @@ public class OrchestrationService {
 
         // 创建执行记录
         OrchestrationExecutionEntity execEntity = createExecutionEntity(executionId, graphId, userId, sessionId,
-                graphEntity, def.versionId());
+                graphEntity, def.versionId(), triggerType);
         execEntity.setStatus("RUNNING");
         execEntity.setStartedAt(Instant.now().toEpochMilli());
         executionMapper.updateById(execEntity);
@@ -355,7 +381,7 @@ public class OrchestrationService {
 
         // 创建执行记录
         OrchestrationExecutionEntity execEntity = createExecutionEntity(executionId, graphId, userId, sessionId,
-                graphEntity, def.versionId());
+                graphEntity, def.versionId(), "MANUAL");
         execEntity.setStatus("RUNNING");
         execEntity.setStartedAt(Instant.now().toEpochMilli());
         executionMapper.updateById(execEntity);
@@ -595,6 +621,63 @@ public class OrchestrationService {
         }
     }
 
+    // ==================== 定时触发配置（WFC-02） ====================
+
+    /**
+     * 保存编排图定时触发配置（每图一条，upsert）。
+     * <p>Cron 为 Spring {@link org.springframework.scheduling.support.CronExpression} 6 位语法，
+     * 保存时校验并预计算下次触发时间（禁用时置 NULL 停止调度）。
+     */
+    public com.gewu.domain.orchestration.OrchestrationScheduleEntity upsertSchedule(
+            String graphId, String cronExpr, String timezone, String inputTemplate,
+            boolean enabled, String userId) {
+        OrchestrationGraphEntity graph = graphMapper.selectById(graphId);
+        if (graph == null) {
+            throw new IllegalArgumentException("编排图不存在: " + graphId);
+        }
+        if (cronExpr == null || cronExpr.isBlank()
+                || !org.springframework.scheduling.support.CronExpression.isValidExpression(cronExpr)) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID,
+                    "Cron 表达式非法（Spring CronExpression 6 位，如 0 0 9 * * *）: " + cronExpr);
+        }
+        com.gewu.domain.orchestration.OrchestrationScheduleEntity entity = scheduleMapper.selectList(
+                        new LambdaQueryWrapper<com.gewu.domain.orchestration.OrchestrationScheduleEntity>()
+                                .eq(com.gewu.domain.orchestration.OrchestrationScheduleEntity::getGraphId, graphId))
+                .stream().findFirst().orElseGet(() -> {
+                    com.gewu.domain.orchestration.OrchestrationScheduleEntity created =
+                            new com.gewu.domain.orchestration.OrchestrationScheduleEntity();
+                    created.setId(Ulid.next());
+                    created.setGraphId(graphId);
+                    return created;
+                });
+        entity.setCronExpr(cronExpr.trim());
+        entity.setTimezone(timezone != null && !timezone.isBlank() ? timezone : "Asia/Shanghai");
+        entity.setInputTemplate(inputTemplate);
+        entity.setEnabled(enabled ? 1 : 0);
+        entity.setNextFireAt(enabled
+                ? OrchestrationScheduleRunner.computeNextFireAt(cronExpr.trim(), entity.getTimezone(),
+                        Instant.now().toEpochMilli())
+                : null);
+        entity.setUpdatedBy(userId);
+        if (entity.getCreatedAt() == null) {
+            entity.setCreatedBy(userId);
+            scheduleMapper.insert(entity);
+        } else {
+            scheduleMapper.updateById(entity);
+        }
+        log.info("保存定时触发配置: graphId={}, cron={}, enabled={}, nextFireAt={}",
+                graphId, cronExpr, enabled, entity.getNextFireAt());
+        return entity;
+    }
+
+    /** 查询编排图定时触发配置（未配置返回 null）。 */
+    public com.gewu.domain.orchestration.OrchestrationScheduleEntity getSchedule(String graphId) {
+        return scheduleMapper.selectList(
+                        new LambdaQueryWrapper<com.gewu.domain.orchestration.OrchestrationScheduleEntity>()
+                                .eq(com.gewu.domain.orchestration.OrchestrationScheduleEntity::getGraphId, graphId))
+                .stream().findFirst().orElse(null);
+    }
+
     // ==================== 审批管理 ====================
 
     /**
@@ -696,7 +779,7 @@ public class OrchestrationService {
     private OrchestrationExecutionEntity createExecutionEntity(String executionId, String graphId,
                                                                 String userId, String sessionId,
                                                                 OrchestrationGraphEntity graphEntity,
-                                                                String versionId) {
+                                                                String versionId, String triggerType) {
         OrchestrationExecutionEntity entity = new OrchestrationExecutionEntity();
         entity.setId(executionId);
         entity.setGraphId(graphId);
@@ -704,7 +787,7 @@ public class OrchestrationService {
         entity.setVersionId(versionId);
         entity.setUserId(userId);
         entity.setSessionId(sessionId);
-        entity.setTriggerType("MANUAL");
+        entity.setTriggerType(triggerType != null ? triggerType : "MANUAL");
         entity.setStatus("PENDING");
         entity.setIterationCount(0);
         entity.setTokenUsed(0L);

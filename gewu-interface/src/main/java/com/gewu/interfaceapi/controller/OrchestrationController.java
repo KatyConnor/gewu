@@ -196,6 +196,24 @@ public class OrchestrationController {
         return Result.success();
     }
 
+    // ==================== 定时触发（WFC-02） ====================
+
+    @PutMapping("/graphs/{graphId}/schedule")
+    @Operation(summary = "保存编排图定时触发配置", description = "Cron 为 Spring CronExpression 6 位语法；保存即校验并预计算下次触发时间")
+    public Result<com.gewu.domain.orchestration.OrchestrationScheduleEntity> upsertSchedule(
+            @PathVariable String graphId, @Valid @RequestBody ScheduleRequest request) {
+        return Result.success(orchestrationService.upsertSchedule(graphId, request.getCronExpr(),
+                request.getTimezone(), request.getInputTemplate(),
+                request.getEnabled() == null || request.getEnabled(), UserContext.currentUserId()));
+    }
+
+    @GetMapping("/graphs/{graphId}/schedule")
+    @Operation(summary = "查询编排图定时触发配置", description = "未配置返回 null")
+    public Result<com.gewu.domain.orchestration.OrchestrationScheduleEntity> getSchedule(
+            @PathVariable String graphId) {
+        return Result.success(orchestrationService.getSchedule(graphId));
+    }
+
     // ==================== 自主目标 ====================
 
     @PostMapping(value = "/goals", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -238,5 +256,15 @@ public class OrchestrationController {
         private String description;
         private String type;
         private Integer maxIterations;
+    }
+
+    @Data
+    public static class ScheduleRequest {
+        @NotBlank(message = "Cron 表达式不能为空")
+        private String cronExpr;
+        private String timezone;
+        private String inputTemplate;
+        /** 启停开关，缺省启用 */
+        private Boolean enabled;
     }
 }

@@ -37,6 +37,7 @@ class OrchestrationContextVariablesTest {
     @Mock com.gewu.infrastructure.trace.OrchestrationTracer orchestrationTracer;
     @Mock com.gewu.infrastructure.mapper.OrchestrationNodeExecutionMapper nodeExecutionMapper;
     @Mock com.gewu.infrastructure.mapper.OrchestrationGraphVersionMapper versionMapper;
+    @Mock com.gewu.infrastructure.mapper.OrchestrationScheduleMapper scheduleMapper;
 
     private OrchestrationService service;
 
@@ -44,7 +45,7 @@ class OrchestrationContextVariablesTest {
     void setUp() {
         service = new OrchestrationService(orchestrationEngine, graphMapper, executionMapper,
                 approvalMapper, new ObjectMapper(), fourPhasePipeline, orchestrationTracer,
-                new GraphDefinitionValidator(new ObjectMapper(), graphMapper), nodeExecutionMapper, versionMapper);
+                new GraphDefinitionValidator(new ObjectMapper(), graphMapper), nodeExecutionMapper, versionMapper, scheduleMapper);
     }
 
     @Test
