@@ -64,6 +64,8 @@ public class OrchestrationService {
     private final OrchestrationGraphVersionMapper versionMapper;
     /** 定时触发配置（WFC-02） */
     private final com.gewu.infrastructure.mapper.OrchestrationScheduleMapper scheduleMapper;
+    /** Webhook 触发配置（WFC-03） */
+    private final com.gewu.infrastructure.mapper.OrchestrationWebhookMapper webhookMapper;
 
     /** HITL 网关（延迟解析，避免与 DbHitlGatewayAdapter 循环依赖） */
     @Autowired(required = false)
@@ -640,16 +642,18 @@ public class OrchestrationService {
             throw BusinessException.of(ResultCode.PARAM_INVALID,
                     "Cron 表达式非法（Spring CronExpression 6 位，如 0 0 9 * * *）: " + cronExpr);
         }
-        com.gewu.domain.orchestration.OrchestrationScheduleEntity entity = scheduleMapper.selectList(
+        com.gewu.domain.orchestration.OrchestrationScheduleEntity existing = scheduleMapper.selectList(
                         new LambdaQueryWrapper<com.gewu.domain.orchestration.OrchestrationScheduleEntity>()
                                 .eq(com.gewu.domain.orchestration.OrchestrationScheduleEntity::getGraphId, graphId))
-                .stream().findFirst().orElseGet(() -> {
-                    com.gewu.domain.orchestration.OrchestrationScheduleEntity created =
-                            new com.gewu.domain.orchestration.OrchestrationScheduleEntity();
-                    created.setId(Ulid.next());
-                    created.setGraphId(graphId);
-                    return created;
-                });
+                .stream().findFirst().orElse(null);
+        boolean isNew = existing == null;
+        com.gewu.domain.orchestration.OrchestrationScheduleEntity entity = isNew
+                ? new com.gewu.domain.orchestration.OrchestrationScheduleEntity()
+                : existing;
+        if (isNew) {
+            entity.setId(Ulid.next());
+            entity.setGraphId(graphId);
+        }
         entity.setCronExpr(cronExpr.trim());
         entity.setTimezone(timezone != null && !timezone.isBlank() ? timezone : "Asia/Shanghai");
         entity.setInputTemplate(inputTemplate);
@@ -659,7 +663,7 @@ public class OrchestrationService {
                         Instant.now().toEpochMilli())
                 : null);
         entity.setUpdatedBy(userId);
-        if (entity.getCreatedAt() == null) {
+        if (isNew) {
             entity.setCreatedBy(userId);
             scheduleMapper.insert(entity);
         } else {
@@ -676,6 +680,94 @@ public class OrchestrationService {
                         new LambdaQueryWrapper<com.gewu.domain.orchestration.OrchestrationScheduleEntity>()
                                 .eq(com.gewu.domain.orchestration.OrchestrationScheduleEntity::getGraphId, graphId))
                 .stream().findFirst().orElse(null);
+    }
+
+    // ==================== Webhook 触发（WFC-03） ====================
+
+    /** Webhook 凭证（token 明文仅生成时返回一次） */
+    public record WebhookCredential(String webhookId, String graphId, boolean enabled, String token) {
+    }
+
+    /**
+     * 保存 Webhook 配置（每图一条，upsert）。
+     * <p>首次创建或 regenerate=true 时生成新 token（SecureRandom 24 字节 Base64URL），
+     * 明文仅本次响应返回，库内只存 SM3 哈希。
+     */
+    public WebhookCredential upsertWebhook(String graphId, boolean enabled, boolean regenerate, String userId) {
+        OrchestrationGraphEntity graph = graphMapper.selectById(graphId);
+        if (graph == null) {
+            throw new IllegalArgumentException("编排图不存在: " + graphId);
+        }
+        com.gewu.domain.orchestration.OrchestrationWebhookEntity entity = webhookMapper.selectList(
+                        new LambdaQueryWrapper<com.gewu.domain.orchestration.OrchestrationWebhookEntity>()
+                                .eq(com.gewu.domain.orchestration.OrchestrationWebhookEntity::getGraphId, graphId))
+                .stream().findFirst().orElse(null);
+        boolean isNew = entity == null;
+        boolean generateToken = isNew || regenerate;
+        String plainToken = null;
+        if (generateToken) {
+            plainToken = generateWebhookToken();
+        }
+        if (isNew) {
+            entity = new com.gewu.domain.orchestration.OrchestrationWebhookEntity();
+            entity.setId(Ulid.next());
+            entity.setGraphId(graphId);
+            entity.setTokenHash(com.gewu.common.crypto.SM3Util.hashHex(plainToken));
+            entity.setCreatedBy(userId);
+        } else if (generateToken) {
+            entity.setTokenHash(com.gewu.common.crypto.SM3Util.hashHex(plainToken));
+        }
+        entity.setEnabled(enabled ? 1 : 0);
+        entity.setUpdatedBy(userId);
+        if (isNew) {
+            webhookMapper.insert(entity);
+        } else {
+            webhookMapper.updateById(entity);
+        }
+        log.info("保存 Webhook 配置: graphId={}, enabled={}, regenerated={}", graphId, enabled, generateToken);
+        return new WebhookCredential(entity.getId(), graphId, enabled, plainToken);
+    }
+
+    /** 查询 Webhook 配置（未配置返回 null；实体只含哈希不含明文）。 */
+    public com.gewu.domain.orchestration.OrchestrationWebhookEntity getWebhook(String graphId) {
+        return webhookMapper.selectList(
+                        new LambdaQueryWrapper<com.gewu.domain.orchestration.OrchestrationWebhookEntity>()
+                                .eq(com.gewu.domain.orchestration.OrchestrationWebhookEntity::getGraphId, graphId))
+                .stream().findFirst().orElse(null);
+    }
+
+    /**
+     * Webhook 触发（WFC-03）：按 token 的 SM3 哈希命中启用中的配置且图为 active 才执行，
+     * triggerType=WEBHOOK，userId 记为 webhook 便于审计追溯。
+     *
+     * @return 执行记录；token 未命中/已停用/图不可执行返回 null（端点统一 404，不暴露存在性）
+     */
+    public OrchestrationExecutionEntity triggerByWebhook(String token, String input) {
+        if (token == null || token.isBlank()) {
+            return null;
+        }
+        String tokenHash = com.gewu.common.crypto.SM3Util.hashHex(token);
+        com.gewu.domain.orchestration.OrchestrationWebhookEntity webhook = webhookMapper.selectList(
+                        new LambdaQueryWrapper<com.gewu.domain.orchestration.OrchestrationWebhookEntity>()
+                                .eq(com.gewu.domain.orchestration.OrchestrationWebhookEntity::getTokenHash, tokenHash))
+                .stream().findFirst().orElse(null);
+        if (webhook == null || webhook.getEnabled() == null || webhook.getEnabled() != 1) {
+            return null;
+        }
+        OrchestrationGraphEntity graph = graphMapper.selectById(webhook.getGraphId());
+        if (graph == null || !"active".equals(graph.getStatus())) {
+            return null;
+        }
+        log.info("Webhook 触发编排图: graphId={}, webhookId={}", webhook.getGraphId(), webhook.getId());
+        return executeGraphInternal(webhook.getGraphId(), "webhook", null,
+                input != null ? input : "", "WEBHOOK");
+    }
+
+    /** 生成 Webhook token：SecureRandom 24 字节 Base64URL（无填充，约 32 字符） */
+    private String generateWebhookToken() {
+        byte[] bytes = new byte[24];
+        new java.security.SecureRandom().nextBytes(bytes);
+        return java.util.Base64.getUrlEncoder().withoutPadding().encodeToString(bytes);
     }
 
     // ==================== 审批管理 ====================

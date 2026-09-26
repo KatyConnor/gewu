@@ -193,6 +193,73 @@ export async function rollbackGraphVersion(graphId: string, versionId: string): 
   return handleResponse(res);
 }
 
+/** 定时触发配置（WFC-02） */
+export interface OrchestrationScheduleConfig {
+  id?: string;
+  graphId: string;
+  cronExpr: string;
+  timezone?: string;
+  inputTemplate?: string;
+  enabled?: number;
+  lastFireAt?: number;
+  nextFireAt?: number | null;
+}
+
+/** Webhook 触发配置（WFC-03，token 明文仅生成时返回一次） */
+export interface OrchestrationWebhookConfig {
+  id: string;
+  graphId: string;
+  enabled?: number;
+  tokenHash?: string;
+  createdAt?: number;
+}
+
+/** Webhook 凭证（regenerate/首次创建时携带明文 token） */
+export interface WebhookCredential {
+  webhookId: string;
+  graphId: string;
+  enabled: boolean;
+  token?: string | null;
+}
+
+/** 保存定时触发配置（Cron 为 Spring 6 位语法，保存即校验并预计算下次触发时间） */
+export async function upsertSchedule(graphId: string, command: {
+  cronExpr: string;
+  timezone?: string;
+  inputTemplate?: string;
+  enabled?: boolean;
+}): Promise<OrchestrationScheduleConfig> {
+  const res = await authFetch(`${BASE}/v1/orchestration/graphs/${graphId}/schedule`, {
+    method: 'PUT',
+    body: JSON.stringify(command),
+  });
+  return handleResponse(res);
+}
+
+/** 查询定时触发配置（未配置返回 null） */
+export async function getSchedule(graphId: string): Promise<OrchestrationScheduleConfig | null> {
+  const res = await authFetch(`${BASE}/v1/orchestration/graphs/${graphId}/schedule`);
+  return handleResponse(res);
+}
+
+/** 保存 Webhook 配置（regenerate=true 生成新 token，明文仅本次返回） */
+export async function upsertWebhook(graphId: string, command: {
+  enabled?: boolean;
+  regenerate?: boolean;
+}): Promise<WebhookCredential> {
+  const res = await authFetch(`${BASE}/v1/orchestration/graphs/${graphId}/webhook`, {
+    method: 'PUT',
+    body: JSON.stringify(command),
+  });
+  return handleResponse(res);
+}
+
+/** 查询 Webhook 配置（只含哈希不含明文；未配置返回 null） */
+export async function getWebhook(graphId: string): Promise<OrchestrationWebhookConfig | null> {
+  const res = await authFetch(`${BASE}/v1/orchestration/graphs/${graphId}/webhook`);
+  return handleResponse(res);
+}
+
 export async function deleteGraph(graphId: string): Promise<void> {
   const res = await authFetch(`${BASE}/v1/orchestration/graphs/${graphId}`, { method: 'DELETE' });
   await handleResponse(res);

@@ -63,6 +63,9 @@ public class SecurityConfig {
                         ).permitAll()
                         // 会话分享链接的免鉴权只读访问（脱敏元数据，T3.3）
                         .requestMatchers(AntPathRequestMatcher.antMatcher("/api/v1/share/**")).permitAll()
+                        // 编排 Webhook 匿名触发（WFC-03）：token 即凭证（库内只存 SM3 哈希，
+                        // 按哈希索引查找），未命中/停用/总开关关闭统一 404 不暴露存在性
+                        .requestMatchers(AntPathRequestMatcher.antMatcher("/api/v1/orchestration/webhooks/**")).permitAll()
                         .requestMatchers(
                                 AntPathRequestMatcher.antMatcher("/swagger-ui/**"),
                                 AntPathRequestMatcher.antMatcher("/v3/api-docs/**"),

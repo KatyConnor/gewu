@@ -9,6 +9,7 @@ import com.gewu.agent.engine.tool.ToolProvider;
 import com.gewu.agent.engine.tool.ToolResult;
 import com.gewu.domain.orchestration.OrchestrationExecutionEntity;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.annotation.Value;
 
 import java.util.concurrent.CompletableFuture;
@@ -51,15 +52,20 @@ public class RunOrchestrationGraphTool implements Tool {
               "required": ["graphId"]
             }""";
 
-    private final OrchestrationService orchestrationService;
+    /**
+     * OrchestrationService 延迟解析（打破循环依赖，参照 DbHitlGatewayAdapter 先例）：
+     * agentExecutor -> toolExecutor -> toolRegistry -> [Tool] -> 本工具 -> OrchestrationService
+     * -> orchestrationEngine -> orchestrator -> agentExecutor，直接注入构造期成环。
+     */
+    private final ObjectProvider<OrchestrationService> orchestrationServiceProvider;
     private final ObjectMapper objectMapper;
 
-    /** 单次执行时长帽（秒）：@Value 可覆盖；字段默认值兜底无注入环境（如单测直连） */
     @Value("${agent.engine.tool.orchestration.timeout-seconds:300}")
     private long timeoutSeconds = 300;
 
-    public RunOrchestrationGraphTool(OrchestrationService orchestrationService, ObjectMapper objectMapper) {
-        this.orchestrationService = orchestrationService;
+    public RunOrchestrationGraphTool(ObjectProvider<OrchestrationService> orchestrationServiceProvider,
+                                     ObjectMapper objectMapper) {
+        this.orchestrationServiceProvider = orchestrationServiceProvider;
         this.objectMapper = objectMapper;
     }
 
@@ -91,6 +97,10 @@ public class RunOrchestrationGraphTool implements Tool {
         }
         String userId = context != null ? context.getUserId() : null;
         String sessionId = context != null ? context.getSessionId() : null;
+        OrchestrationService orchestrationService = orchestrationServiceProvider.getIfAvailable();
+        if (orchestrationService == null) {
+            return ToolResult.failure("编排服务不可用", System.currentTimeMillis() - start);
+        }
         try {
             CompletableFuture<OrchestrationExecutionEntity> future = CompletableFuture.supplyAsync(
                     () -> orchestrationService.executeGraphForAgentTool(graphId, userId, sessionId, input),

@@ -1,14 +1,19 @@
 'use client';
 // 编排设计器 - 右侧属性面板：按选中对象（节点/边/画布设置）渲染表单。
 // 字段规范见 docs/design/46 报告 §7.4：数据源下拉化，HUMAN.refId 置灰（引擎暂不消费）。
-import { useState } from 'react';
-import { Trash2, Info } from 'lucide-react';
+import { useEffect, useState } from 'react';
+import { Trash2, Info, Clock, Webhook, Copy } from 'lucide-react';
 import CustomSelect from '@/components/ui/Select';
+import { useToast } from '@/components/ui/Toast';
 import {
   NODE_CATALOG, type DesignerFlowNode,
   type GraphNodeDef, type GraphNodeDef as NodeDef,
 } from '@/lib/orchestrationDesigner';
 import type { RoleOption, ToolOption } from '@/lib/orchestration';
+import {
+  upsertSchedule, getSchedule, upsertWebhook, getWebhook,
+  type OrchestrationScheduleConfig,
+} from '@/lib/orchestration';
 import type { AgentDTO } from '@/lib/agent';
 import type { ModeOption } from '@/lib/orchestrationDesigner';
 
@@ -41,6 +46,8 @@ interface Props {
   settings: GraphSettings;
   mode: ModeOption;
   catalogs: Catalogs;
+  /** 当前图 ID（触发配置区数据源，WFC-02/03） */
+  graphId: string;
   onUpdateNodeDef: (nodeId: string, updater: (def: GraphNodeDef) => GraphNodeDef) => void;
   onUpdateEdgeCondition: (edgeId: string, condition: string) => void;
   onDeleteEdge: (edgeId: string) => void;
@@ -85,6 +92,167 @@ function JsonField({ label, hint, value, onApply }: {
       <textarea rows={4} value={text} onChange={e => handleChange(e.target.value)}
         className={`${inputClass} resize-none font-mono`} />
       {error && <p className="mt-1 text-[10px] text-cinnabar-400">{error}</p>}
+    </div>
+  );
+}
+
+/**
+ * 触发配置区（WFC-02/WFC-03，画布级）：定时触发（Cron + 下次触发预览 + 启停）
+ * 与 Webhook 触发（token 一次性展示/复制/重置/停用）。挂在画布级设置下方。
+ */
+function TriggerSection({ graphId }: { graphId: string }) {
+  const toast = useToast();
+  const [cronExpr, setCronExpr] = useState('');
+  const [inputTemplate, setInputTemplate] = useState('');
+  const [schedule, setSchedule] = useState<OrchestrationScheduleConfig | null>(null);
+  const [webhookEnabled, setWebhookEnabled] = useState<boolean | null>(null);
+  const [webhookExists, setWebhookExists] = useState(false);
+  const [token, setToken] = useState('');
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    getSchedule(graphId)
+      .then(s => {
+        if (s) {
+          setSchedule(s);
+          setCronExpr(s.cronExpr || '');
+          setInputTemplate(s.inputTemplate || '');
+        }
+      })
+      .catch(() => { /* 未配置或接口不可用 */ });
+    getWebhook(graphId)
+      .then(w => {
+        if (w) {
+          setWebhookExists(true);
+          setWebhookEnabled(w.enabled === 1);
+        }
+      })
+      .catch(() => { /* 未配置 */ });
+  }, [graphId]);
+
+  const saveSchedule = async (enabled: boolean) => {
+    if (!cronExpr.trim()) {
+      toast('请填写 Cron 表达式', 'error');
+      return;
+    }
+    setBusy(true);
+    try {
+      const saved = await upsertSchedule(graphId, {
+        cronExpr: cronExpr.trim(), inputTemplate, enabled,
+      });
+      setSchedule(saved);
+      toast(enabled ? '定时触发已启用' : '定时触发已停用', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '保存失败', 'error');
+    } finally { setBusy(false); }
+  };
+
+  const generateToken = async (regenerate: boolean) => {
+    setBusy(true);
+    try {
+      const credential = await upsertWebhook(graphId, { enabled: true, regenerate });
+      setToken(credential.token || '');
+      setWebhookExists(true);
+      setWebhookEnabled(true);
+      toast(regenerate ? '已重置 Webhook token（旧 token 立即失效）' : 'Webhook 已生成', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '生成失败', 'error');
+    } finally { setBusy(false); }
+  };
+
+  const toggleWebhook = async () => {
+    setBusy(true);
+    try {
+      await upsertWebhook(graphId, { enabled: !(webhookEnabled === true) });
+      setWebhookEnabled(!(webhookEnabled === true));
+      toast(webhookEnabled === true ? 'Webhook 已停用' : 'Webhook 已启用', 'success');
+    } catch (e) {
+      toast(e instanceof Error ? e.message : '操作失败', 'error');
+    } finally { setBusy(false); }
+  };
+
+  const webhookUrl = token
+    ? `${typeof window !== 'undefined' ? window.location.origin : ''}/api/v1/orchestration/webhooks/${token}`
+    : '';
+
+  return (
+    <div className="mt-3 space-y-3 border-t border-tech-500/10 pt-3">
+      <p className="text-xs font-semibold text-ink-200">触发配置</p>
+
+      {/* 定时触发 */}
+      <details className="rounded-lg bg-ink-800/40 px-2.5 py-2">
+        <summary className="flex cursor-pointer items-center gap-1.5 text-xs text-ink-300">
+          <Clock className="h-3 w-3" />定时触发
+          {schedule?.enabled === 1 && <span className="text-[10px] text-tech-400">运行中</span>}
+        </summary>
+        <div className="mt-2 space-y-2.5">
+          <div>
+            <label className="mb-1 block text-xs text-ink-400">Cron 表达式（6 位）</label>
+            <input type="text" value={cronExpr} className={`${inputClass} font-mono`}
+              placeholder="如 0 0 9 * * *（每天 9 点）"
+              onChange={e => setCronExpr(e.target.value)} />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs text-ink-400">执行输入模板（可选）</label>
+            <textarea rows={2} value={inputTemplate} className={`${inputClass} resize-none`}
+              placeholder="原样作为每次触发的执行输入"
+              onChange={e => setInputTemplate(e.target.value)} />
+          </div>
+          {schedule?.nextFireAt && (
+            <p className="text-[10px] text-ink-500">下次触发：{new Date(schedule.nextFireAt).toLocaleString()}</p>
+          )}
+          <div className="flex gap-2">
+            <button onClick={() => saveSchedule(true)} disabled={busy}
+              className="flex-1 px-2.5 py-1.5 text-xs btn-primary text-white rounded-lg disabled:opacity-50">
+              {busy ? '保存中...' : schedule?.enabled === 1 ? '更新并保持启用' : '启用定时'}
+            </button>
+            {schedule?.enabled === 1 && (
+              <button onClick={() => saveSchedule(false)} disabled={busy}
+                className="px-2.5 py-1.5 text-xs text-gold-400 border border-gold-500/20 rounded-lg hover:bg-gold-500/10 disabled:opacity-50">
+                停用
+              </button>
+            )}
+          </div>
+        </div>
+      </details>
+
+      {/* Webhook 触发 */}
+      <details className="rounded-lg bg-ink-800/40 px-2.5 py-2">
+        <summary className="flex cursor-pointer items-center gap-1.5 text-xs text-ink-300">
+          <Webhook className="h-3 w-3" />Webhook 触发
+          {webhookEnabled === true && <span className="text-[10px] text-tech-400">启用中</span>}
+          {webhookEnabled === false && <span className="text-[10px] text-ink-500">已停用</span>}
+        </summary>
+        <div className="mt-2 space-y-2.5">
+          {token && (
+            <div>
+              <p className="mb-1 text-[10px] text-gold-400">token 仅本次展示，请立即复制（库内只存哈希，丢失须重置）：</p>
+              <div className="flex items-center gap-1.5">
+                <code className="flex-1 break-all rounded bg-ink-900/60 px-2 py-1.5 text-[10px] font-mono text-ink-200">{webhookUrl}</code>
+                <button onClick={() => { navigator.clipboard?.writeText(webhookUrl); toast('已复制到剪贴板', 'success'); }}
+                  className="shrink-0 p-1.5 text-ink-400 hover:text-tech-400 rounded" title="复制 URL">
+                  <Copy className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          )}
+          <div className="flex gap-2">
+            <button onClick={() => generateToken(webhookExists)} disabled={busy}
+              className="flex-1 px-2.5 py-1.5 text-xs text-tech-400 border border-tech-500/20 rounded-lg hover:bg-tech-500/10 disabled:opacity-50">
+              {webhookExists ? '重置 token（旧 token 失效）' : '生成 Webhook'}
+            </button>
+            {webhookExists && (
+              <button onClick={toggleWebhook} disabled={busy}
+                className="px-2.5 py-1.5 text-xs text-gold-400 border border-gold-500/20 rounded-lg hover:bg-gold-500/10 disabled:opacity-50">
+                {webhookEnabled === true ? '停用' : '启用'}
+              </button>
+            )}
+          </div>
+          <p className="text-[10px] leading-relaxed text-ink-500">
+            外部 POST 该 URL 即触发执行（body 原样作为输入）；错误 token 返回 404。服务端总开关 agent.engine.webhook.enabled 默认关闭。
+          </p>
+        </div>
+      </details>
     </div>
   );
 }
@@ -296,8 +464,7 @@ export default function DesignerPropertyPanel(props: Props) {
       )}
       {!selectedNode && !selectedEdge && (
         <div className="mt-4 space-y-3 border-t border-tech-500/10 pt-3">
-          <p className="text-xs font-semibold text-ink-200">画布级设置</p>
-          <div>
+          <p className="text-xs font-semibold text-ink-200">画布级设置</p>          <div>
             <label className="mb-1 block text-xs text-ink-400">失败传播（continueOnFailure）</label>
             <CustomSelect value={settings.continueOnFailure}
               onChange={v => onSettingsChange({ continueOnFailure: v as GraphSettings['continueOnFailure'] })}
@@ -318,6 +485,7 @@ export default function DesignerPropertyPanel(props: Props) {
             <input type="text" value={settings.rootGoalId} className={inputClass}
               onChange={e => onSettingsChange({ rootGoalId: e.target.value })} />
           </div>
+          <TriggerSection graphId={props.graphId} />
         </div>
       )}
     </aside>

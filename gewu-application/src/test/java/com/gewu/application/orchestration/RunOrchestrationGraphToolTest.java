@@ -10,28 +10,33 @@ import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.beans.factory.ObjectProvider;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 /**
  * Agent 工具化调用编排图测试（WFC-01）：
  * 参数校验、非 active 图拒绝、成功回传执行状态与最终输出。
+ * 构造注入 ObjectProvider（打破 agentExecutor→toolRegistry→本工具→Service→engine 的构造期循环依赖）。
  */
 @ExtendWith(MockitoExtension.class)
 class RunOrchestrationGraphToolTest {
 
     @Mock OrchestrationService orchestrationService;
+    @Mock ObjectProvider<OrchestrationService> orchestrationServiceProvider;
 
     private RunOrchestrationGraphTool tool;
 
     @BeforeEach
     void setUp() {
-        tool = new RunOrchestrationGraphTool(orchestrationService, new ObjectMapper());
+        tool = new RunOrchestrationGraphTool(orchestrationServiceProvider, new ObjectMapper());
+        lenient().when(orchestrationServiceProvider.getIfAvailable()).thenReturn(orchestrationService);
     }
 
     @Test

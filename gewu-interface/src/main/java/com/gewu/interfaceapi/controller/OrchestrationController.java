@@ -33,6 +33,10 @@ public class OrchestrationController {
     private final OrchestrationService orchestrationService;
     private final OrchestrationCatalogService orchestrationCatalogService;
 
+    /** Webhook 总开关（WFC-03）：默认关闭，开启前须完成安全评审（48 号 R5） */
+    @org.springframework.beans.factory.annotation.Value("${agent.engine.webhook.enabled:false}")
+    private boolean webhookEnabled;
+
     // ==================== 编排图 CRUD ====================
 
     @PostMapping("/graphs")
@@ -214,6 +218,45 @@ public class OrchestrationController {
         return Result.success(orchestrationService.getSchedule(graphId));
     }
 
+    // ==================== Webhook 触发（WFC-03） ====================
+
+    @PutMapping("/graphs/{graphId}/webhook")
+    @Operation(summary = "保存编排图 Webhook 配置", description = "首次创建或 regenerate=true 时生成新 token，明文仅本次响应返回一次（库内只存 SM3 哈希）")
+    public Result<OrchestrationService.WebhookCredential> upsertWebhook(
+            @PathVariable String graphId, @RequestBody WebhookRequest request) {
+        boolean enabled = request.getEnabled() == null || request.getEnabled();
+        boolean regenerate = Boolean.TRUE.equals(request.getRegenerate());
+        return Result.success(orchestrationService.upsertWebhook(
+                graphId, enabled, regenerate, UserContext.currentUserId()));
+    }
+
+    @GetMapping("/graphs/{graphId}/webhook")
+    @Operation(summary = "查询编排图 Webhook 配置", description = "未配置返回 null；只含哈希不含明文")
+    public Result<com.gewu.domain.orchestration.OrchestrationWebhookEntity> getWebhook(
+            @PathVariable String graphId) {
+        return Result.success(orchestrationService.getWebhook(graphId));
+    }
+
+    /**
+     * Webhook 匿名触发端点（WFC-03）：token 即凭证。
+     * <p>总开关 agent.engine.webhook.enabled（默认关）；token 未命中/已停用/图不可执行
+     * 统一 404（不暴露存在性）；命中同步执行（triggerType=WEBHOOK）。
+     */
+    @PostMapping(value = "/webhooks/{token}", produces = MediaType.APPLICATION_JSON_VALUE)
+    @Operation(summary = "Webhook 触发编排图（匿名）", description = "body 原样作为执行输入；错误 token 返回 404")
+    public org.springframework.http.ResponseEntity<Result<OrchestrationExecutionEntity>> triggerByWebhook(
+            @PathVariable String token,
+            @RequestBody(required = false) String body) {
+        if (!webhookEnabled) {
+            return org.springframework.http.ResponseEntity.notFound().build();
+        }
+        OrchestrationExecutionEntity execution = orchestrationService.triggerByWebhook(token, body);
+        if (execution == null) {
+            return org.springframework.http.ResponseEntity.notFound().build();
+        }
+        return org.springframework.http.ResponseEntity.accepted().body(Result.success(execution));
+    }
+
     // ==================== 自主目标 ====================
 
     @PostMapping(value = "/goals", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
@@ -266,5 +309,13 @@ public class OrchestrationController {
         private String inputTemplate;
         /** 启停开关，缺省启用 */
         private Boolean enabled;
+    }
+
+    @Data
+    public static class WebhookRequest {
+        /** 启停开关，缺省启用 */
+        private Boolean enabled;
+        /** 重置 token（旧 token 立即失效） */
+        private Boolean regenerate;
     }
 }

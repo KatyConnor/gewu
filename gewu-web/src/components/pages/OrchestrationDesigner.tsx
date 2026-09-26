@@ -553,6 +553,7 @@ function DesignerInner({ graph, onBack, onSaved }: DesignerProps) {
           settings={settings}
           mode={modeOption}
           catalogs={catalogs}
+          graphId={graph.id}
           onUpdateNodeDef={onUpdateNodeDef}
           onUpdateEdgeCondition={onUpdateEdgeCondition}
           onDeleteEdge={onDeleteEdge}

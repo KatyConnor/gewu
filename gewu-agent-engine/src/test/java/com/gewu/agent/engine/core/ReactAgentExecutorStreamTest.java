@@ -581,6 +581,7 @@ class ReactAgentExecutorStreamTest {
         assertThat(doneEvent.getType()).isEqualTo("done");
         assertThat(doneEvent.getFinishReason()).isEqualTo("rounds");
         // 账本语义对齐预算熔断：轮次超限记失败，部分进度不沉淀经验
+        awaitMetric(metricNames, "agent.task.failure");
         assertThat(metricNames).contains("agent.task.failure");
         assertThat(metricNames).doesNotContain("agent.task.success");
     }
@@ -658,6 +659,7 @@ class ReactAgentExecutorStreamTest {
         assertThat(llmClient.recordedRequests).hasSize(3);
         assertThat(llmClient.recordedRequests.get(2).getMaxTokens()).isEqualTo(8192);
         // 账本语义不变：超限仍记失败、不沉淀经验
+        awaitMetric(metricNames, "agent.task.failure");
         assertThat(metricNames).contains("agent.task.failure");
         assertThat(metricNames).doesNotContain("agent.task.success");
     }
@@ -883,6 +885,7 @@ class ReactAgentExecutorStreamTest {
         List<Message> round3Messages = llmClient.recordedRequests.get(2).getMessages();
         assertThat(round3Messages).anyMatch(m -> "user".equals(m.getRole())
                 && m.getContent() != null && m.getContent().contains("系统提示"));
+        awaitMetric(metricNames, "agent.task.failure");
         assertThat(metricNames).contains("agent.task.failure");
     }
 
@@ -948,6 +951,7 @@ class ReactAgentExecutorStreamTest {
         AgentEvent last = events.get(events.size() - 1);
         assertThat(last.getType()).isEqualTo("done");
         assertThat(last.getFinishReason()).isEqualTo("budget");
+        awaitMetric(metricNames, "agent.task.failure");
         assertThat(metricNames).contains("agent.task.failure");
     }
 
@@ -958,5 +962,18 @@ class ReactAgentExecutorStreamTest {
 
     private ModelSelector noOpModelSelector() {
         return (taskDescription, complexity, privacyLevel, latencyPreference, budgetRemaining) -> null;
+    }
+
+    /** 等待异步 metric 回调收敛（事件流完成后 metric 记录可能仍在 Reactor 线程执行） */
+    private static void awaitMetric(java.util.List<String> metricNames, String expected) {
+        long deadline = System.currentTimeMillis() + 3000;
+        while (!metricNames.contains(expected) && System.currentTimeMillis() < deadline) {
+            try {
+                Thread.sleep(20);
+            } catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                return;
+            }
+        }
     }
 }

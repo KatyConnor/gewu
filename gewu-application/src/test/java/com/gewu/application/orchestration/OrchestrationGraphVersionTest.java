@@ -45,6 +45,7 @@ class OrchestrationGraphVersionTest {
     @Mock com.gewu.infrastructure.mapper.OrchestrationNodeExecutionMapper nodeExecutionMapper;
     @Mock OrchestrationGraphVersionMapper versionMapper;
     @Mock com.gewu.infrastructure.mapper.OrchestrationScheduleMapper scheduleMapper;
+    @Mock com.gewu.infrastructure.mapper.OrchestrationWebhookMapper webhookMapper;
 
     private OrchestrationService service;
 
@@ -52,7 +53,7 @@ class OrchestrationGraphVersionTest {
     void setUp() {
         service = new OrchestrationService(orchestrationEngine, graphMapper, executionMapper,
                 approvalMapper, new ObjectMapper(), fourPhasePipeline, orchestrationTracer,
-                new GraphDefinitionValidator(new ObjectMapper(), graphMapper), nodeExecutionMapper, versionMapper, scheduleMapper);
+                new GraphDefinitionValidator(new ObjectMapper(), graphMapper), nodeExecutionMapper, versionMapper, scheduleMapper, webhookMapper);
     }
 
     private OrchestrationGraphEntity draftGraph() {
