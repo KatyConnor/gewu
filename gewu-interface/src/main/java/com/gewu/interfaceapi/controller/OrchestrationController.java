@@ -250,11 +250,20 @@ public class OrchestrationController {
         if (!webhookEnabled) {
             return org.springframework.http.ResponseEntity.notFound().build();
         }
+        // body 上限 64KB（评审 F-04）：匿名端点无鉴权，超大 body 直接拒绝（404 语义不暴露校验规则）
+        if (body != null && body.length() > 64 * 1024) {
+            log.warn("Webhook 请求体超限拒绝: tokenPrefix={}, length={}", token, body.length());
+            return org.springframework.http.ResponseEntity.notFound().build();
+        }
         OrchestrationExecutionEntity execution = orchestrationService.triggerByWebhook(token, body);
         if (execution == null) {
             return org.springframework.http.ResponseEntity.notFound().build();
         }
-        return org.springframework.http.ResponseEntity.accepted().body(Result.success(execution));
+        // 匿名响应脱敏（评审 F-11）：仅回执行 ID 与状态，不回传图快照与执行变量
+        java.util.Map<String, String> accepted = new java.util.LinkedHashMap<>();
+        accepted.put("executionId", execution.getId());
+        accepted.put("status", execution.getStatus());
+        return org.springframework.http.ResponseEntity.accepted().body(Result.success(accepted));
     }
 
     // ==================== 自主目标 ====================

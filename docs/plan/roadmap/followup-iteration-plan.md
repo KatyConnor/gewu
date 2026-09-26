@@ -300,6 +300,13 @@
   3. 验证失败 → 标记节点 FAILED + 触发重试/降级
 - **工作量**：1-2 人日
 
+### P2-11: executionMode PLAN_EXECUTE 运行时接线（编排 O4，后续评估）
+
+**状态**：🟡 待评估（2026-09-26 记入，源自 EXEPLAN-ORCH-2026-09 O4 可选项）
+**背景**：AGENT 节点 `executionMode` 枚举（REACT/PLAN_EXECUTE/REFLEXION/TOOL_PARALLEL）存在但执行链从不消费——所有节点一律走 ReactAgentExecutor；`orchestration/runtime/` 三个运行时类为未接线的半成品。为防误导，设计器属性面板已移除该字段（48 号 D4 决策，O1 完成）。
+**接线范围**（约 2 人日）：PipelineModeHandler.executeAgentNode 按节点分派 REACT（现状不动）/PLAN_EXECUTE（接入 PlanExecuteRuntime，需先审计其完成度并适配 AgentTask 接口、SSE 事件透传、失败传播/重试对齐）；REFLEXION/TOOL_PARALLEL 可接则接否则从枚举移除；行为可区分单测；属性面板恢复下拉（标注生效）。
+**评估触发条件**：实际编排场景出现"单节点任务步骤多但路径确定、需压低 Agent 自主循环轮次与 Token 成本"的明确诉求时立项；无诉求则维持搁置（枚举与 runtime 类保留，不影响现有功能）。注意与 NodeType.PLAN（图级 GoalPlanner 拆解）语义重叠，评审时需一并厘清分工。
+
 ### P2-10: 四阶段治理流水线（FourPhasePipeline）接入执行器
 - **现状**：`FourPhasePipeline`（评估/治理/审计/执行四阶段）已存在且审计阶段写入 WORM 链，
   但 `ReactAgentExecutor` 执行时不经过四阶段流水线。

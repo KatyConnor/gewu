@@ -90,6 +90,7 @@
 | [46-orchestration-graph-visual-designer-research.md](design/46-orchestration-graph-visual-designer-research.md) | 编排图可视化设计器调研 | ✅ 当前 |
 | [47-orchestration-engine-reliability-fixes.md](design/47-orchestration-engine-reliability-fixes.md) | 编排引擎可靠性修复 | ✅ 当前 |
 | [48-workflow-capability-redesign.md](design/48-workflow-capability-redesign.md) | 工作流能力边界分析与功能架构重设计（BPM 冻结/编排先行决策） | ✅ 当前 |
+| [49-orchestration-implementation-review.md](design/49-orchestration-implementation-review.md) | 编排引擎设计实现独立评审（13 项发现与处置） | ✅ 当前 |
 
 ### api/ — API 接口文档
 

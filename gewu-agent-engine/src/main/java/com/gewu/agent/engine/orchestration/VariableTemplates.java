@@ -17,7 +17,7 @@ import java.util.regex.Pattern;
 public final class VariableTemplates {
 
     /** 参数模板占位符：${varName} */
-    private static final Pattern VAR_PATTERN = Pattern.compile("\\$\\{([a-zA-Z0-9_.]+)}");
+    private static final Pattern VAR_PATTERN = Pattern.compile("\\$\\{([a-zA-Z0-9_.-]+)}");
 
     private VariableTemplates() {
     }

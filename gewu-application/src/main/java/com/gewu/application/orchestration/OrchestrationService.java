@@ -410,22 +410,27 @@ public class OrchestrationService {
                     upsertNodeExecution(graph, executionId, event);
                 })
                 .doOnComplete(() -> {
-                    boolean failed = "FAILED".equals(graphStatus.get());
-                    execEntity.setStatus(failed ? "FAILED" : "SUCCEEDED");
-                    if (failed) {
+                    // 终态全量映射（评审 F-01）：引擎以 graph_complete(status) 优雅收尾，
+                    // PAUSED/CANCELLED 不得被覆写为 SUCCEEDED（否则续跑入口消失、检查点成孤儿）
+                    String engineStatus = graphStatus.get();
+                    boolean finished = "SUCCEEDED".equals(engineStatus) || "FAILED".equals(engineStatus);
+                    execEntity.setStatus(mapEngineStatus(engineStatus));
+                    if ("FAILED".equals(engineStatus)) {
                         execEntity.setErrorMessage(graphReason.get());
                     }
                     execEntity.setCompletedAt(Instant.now().toEpochMilli());
                     executionMapper.updateById(execEntity);
                     liveContexts.remove(executionId);
-                    // 四环协同：流式完成后触发评估/治理/审计环（失败图同样进入治理/审计）
-                    fourPhasePipeline.postProcess(
-                            failed
-                                    ? OrchestrationResult.failure(executionId,
-                                            graphReason.get() != null ? graphReason.get() : "编排执行失败")
-                                    : OrchestrationResult.success(executionId,
-                                            execEntity.getFinalOutput() != null ? execEntity.getFinalOutput() : ""),
-                            userId, sessionId, execEntity.getStartedAt() != null ? execEntity.getStartedAt() : 0L);
+                    // 四环协同：仅业务终态触发评估/治理/审计环（PAUSED/CANCELLED 尚未产生最终产出）
+                    if (finished) {
+                        fourPhasePipeline.postProcess(
+                                "FAILED".equals(engineStatus)
+                                        ? OrchestrationResult.failure(executionId,
+                                                graphReason.get() != null ? graphReason.get() : "编排执行失败")
+                                        : OrchestrationResult.success(executionId,
+                                                execEntity.getFinalOutput() != null ? execEntity.getFinalOutput() : ""),
+                                userId, sessionId, execEntity.getStartedAt() != null ? execEntity.getStartedAt() : 0L);
+                    }
                     log.info("编排流式执行完成: executionId={}, status={}", executionId, execEntity.getStatus());
                 })
                 .doOnError(e -> {
@@ -530,10 +535,16 @@ public class OrchestrationService {
             throw new IllegalStateException("仅 PAUSED 状态可恢复，当前状态: " + entity.getStatus());
         }
         boolean resumable = orchestrationEngine.isPausable(executionId);
+        if (!resumable) {
+            // 无检查点（评审 F-06）：状态保持 PAUSED 不前移，避免留下无主 RUNNING；
+            // 前端提示重新发起，用户仍可重试恢复或取消
+            log.warn("恢复编排执行但无可恢复检查点，保持 PAUSED: executionId={}", executionId);
+            return false;
+        }
         entity.setStatus("RUNNING");
         executionMapper.updateById(entity);
-        log.info("恢复编排执行: executionId={}, engineCheckpoint={}", executionId, resumable);
-        return resumable;
+        log.info("恢复编排执行: executionId={}", executionId);
+        return true;
     }
 
     /**

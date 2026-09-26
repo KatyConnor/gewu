@@ -101,10 +101,10 @@ public class RunOrchestrationGraphTool implements Tool {
         if (orchestrationService == null) {
             return ToolResult.failure("编排服务不可用", System.currentTimeMillis() - start);
         }
+        CompletableFuture<OrchestrationExecutionEntity> future = CompletableFuture.supplyAsync(
+                () -> orchestrationService.executeGraphForAgentTool(graphId, userId, sessionId, input),
+                TOOL_WAIT_EXECUTOR);
         try {
-            CompletableFuture<OrchestrationExecutionEntity> future = CompletableFuture.supplyAsync(
-                    () -> orchestrationService.executeGraphForAgentTool(graphId, userId, sessionId, input),
-                    TOOL_WAIT_EXECUTOR);
             OrchestrationExecutionEntity execution = future.get(timeoutSeconds, TimeUnit.SECONDS);
             String summary = "编排执行完成，状态: " + execution.getStatus()
                     + "；执行ID: " + execution.getId()
@@ -115,8 +115,10 @@ public class RunOrchestrationGraphTool implements Tool {
                                     : "\n（无最终输出）"));
             return ToolResult.success(summary, System.currentTimeMillis() - start);
         } catch (java.util.concurrent.TimeoutException e) {
+            // 尽力取消底层任务（评审 F-05）：嵌套执行链可能无法立即中断，如实告知仍在后台
+            future.cancel(true);
             log.warn("Agent 工具调用编排图超时: graphId={}, timeout={}s", graphId, timeoutSeconds);
-            return ToolResult.failure("编排执行超时（上限 " + timeoutSeconds + " 秒），执行已在后台终止等待，请稍后在编排执行历史中查看结果",
+            return ToolResult.failure("编排执行超过时长上限（" + timeoutSeconds + " 秒），仍在后台继续执行，请稍后在编排执行历史中查看结果",
                     System.currentTimeMillis() - start);
         } catch (InterruptedException e) {
             Thread.currentThread().interrupt();

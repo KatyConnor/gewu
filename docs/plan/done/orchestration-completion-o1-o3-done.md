@@ -59,7 +59,7 @@
 
 | # | 项 | 处置建议 |
 |---|---|---|
-| 1 | O4（可选）：executionMode 的 PLAN_EXECUTE 运行时接线 | 视产品需求排期（2 人日，接线后恢复属性面板下拉） |
+| 1 | O4（可选）：executionMode 的 PLAN_EXECUTE 运行时接线 | **已记入后续评估**：roadmap/followup-iteration-plan.md P2-11（2026-09-26，含接线范围与评估触发条件） |
 | 2 | 同步执行路径不落节点级执行记录（回放以流式为准） | 既有缺口，建议后续统一（runSync 需暴露事件流） |
 | 3 | assigneeRole 角色成员过滤基于前端登录态角色列表 | 后端暂无角色展开接口，属精简实现 |
 | 4 | Webhook 无请求级限流（依赖 token 随机性 + 总开关） | 公网暴露前补 Redis 计数限流 |

@@ -1099,8 +1099,14 @@ public class PipelineModeHandler implements ModeHandler {
         if ("SUCCESS".equals(status)) {
             return OrchestrationResult.success(context.getExecutionId(), output);
         }
-        return OrchestrationResult.failure(context.getExecutionId(),
-                reason != null && !reason.isBlank() ? reason : output);
+        // 终态透传（评审 F-07）：PAUSED/CANCELLED 不再硬编码为 FAILED——
+        // 否则引擎检查点仍在而执行记录已 FAILED，形成"FAILED 却可续跑"的状态机矛盾
+        return OrchestrationResult.builder()
+                .executionId(context.getExecutionId())
+                .status(status)
+                .finalOutput(output)
+                .errorMessage(reason != null && !reason.isBlank() ? reason : ("FAILED".equals(status) ? output : null))
+                .build();
     }
 
     /** 兼容旧调用：按节点声明顺序返回（图遍历已改为边驱动，此方法仅供调试） */
