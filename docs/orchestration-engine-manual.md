@@ -3,10 +3,11 @@
 | | |
 |---|---|
 | 文档编号 | GEWU-MANUAL-ORCH-001 |
-| 版本 | V1.0（2026-09-25） |
+| 版本 | V1.1（2026-09-26） |
 | 适用对象 | 使用编排引擎构建与运行多智能体协作流程的产品 / 运营 / 开发人员 |
 | 适用范围 | 格物智能体平台 Web 端「编排引擎」功能 + 编排引擎 Open API |
-| 代码基线 | 分支 `main` / `fix/sandbox-security-storage`，对应设计报告 docs/design/46（可视化设计器）、47（引擎可靠性修复） |
+| 代码基线 | 分支 `fix/sandbox-security-storage`（含 O1~O3 能力补全：版本化 / 检查点持久化 / 节点重试超时 / SUBGRAPH / 触发体系），对应 docs/design/48 与 EXEPLAN-ORCH-2026-09 |
+| V1.1 变更 | 版本化与下架回滚（§5）、SUBGRAPH 实现（§6.3.8）、变量语法统一（§8.3）、VL-13/14（§9）、检查点持久化与续跑 UI 闭环（§10.4）、触发体系（§10.7）、节点级重试/超时（§13.5）、API 与配置项增补 |
 
 ---
 
@@ -44,10 +45,12 @@
 
 | 子功能 | 说明 | 主要载体 |
 |---|---|---|
-| 可视化设计器 | 拖拽式画布编排：节点库 / 画布 / 属性面板 / JSON 双向同步 / 实时校验 | Web 端设计器页面 |
-| 执行引擎 | 按四种编排模式调度节点执行，支持条件路由、并行汇聚、动态规划 | 后端编排引擎（`gewu-agent-engine`） |
+| 可视化设计器 | 拖拽式画布编排：节点库 / 画布 / 属性面板 / JSON 双向同步 / 实时校验 / 触发配置 | Web 端设计器页面 |
+| 执行引擎 | 按四种编排模式调度节点执行，支持条件路由、并行汇聚、动态规划、嵌套子图 | 后端编排引擎（`gewu-agent-engine`） |
 | 执行管理 | 同步 / 流式（SSE）执行、暂停 / 恢复 / 取消、执行历史与回放 | 列表页 + 设计器运行预览 |
-| 人工审批 | 图中嵌入 HUMAN 审批节点，阻塞等待审批中心裁决后继续 | 审批中心 + HITL 网关 |
+| 版本管理 | 激活即发布不可变版本快照；执行绑定版本；下架回草稿与版本回滚 | 列表页版本历史弹窗 |
+| 触发体系 | 手动 / API / Agent 会话工具化 / 定时（Cron）/ Webhook 五类触发 | §10.7 |
+| 人工审批 | 图中嵌入 HUMAN 审批节点（可圈定审批人），阻塞等待审批中心裁决后继续 | 审批中心 + HITL 网关 |
 | 自主目标 | 输入一个目标描述，由引擎自动"分解 → 执行 → 验收"循环直至完成 | Open API（SSE） |
 
 典型使用场景：
@@ -183,32 +186,43 @@
 - 保存时后端会再次执行图结构校验，**ERROR 级问题阻断保存**（VL 规则见 §9）；
 - 画布内容与 JSON 视图双向同步（见 §6.7）。
 
-### 5.3 激活（draft → active）
+### 5.3 激活（draft → active，发布版本快照）
 
-- 点击列表卡片 **激活** 按钮。后端要求图定义非空才能激活（创建后从未保存过内容的空图会报「编排图定义为空，不能激活」）；
-- 激活是**单向操作，无"取消激活"入口**：激活后图只读，如需修改须删除后重建（删除会连带执行历史，请谨慎操作，建议通过复制 JSON 的方式另建新图）；
-- 界面上执行类按钮（▶ / ⚡）仅对已激活图开放。**API 层面**执行接口不校验激活状态，只要求图存在、定义非空且结构校验通过——但产品上建议始终先激活再执行。
+- 点击列表卡片 **激活** 按钮。激活前会执行结构校验（ERROR 阻断）；后端要求图定义非空才能激活；
+- **激活即发布不可变版本快照**：每次激活把当前定义发布为版本 v1、v2…（同图自增），此后执行优先加载最新版本快照——之后再激活新版本，不影响既有执行记录的回放一致性；
+- 执行记录会绑定触发时的版本 ID（versionId），执行历史与回放按该版本呈现。
 
-### 5.4 删除
+### 5.4 下架与版本回滚（active ↔ draft）
 
-- 逻辑删除编排图本身，并**级联逻辑删除**其全部执行实例与这些执行产生的审批请求；
-- 删除不可恢复（界面无二次确认弹窗，请谨慎操作）。
+已激活的图不再需要删图重建：
 
-### 5.5 状态模型
+| 操作 | 入口 | 行为 |
+|---|---|---|
+| **下架** | 列表卡片「下架」按钮 | active → draft，重新可编辑；已有执行与审批数据全部保留 |
+| **版本历史** | 列表卡片 🕘 按钮 | 弹窗展示全部版本快照（版本号 / 模式 / 激活时间），支持与当前草稿**双栏定义对比** |
+| **回滚** | 版本历史弹窗「回滚」 | 将指定版本快照写回草稿定义（仅 draft 可回滚，active 图请先下架）；回滚后需重新激活才可执行 |
+
+### 5.5 删除
+
+- 逻辑删除编排图本身，并**级联逻辑删除**其全部执行实例、节点级执行记录与审批请求；
+- 删除不可恢复，请谨慎操作（建议通过版本历史回滚替代删除）。
+
+### 5.6 状态模型
 
 ```
             创建
              │
              ▼
-          ┌──────┐   激活（单向）   ┌────────┐
-          │ draft │ ───────────────▶ │ active │
-          └──────┘                  └────────┘
+          ┌──────┐   激活（发布版本快照）   ┌────────┐
+          │ draft │ ─────────────────────▶ │ active │
+          └──────┘ ◀───────────────────── └────────┘
+                    下架（保留执行历史）
 ```
 
 | 状态 | 界面显示 | 可编辑 | 可执行（界面） |
 |---|---|---|---|
-| draft | 草稿 | ✅ | ❌（可在设计器内"保存并运行"预览） |
-| active | 已激活 | ❌ 只读 | ✅ |
+| draft | 草稿 | ✅ | ❌（可在设计器内"保存并运行"预览；定时/Webhook/Agent 工具均要求 active） |
+| active | 已激活 | ❌ 只读（下架后恢复可编辑） | ✅ |
 
 ---
 
@@ -259,9 +273,11 @@
 |---|---|
 | **Agent（refId）** | 下拉选择平台「我的智能体」中的实例（显示为 `名称（模型商/模型）`）。选「不指定」时，运行时以图变量 `modelProvider` / `modelName` 兜底解析模型（见 §8.3） |
 | **角色（roleCode）** | 下拉选择角色（数据源为角色目录：内置 12 个 SDLC 角色 + SPI 扩展，见附录 B），决定该节点的角色人格 / 系统提示 |
-| **执行模式（executionMode）** | REACT（推理+行动循环，默认）/ PLAN_EXECUTE / REFLEXION / TOOL_PARALLEL。⚠️ 当前引擎版本该字段仅作声明，未参与节点级执行 |
 | **输入映射（inputs）** | JSON 对象。约定键 `message` 会**覆盖**前驱节点产出作为任务输入；其余键的值以「## 参考：键名」段落追加到任务输入。值支持变量模板（见 §8） |
 | **输出契约（outputSchema）** | JSON Schema 对象或逗号分隔字段串（如 `title,content`）。同步执行路径会校验节点产出是否符合契约，不符合则整图失败 |
+| **重试与超时** | 折叠配置（见 §13.5）：`retryCount`（0-3，默认 0 不重试）、`retryBackoffMs`（默认 1000）、`timeoutSeconds`（缺省 0 不启用节点级超时） |
+
+> executionMode 字段已从属性面板移除（引擎暂未接线，避免无效配置误导；后续版本接线后恢复）。
 
 执行行为：产出写入以 `nodeId` 命名的上下文变量，并作为下游节点的默认输入；执行过程的事件（思考、内容、工具调用等）实时透传到 SSE 流。
 
@@ -283,6 +299,8 @@
 |---|---|
 | 审批配置（refId） | 暂不可配置（置灰），当前仅记录不参与执行 |
 | **审批超时（timeoutSeconds）** | 等待审批的最大时长，默认 1800 秒（30 分钟），合法范围 [1, 86400]，超出范围产生 WARNING |
+| **指定审批人（assigneeId）** | 用户 ID。填写后该审批请求**仅对此人可见**（审批中心过滤），留空=全员可见 |
+| **指定审批角色（assigneeRole）** | 角色编码，与审批人并用：该角色成员亦可见可办 |
 
 执行行为：执行到该节点时发出 `approval_required` 事件并阻塞；运行预览出现金色提示条「节点 xxx 等待人工审批」；处理方式见 §11。**批准** → 继续执行后续节点；**驳回** → 上下文回滚一版并整图失败；**超时未处理** → 按超时结束。⚠️ 审批等待中的执行**无法被暂停 / 取消信号中断**（信号在节点边界才检查）。
 
@@ -318,9 +336,21 @@
 
 执行行为：发出 `plan_created` 事件（前端展示计划步骤卡片）；子计划嵌套上限 1 层（PLAN 内不再嵌 PLAN）。规划器可配置为 LLM 规划（`agent.engine.planner.llm.enabled=true`，默认步数上限 8），未开启时退化为"整目标单节点执行"。
 
-#### 6.3.8 SUBGRAPH —— 嵌套子图节点（未实现）
+#### 6.3.8 SUBGRAPH —— 嵌套子图节点
 
-规划中的图嵌套能力。**当前引擎尚未实现**，节点库中置灰禁拖；若存量图定义中存在该类型节点，执行时按 AGENT 节点处理。
+把一张**已激活**的编排图作为子流程嵌入当前图执行，实现图复用与分层编排。
+
+| 属性 | 说明 |
+|---|---|
+| **子图（refId）** | ✅ 必填。下拉选择已激活的编排图（自动排除当前图自身） |
+
+执行语义：
+
+- **沙箱上下文**：以「子图自身 variables + 父图变量快照（同名覆盖）」为初始变量执行；子图内部新写入的变量**不回渗父图**，子图最终产出作为本节点输出（写入以 nodeId 命名的变量）继续父图遍历；
+- **深度上限 2**：子图内还可以再嵌一层子图，更深直接失败；
+- **断点续跑**：从 SUBGRAPH 节点恢复时子图整体重跑（子图内部无断点语义）；
+- 校验（VL-13）：refId 必填、禁止自引用、目标图必须已激活、跨图引用链不成环（A 引 B、B 引 A 会被阻断）；
+- ⚠️ **依赖服务端开关** `agent.engine.orchestration.subgraph.enabled`（默认关闭）：关闭时节点按 AGENT 执行（历史行为）。
 
 ### 6.4 连线与路由条件
 
@@ -351,7 +381,8 @@
 3. **画布级设置**（未选中任何对象时显示）：
    - **失败传播（continueOnFailure）**：引擎默认（失败即整图终止）/ best-effort（失败继续其余分支）/ 显式失败终止。写入图变量 `continueOnFailure`，语义见 §13.2；
    - **图变量（variables）**：JSON 对象编辑器（见 §8）；
-   - **关联自主目标（rootGoalId）**：填写自主目标 ID，将本图与一次自主目标执行关联。
+   - **关联自主目标（rootGoalId）**：填写自主目标 ID，将本图与一次自主目标执行关联；
+   - **触发配置**（见 §10.7）：定时触发（Cron + 下次触发预览 + 启停）与 Webhook 触发（token 生成/重置/停用）。
 
 ### 6.6 节点卡片信息与徽标
 
@@ -460,7 +491,7 @@
 
 ### 8.3 引用语法（重要）
 
-引擎实际解析的占位符语法是 **`${变量名}`**，变量名即上下文变量键：
+标准占位符语法是 **`${变量名}`**，变量名即上下文变量键：
 
 | 写法 | 含义 |
 |---|---|
@@ -469,9 +500,7 @@
 | `${modelProvider}` / `${modelName}` | 引用图变量兜底模型 |
 | `${自定义变量}` | 引用图定义 variables 中的同名键 |
 
-> ⚠️ **注意 `var.` 前缀写法**：设计器界面提示与校验规则 VL-09 识别的是 `${var.xxx}` 形式（校验 `var.` 后的名字是否可解析）。但引擎渲染时按字面取整个 `var.xxx` 作为变量名查找——除非存在名为 `var.xxx` 的变量，否则会被替换为**空串**。**可靠写法是不带前缀的 `${变量名}`**（如 `${input}`、`${节点ID}`）。
->
-> 另注：VL-09 可解析性校验仅覆盖 `${var.xxx}` 形式；不带前缀的写法不做静态校验，未定义变量在运行时替换为空串并记录告警日志。
+> **历史写法 `${var.xxx}` 已自动降级**：引擎查不到名为 `var.xxx` 的变量时，会去掉 `var.` 前缀按 `${xxx}` 重新解析（并记录告警日志）。新图请统一使用不带前缀的写法；VL-09 校验对两种写法同源生效（解析名去前缀）。未定义变量在运行时替换为空串并记录告警日志。
 
 **内置约定变量**：
 
@@ -484,7 +513,7 @@
 
 ---
 
-## 9. 结构校验规则（VL-01 ~ VL-12）
+## 9. 结构校验规则（VL-01 ~ VL-14）
 
 校验在**保存与执行前双闸**执行：前端画布实时提示 + 后端权威校验。**ERROR 阻断，WARNING 放行并记录日志**。前后端规则对齐（后端为权威）。
 
@@ -502,6 +531,8 @@
 | VL-10 | ERROR | AGENT 节点 `outputSchema` 不是合法 JSON Schema 或逗号分隔字段串 |
 | VL-11 | WARNING | DEBATE 模式缺少 MERGE / ROUTER 节点作裁判 |
 | VL-12 | WARNING | 当前模式忽略边结构（SWARM / SUPERVISOR 下存在连线） |
+| VL-13 | ERROR | SUBGRAPH 节点 refId 缺失 / 自引用 / 目标图未激活 / 跨图引用链成环（查询异常降级 WARNING，运行时深度上限兜底） |
+| VL-14 | WARNING | 节点级 retryCount 超出 [0,3] / timeoutSeconds 超出 [0, 86400] 或非数字（按边界值生效） |
 
 ---
 
@@ -559,10 +590,10 @@ RUNNING ──暂停──▶ PAUSED ──恢复──▶ RUNNING
 | 操作 | 前置状态 | 行为 |
 |---|---|---|
 | **暂停** | RUNNING | 保存断点检查点（图定义 + 上下文变量 + 恢复起点节点）→ 执行记录置 PAUSED → 事件流以 `graph_complete(PAUSED)` 优雅结束 |
-| **恢复** | PAUSED | 两步操作：① 调恢复接口，DB 状态置 RUNNING，返回 `resumable` 标志；② `resumable=true` 时调用**断点续跑事件流**（SSE），引擎从检查点的恢复节点继续执行，**已完成的节点自动跳过** |
+| **恢复** | PAUSED | 界面已闭环两步合一：点击「恢复」后系统自动完成状态恢复 + 订阅断点续跑事件流，事件实时滚动到执行事件面板直至终态，无需再手动调续跑 API |
 | **取消** | RUNNING / PAUSED | RUNNING：发协作取消信号，当前节点后优雅结束，取消时刻的变量终态快照写入执行记录；PAUSED：直接丢弃检查点并注销 |
 
-> ⚠️ **检查点保存在引擎内存注册表**：服务进程重启后检查点丢失，此时恢复接口返回 `resumable=false`（DB 状态仍会置回 RUNNING），只能重新发起一次全新执行。执行记录中的 `graph_snapshot` / `variables` / `currentNodeId` 可用于事后分析与重建。
+> **检查点持久化**：暂停生效时检查点双写（内存 + `orchestration_checkpoint` 表），**服务进程重启后恢复依然可用**（恢复接口自动从持久层重建检查点、跳过已完成节点续跑）。仅当持久层也不可用时提示重新执行。
 
 ### 10.5 执行回放（FR-14）
 
@@ -592,6 +623,17 @@ RUNNING ──暂停──▶ PAUSED ──恢复──▶ RUNNING
 | `goal_start` / `goal_decomposed` / `goal_complete` | 自主目标生命周期 |
 | `reflection` / `verification_result` / `confidence_check` | 自主目标的反思 / 验收 / 置信度事件 |
 | `budget_warning` / `budget_exceeded` | Token 预算 70% / 90% 警告 / 100% 超限 |
+
+### 10.7 触发体系（五类触发方式）
+
+编排图（须 active）除手动执行外，还有四类触发方式，执行记录通过 **triggerType** 区分（执行历史列表展示"手动/API/Agent工具/定时/Webhook 触发"）：
+
+| 触发方式 | 配置入口 | 说明 |
+|---|---|---|
+| **手动 / API** | 列表页 ▶ / ⚡ 或 REST 调用 | triggerType=MANUAL |
+| **Agent 工具化** | 无需配置 | 会话中 Agent 可自主调用内置工具 `run_orchestration_graph`（参数：graphId 必填 + input 可选），同步等待执行并把最终输出回传给 Agent 汇报；triggerType=AGENT_TOOL，执行记录挂靠发起会话（sessionId 贯通）。单次执行时长帽默认 300 秒（`agent.engine.tool.orchestration.timeout-seconds`） |
+| **定时触发** | 设计器 → 画布级设置 → 触发配置 → 定时触发 | Spring Cron 6 位表达式（如 `0 0 9 * * *` 每天 9 点）+ 输入模板 + 启停；保存即校验并预计算**下次触发时间**；到期由调度器以系统身份发起执行（triggerType=SCHEDULE），失败不影响下轮调度。多实例部署通过 CAS 抢占防重复触发 |
+| **Webhook 触发** | 设计器 → 画布级设置 → 触发配置 → Webhook | 生成 token（明文**仅生成时展示一次**，库内只存哈希），外部 `POST /api/v1/orchestration/webhooks/{token}` 即触发（body 原样作为输入）；token 可重置（旧 token 立即失效）与停用；错误/停用 token 统一返回 404。⚠️ 服务端总开关 `agent.engine.webhook.enabled` **默认关闭**，开启前须完成安全评审 |
 
 ---
 
@@ -697,11 +739,23 @@ goal_start
 
 > best-effort 适合"多路并行、部分成功即可"的场景（如多源调研）；需要严格事务语义的流程请保持默认。
 
-### 13.3 校验失败
+### 13.3 节点级重试与超时（WFO-05）
+
+AGENT / TOOL 节点的"重试与超时"折叠配置（属性面板）：
+
+| 配置 | 默认 | 说明 |
+|---|---|---|
+| `retryCount` | 0（不重试，保持现行为） | 上限 3。仅对**执行异常/超时**重试（AGENT 流式非阻塞退避重试、TOOL 同步重试）；error 事件（业务失败，如工具明确报错）不重试，避免重复副作用 |
+| `retryBackoffMs` | 1000 | 重试退避间隔 |
+| `timeoutSeconds` | 0（不启用） | 节点级执行超时上限 [1, 86400]；超时按失败处理并受失败传播语义约束（§13.2）；缺省由 LLM 客户端级 / 工具管线内部超时兜底 |
+
+重试成功的节点，其重试次数随 node_complete 事件落库节点执行记录（retry_count），执行回放可见。
+
+### 13.4 校验失败
 
 图结构存在 ERROR 级问题时，保存与执行双闸均阻断，并返回形如「编排图结构校验未通过: VL-03: ...」的可读错误（规则见 §9）。
 
-### 13.4 异常兜底
+### 13.5 异常兜底
 
 - SSE 流异常中断时，设计器把在途节点统一标红并展示错误；
 - 节点级执行记录落库失败仅告警、不阻断执行本身；
@@ -721,7 +775,15 @@ goal_start
 | PUT | `/v1/orchestration/graphs/{graphId}` | 更新定义；**仅 draft 可编辑**；保存前结构校验（ERROR 阻断） |
 | GET | `/v1/orchestration/graphs` | 编排图列表（?status=draft|active 可选） |
 | GET | `/v1/orchestration/graphs/{graphId}` | 图详情（错误码 18001=不存在） |
-| PUT | `/v1/orchestration/graphs/{graphId}/activate` | 激活（draft → active） |
+| PUT | `/v1/orchestration/graphs/{graphId}/activate` | 激活（draft → active，发布版本快照） |
+| PUT | `/v1/orchestration/graphs/{graphId}/deactivate` | 下架（active → draft，执行与审批数据保留） |
+| GET | `/v1/orchestration/graphs/{graphId}/versions` | 版本快照列表（按版本号倒序） |
+| POST | `/v1/orchestration/graphs/{graphId}/versions/{versionId}/rollback` | 版本回滚（快照写回草稿，仅 draft 可回滚） |
+| PUT | `/v1/orchestration/graphs/{graphId}/schedule` | 保存定时触发配置（cronExpr 必填；响应含预计算的 nextFireAt） |
+| GET | `/v1/orchestration/graphs/{graphId}/schedule` | 查询定时触发配置 |
+| PUT | `/v1/orchestration/graphs/{graphId}/webhook` | 保存 Webhook 配置（首次/regenerate 生成新 token，明文仅本次返回） |
+| GET | `/v1/orchestration/graphs/{graphId}/webhook` | 查询 Webhook 配置（只含哈希） |
+| POST | `/v1/orchestration/webhooks/{token}` | Webhook 匿名触发（body 原样作为输入；未命中/停用/关闭统一 404） |
 | DELETE | `/v1/orchestration/graphs/{graphId}` | 删除（级联删除执行实例与审批请求） |
 | GET | `/v1/orchestration/catalog/roles` | 角色目录（AGENT 节点 roleCode 数据源） |
 | GET | `/v1/orchestration/catalog/tools` | 工具目录（TOOL 节点 toolName 数据源，代码 + 配置合并） |
@@ -730,7 +792,7 @@ goal_start
 
 | 方法 | 路径 | 说明 |
 |---|---|---|
-| POST | `/v1/orchestration/graphs/{graphId}/execute` | 同步执行（body: `{sessionId?, input?}`），阻塞返回执行记录 |
+| POST | `/v1/orchestration/graphs/{graphId}/execute` | 同步执行（body: `{sessionId?, input?}`），阻塞返回执行记录（含 versionId / triggerType） |
 | POST | `/v1/orchestration/graphs/{graphId}/stream` | 流式执行（SSE，`text/event-stream`） |
 | GET | `/v1/orchestration/executions` | 执行实例列表（?graphId=、?status= 可选） |
 | GET | `/v1/orchestration/executions/{executionId}` | 执行详情（18002=不存在） |
@@ -805,10 +867,10 @@ curl -N -X POST .../executions/$EXEC_ID/resume/stream -H "Authorization: Bearer 
 点击工具栏 **校验** 查看具体规则（红标 ERROR），点击问题条目可定位节点。高频问题：工具节点未选工具（VL-06）、图有环（VL-03）、ROUTER 出边没写条件（VL-03）。
 
 **Q2：已激活的图想改怎么办？**
-激活是单向的，已激活图只读。当前版本无"下架回草稿"功能；如需修改，建议打开 **JSON** 视图复制定义 → 删除旧图 → 新建图粘贴应用。注意删除会连带删除执行历史。
+列表卡片点「下架」回到草稿即可重新编辑（执行与审批历史完整保留）；改完重新激活会产生新版本快照（v2、v3…）。历史版本可在「版本历史」弹窗中查看、与当前草稿对比、或一键回滚。**不再需要删图重建。**
 
-**Q3：`${var.xxx}` 渲染成了空字符串？**
-见 §8.3：引擎按 `${变量名}` 整体匹配查找，`${var.input}` 会按字面找名为 `var.input` 的变量。请改用不带前缀的写法（`${input}`、`${节点ID}`、`${图变量名}`）。未定义变量一律替换为空串并记告警日志。
+**Q3：`${var.xxx}` 历史写法还能用吗？**
+能用：引擎查不到字面变量 `var.xxx` 时会自动去前缀按 `${xxx}` 降级解析（记告警日志）。新图请统一写 `${input}`、`${节点ID}`；VL-09 校验对两种写法同源生效。
 
 **Q4：ROUTER 节点执行报「无可命中出边」？**
 所有出边条件都未命中且没有无条件 / else 兜底边。为 ROUTER 的分支补一条 `else` 兜底边即可。
@@ -816,8 +878,8 @@ curl -N -X POST .../executions/$EXEC_ID/resume/stream -H "Authorization: Bearer 
 **Q5：SWARM / SUPERVISOR 模式下连线怎么不生效？**
 这两种模式按设计**忽略边结构**（SWARM 由 Agent 输出的 `HANDOFF` / `FINISH` 指令驱动，SUPERVISOR 按节点声明顺序串行）。连线仅作视觉参考，画布顶部有金色提示条。需要按连线执行请使用 PIPELINE。
 
-**Q6：暂停后点「恢复」，执行没有继续跑？**
-恢复是两步操作：恢复接口只把状态置回 RUNNING 并返回 `resumable`；`resumable=true` 时还需订阅**断点续跑事件流**（SSE）才会真正续跑（界面执行历史当前提供第一步，续跑流可通过 API 消费）。若服务重启过，内存检查点已丢失（`resumable=false`），只能重新执行。
+**Q6：暂停后点「恢复」，执行会继续跑吗？**
+会。界面已闭环：点「恢复」后自动完成状态恢复并订阅断点续跑事件流，事件实时滚动到执行事件面板直至终态。检查点已持久化（内存+DB 双写），**服务重启后恢复依然可用**；仅持久层也不可用时才提示重新执行。
 
 **Q7：执行历史里某条记录打开回放没有节点数据？**
 该执行产生于节点级落库功能上线之前，没有节点记录。新执行均有。
@@ -873,14 +935,14 @@ SUPERVISOR 模式下第一个 AGENT 节点即监督者，徽标实时跟随模�
 
 | 类型 | 名称 | 状态 | 核心属性 | 一句话用途 |
 |---|---|---|---|---|
-| AGENT | Agent 节点 | ✅ | refId、roleCode、executionMode（声明）、inputs、outputSchema | 委派给智能体执行 LLM 任务 |
-| TOOL | 工具节点 | ✅ | toolName（必填）、arguments、outputVar | 直接调用工具，无推理 |
-| HUMAN | 人工审批 | ✅ | timeoutSeconds（默认 1800） | 阻塞等人工批准 / 驳回 |
+| AGENT | Agent 节点 | ✅ | refId、roleCode、inputs、outputSchema、retryCount/retryBackoffMs/timeoutSeconds | 委派给智能体执行 LLM 任务 |
+| TOOL | 工具节点 | ✅ | toolName（必填）、arguments、outputVar、retryCount/retryBackoffMs/timeoutSeconds | 直接调用工具，无推理 |
+| HUMAN | 人工审批 | ✅ | timeoutSeconds（默认 1800）、assigneeId/assigneeRole（审批人圈定） | 阻塞等人工批准 / 驳回 |
 | ROUTER | 条件路由 | ✅ | 出边 condition | 按条件选分支 |
 | PARALLEL | 并行扇出 | ✅ | —（出边 ≥2） | 同时触发全部分支 |
 | MERGE | 汇聚合并 | ✅ | strategy（默认拼接 / json_merge） | 等全部分支到齐后合并 |
 | PLAN | 动态规划 | ✅ | goalType（默认 FEATURE） | 输入经规划器拆解为波次并行子计划 |
-| SUBGRAPH | 嵌套子图 | 🚫 未实现 | — | 引擎按 AGENT 处理 |
+| SUBGRAPH | 嵌套子图 | ✅ | refId（必填，指向已激活图） | 以沙箱上下文执行子图，深度≤2（需服务端开关） |
 
 ## 附录 B：内置角色清单（RoleCode）
 
@@ -924,6 +986,9 @@ SUPERVISOR 模式下第一个 AGENT 节点即监督者，徽标实时跟随模�
 | 自主目标 maxIterations | 5 | 分解-执行-验收循环上限 |
 | 自主目标时间预算 | 300000 ms | 单次自主目标时间预算 |
 | 自主目标工具调用配额 | 50 次 | AntiRunawayGuard 工具调用上限 |
+| `agent.engine.orchestration.subgraph.enabled` | false | SUBGRAPH 嵌套子图特性开关（关闭时按 AGENT 执行） |
+| `agent.engine.webhook.enabled` | false | Webhook 触发总开关（开启前须完成安全评审；关闭时匿名端点 404） |
+| `agent.engine.tool.orchestration.timeout-seconds` | 300 | Agent 工具 run_orchestration_graph 单次执行时长帽（秒） |
 
 ---
 

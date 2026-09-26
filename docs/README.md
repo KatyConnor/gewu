@@ -76,6 +76,20 @@
 | [32-test-strategy.md](design/32-test-strategy.md) | 测试策略 | ✅ 当前 |
 | [33-dev-roadmap.md](design/33-dev-roadmap.md) | 开发路线图 | ✅ 当前 |
 | [34-sandbox-lifecycle-implementation-plan.md](design/34-sandbox-lifecycle-implementation-plan.md) | 沙箱生命周期实现计划 | ✅ 当前 |
+| [35-agent-skill-integration-design.md](design/35-agent-skill-integration-design.md) | 智能体与技能接入设计 | ✅ 当前 |
+| [36-admin-system-design.md](design/36-admin-system-design.md) | 后台管理体系设计 | ✅ 当前 |
+| [37-five-dimension-rbac-design.md](design/37-five-dimension-rbac-design.md) | 五维权限设计 | ✅ 当前 |
+| [38-rbac-phase-bcd-handoff.md](design/38-rbac-phase-bcd-handoff.md) | 五维权限阶段 B/C/D 交接 | ✅ 当前 |
+| [39-user-workspace-design.md](design/39-user-workspace-design.md) | 用户工作空间设计 | ✅ 当前 |
+| [40-dev-workspace-design.md](design/40-dev-workspace-design.md) | 开发工作空间设计 | ✅ 当前 |
+| [41-cognitive-agent-implementation-plan.md](design/41-cognitive-agent-implementation-plan.md) | 认知型 Agent 实施计划 | ✅ 当前 |
+| [42-gewu-desktop-architecture.md](design/42-gewu-desktop-architecture.md) | gewu-desktop 架构 | ✅ 当前 |
+| [43-cognitive-decision-memo.md](design/43-cognitive-decision-memo.md) | 认知层接线/裁剪决策备忘 | ✅ 当前 |
+| [44-decision-gates-final-review.md](design/44-decision-gates-final-review.md) | 决策门终审 | ✅ 当前 |
+| [45-engine-convergence-bench-review.md](design/45-engine-convergence-bench-review.md) | 引擎收敛与模型路由终审 | ✅ 当前 |
+| [46-orchestration-graph-visual-designer-research.md](design/46-orchestration-graph-visual-designer-research.md) | 编排图可视化设计器调研 | ✅ 当前 |
+| [47-orchestration-engine-reliability-fixes.md](design/47-orchestration-engine-reliability-fixes.md) | 编排引擎可靠性修复 | ✅ 当前 |
+| [48-workflow-capability-redesign.md](design/48-workflow-capability-redesign.md) | 工作流能力边界分析与功能架构重设计（BPM 冻结/编排先行决策） | ✅ 当前 |
 
 ### api/ — API 接口文档
 
@@ -108,6 +122,20 @@
 | 文档 | 说明 |
 |------|------|
 | [USER-MANUAL.md](user/USER-MANUAL.md) | 用户手册 |
+| [../orchestration-engine-manual.md](orchestration-engine-manual.md) | 编排引擎操作手册（V1.1，含版本化/触发体系） |
+| [../workflow-canvas-manual.md](workflow-canvas-manual.md) | BPM 工作流画布手册（冻结轨，历史参考） |
+
+### plan/ — 实施计划与完成报告
+
+| 文档 | 说明 |
+|------|------|
+| [exe_plan/orchestration-completion-plan-2026-09.md](plan/exe_plan/orchestration-completion-plan-2026-09.md) | 编排引擎能力补全实施方案（O0~O5） | ✅ 当前 |
+| [exe_plan/workflow-redesign-implementation-plan-2026-09.md](plan/exe_plan/workflow-redesign-implementation-plan-2026-09.md) | 工作流重设计总计划（BPM 轨冻结注记） |
+| [exe_plan/fullstack-fix-plan.md](plan/exe_plan/fullstack-fix-plan.md) | 全栈修复计划 |
+| [exe_plan/optimization-implementation-plan-2026-08.md](plan/exe_plan/optimization-implementation-plan-2026-08.md) | 优化实施计划（2026-08） |
+| [exe_plan/gewu-desktop-implementation-plan-2026-09.md](plan/exe_plan/gewu-desktop-implementation-plan-2026-09.md) | gewu-desktop 实施计划 |
+| [done/orchestration-completion-o1-o3-done.md](plan/done/orchestration-completion-o1-o3-done.md) | 编排引擎 O1~O3 完成报告（UAT 验收归档） |
+| done/（其余） | 历次迭代完成报告（sprint/fix/optimize 系列） |
 
 ### migration/ — 迁移指南
 
