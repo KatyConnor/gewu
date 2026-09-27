@@ -20,6 +20,8 @@ public class WorkflowNodeInstance extends BaseEntity {
     private Integer iteration;
     private String status;
     private String assigneeId;
+    /** 指派审批/办理角色（assigneeId 为空时角色成员可办） */
+    private String assigneeRole;
     private String input;
     private String output;
     /** 重试次数 */

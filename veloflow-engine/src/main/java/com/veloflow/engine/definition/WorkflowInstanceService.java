@@ -17,7 +17,6 @@ import com.veloflow.engine.persistence.model.WorkflowNode;
 import com.veloflow.engine.persistence.model.WorkflowNodeInstance;
 import com.veloflow.engine.persistence.model.WorkflowNotification;
 import com.veloflow.engine.persistence.model.WorkflowTransition;
-import com.veloflow.engine.identity.FlowIdentityProvider;
 import com.veloflow.engine.persistence.mapper.WorkflowAuditLogMapper;
 import com.veloflow.engine.persistence.mapper.WorkflowInstanceMapper;
 import com.veloflow.engine.persistence.mapper.WorkflowMapper;
@@ -138,6 +137,18 @@ public class WorkflowInstanceService {
             throw VeloflowException.of(VeloflowErrorCode.FLOW_INVALID_STATE,
                     "节点已完成/失败，无法重复完成（状态: " + nodeInstance.getStatus() + "）");
         }
+        // 办理权限（51 号 §七）：assignee 精确指派仅本人可办；角色指派角色成员可办；
+        // 未指派任意登录用户可办
+        String me = requireCurrentUser();
+        if (nodeInstance.getAssigneeId() != null && !nodeInstance.getAssigneeId().equals(me)) {
+            throw VeloflowException.of(VeloflowErrorCode.FLOW_UNAUTHORIZED,
+                    "该任务已指派给其他办理人，无权办理");
+        }
+        if (nodeInstance.getAssigneeId() == null && nodeInstance.getAssigneeRole() != null
+                && !identityProvider.currentRoles().contains(nodeInstance.getAssigneeRole())) {
+            throw VeloflowException.of(VeloflowErrorCode.FLOW_UNAUTHORIZED,
+                    "该任务已指派给角色 " + nodeInstance.getAssigneeRole() + "，无权办理");
+        }
         if (command.getRemark() != null && !command.getRemark().isBlank()) {
             nodeInstance.setRemark(command.getRemark());
             workflowNodeInstanceMapper.updateById(nodeInstance);
@@ -149,6 +160,61 @@ public class WorkflowInstanceService {
                 nodeInstance.getStatus(), "completed");
         WorkflowNodeInstance updated = workflowNodeInstanceMapper.selectById(nodeInstanceId);
         return toNodeInstanceDTO(updated != null ? updated : nodeInstance);
+    }
+
+    /**
+     * 我的待办（51 号 §七）：waiting 态且 assignee 命中当前用户
+     * （精确指派=本人；角色指派=角色成员；未指派=全员可见）。
+     */
+    public FlowPageResult<WorkflowNodeInstanceDTO> myTodos(FlowPage query) {
+        String me = requireCurrentUser();
+        List<String> myRoles = identityProvider.currentRoles();
+        List<WorkflowNodeInstance> all = workflowNodeInstanceMapper.selectList(
+                new LambdaQueryWrapper<WorkflowNodeInstance>()
+                        .eq(WorkflowNodeInstance::getStatus, "waiting")
+                        .orderByAsc(WorkflowNodeInstance::getTimeoutAt));
+        List<WorkflowNodeInstance> visible = all.stream()
+                .filter(row -> row.getAssigneeId() == null && row.getAssigneeRole() == null
+                        || me.equals(row.getAssigneeId())
+                        || row.getAssigneeRole() != null && myRoles.contains(row.getAssigneeRole()))
+                .toList();
+        long total = visible.size();
+        List<WorkflowNodeInstance> records = visible.stream()
+                .skip((query.getPage() - 1) * query.getSize())
+                .limit(query.getSize())
+                .toList();
+        return FlowPageResult.of(records.stream().map(this::toNodeInstanceDTO).toList(),
+                total, query.getPage(), query.getSize());
+    }
+
+    /** 委托转办（51 号 §七）：当前办理人将任务转给他人，全程审计 */
+    @Transactional
+    public WorkflowNodeInstanceDTO delegate(String instanceId, String nodeInstanceId, String delegateTo) {
+        if (delegateTo == null || delegateTo.isBlank()) {
+            throw VeloflowException.of(VeloflowErrorCode.FLOW_INVALID_STATE, "被委托人不能为空");
+        }
+        String me = requireCurrentUser();
+        WorkflowNodeInstance row = workflowNodeInstanceMapper.selectById(nodeInstanceId);
+        if (row == null || !instanceId.equals(row.getInstanceId())
+                || !"waiting".equals(row.getStatus())) {
+            throw VeloflowException.of(VeloflowErrorCode.FLOW_INVALID_STATE,
+                    "节点实例不存在或不在待办状态");
+        }
+        if (row.getAssigneeId() != null && !row.getAssigneeId().equals(me)) {
+            throw VeloflowException.of(VeloflowErrorCode.FLOW_UNAUTHORIZED, "仅当前办理人可委托");
+        }
+        row.setAssigneeId(delegateTo);
+        row.setAssigneeRole(null);
+        row.setRemark((row.getRemark() == null ? "" : row.getRemark() + " | ") + "委托自 " + me);
+        workflowNodeInstanceMapper.updateById(row);
+        writeAuditLog(row.getInstanceId() != null ? instanceOfWorkflowId(instanceId) : null,
+                instanceId, row.getNodeId(), "DELEGATE", me, delegateTo);
+        return toNodeInstanceDTO(row);
+    }
+
+    private String instanceOfWorkflowId(String instanceId) {
+        WorkflowInstance instance = workflowInstanceMapper.selectById(instanceId);
+        return instance != null ? instance.getWorkflowId() : null;
     }
 
     /** 输出组装：command.output 优先；审批语义 approved 并入 JSON 输出（供下游表达式） */

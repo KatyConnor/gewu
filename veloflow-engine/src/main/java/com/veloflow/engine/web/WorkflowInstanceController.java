@@ -8,6 +8,7 @@ import com.veloflow.engine.commons.FlowResult;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import lombok.Data;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
@@ -84,6 +85,20 @@ public class WorkflowInstanceController {
         return FlowResult.success();
     }
 
+    @GetMapping("/my-todos")
+    @Operation(summary = "我的待办", description = "waiting 态且 assignee 命中当前用户的任务（精确/角色/未指派）")
+    public FlowResult<FlowPageResult<WorkflowNodeInstanceDTO>> myTodos(@Valid FlowPage query) {
+        return FlowResult.success(workflowInstanceService.myTodos(query));
+    }
+
+    @PutMapping("/{instanceId}/nodes/{nodeInstanceId}/delegate")
+    @Operation(summary = "委托转办", description = "当前办理人将任务转给他人（审计留痕）")
+    public FlowResult<WorkflowNodeInstanceDTO> delegate(@PathVariable String instanceId,
+                                                       @PathVariable String nodeInstanceId,
+                                                       @Valid @RequestBody DelegateCommand command) {
+        return FlowResult.success(workflowInstanceService.delegate(instanceId, nodeInstanceId, command.getDelegateTo()));
+    }
+
     @GetMapping("/{instanceId}/nodes")
     @Operation(summary = "实例节点列表", description = "获取工作流实例的全部节点执行记录")
     public FlowResult<List<WorkflowNodeInstanceDTO>> getInstanceNodes(@PathVariable String instanceId) {
@@ -101,5 +116,11 @@ public class WorkflowInstanceController {
     public FlowResult<Void> markNotificationRead(@PathVariable String notificationId) {
         workflowInstanceService.markNotificationRead(notificationId);
         return FlowResult.success();
+    }
+
+    @Data
+    public static class DelegateCommand {
+        @jakarta.validation.constraints.NotBlank(message = "被委托人不能为空")
+        private String delegateTo;
     }
 }

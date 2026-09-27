@@ -150,7 +150,7 @@ CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_AUDIT_LOG (
     operation VARCHAR(50) NOT NULL COMMENT 'START/COMPLETE/REVIEW/REJECT/CANCEL/TIMEOUT',
     operator_id VARCHAR(26) NOT NULL,
     operator_name VARCHAR(50),
-    before_state VARCHAR(20), after_state VARCHAR(20),
+    before_state VARCHAR(64) DEFAULT NULL, after_state VARCHAR(64) DEFAULT NULL,
     ip_address VARCHAR(45),
     request_body TEXT, response_code INT, response_time BIGINT,
     created_at BIGINT NOT NULL,

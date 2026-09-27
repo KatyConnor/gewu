@@ -172,8 +172,8 @@ class WorkflowSchedulerTest {
         scheduler().onCompletion("inst-1", new WorkflowNodeContext.Completion("row-1", true, "{\"a\":1}"));
 
         // 幂等证明：第二次回调被状态机闸吞掉——不再查询节点定义、不再推进
-        // （首次回调查两次 n1：变量写取 varKey + 推进取节点；被吞的第二次为 0 次）
-        verify(nodeMapper, org.mockito.Mockito.times(2)).selectById("n1");
+        // （变量写与推进复用同一次 completedNode 查询，首次回调共 1 次）
+        verify(nodeMapper, org.mockito.Mockito.times(1)).selectById("n1");
     }
 
     // ---------- 辅助 ----------

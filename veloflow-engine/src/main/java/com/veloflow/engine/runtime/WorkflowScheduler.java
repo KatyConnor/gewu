@@ -106,6 +106,8 @@ public class WorkflowScheduler {
             case "parallel" -> activateParallel(instance, node, now);
             case "join" -> log.warn("join 节点不应被直接激活（由到达计数驱动）: instanceId={}", instance.getId());
             case "return", "end" -> activateReturn(instance, node, branchKey, iteration, upstreamOutput, now);
+            case "error-end" -> activateErrorEnd(instance, node, branchKey, iteration, now);
+            case "terminate-end" -> activateTerminateEnd(instance, node, branchKey, iteration, now);
             default -> activateBusinessNode(instance, node, branchKey, iteration, upstreamOutput, now);
         }
     }
@@ -140,9 +142,17 @@ public class WorkflowScheduler {
             onCompletion(instance.getId(),
                     new WorkflowNodeContext.Completion(nodeInstance.getId(), false, String.valueOf(e.getMessage())));
         } finally {
-            // 仅落 Handler 登记的 timeout_at（等待型）（冒烟发现项修复：无条件整行
+            // 仅对等待行落 Handler 登记的分派/超时字段（冒烟发现项修复：无条件整行
             // updateById 会用激活前的内存对象覆写 AUTO 节点同步完成已写入的终态）
-            if (nodeInstance.getTimeoutAt() != null) {
+            if ("waiting".equals(nodeInstance.getStatus())) {
+                nodeInstanceMapper.update(null, new LambdaUpdateWrapper<WorkflowNodeInstance>()
+                        .eq(WorkflowNodeInstance::getId, nodeInstance.getId())
+                        .eq(WorkflowNodeInstance::getStatus, "waiting")
+                        .set(WorkflowNodeInstance::getBranchKey, nodeInstance.getBranchKey())
+                        .set(WorkflowNodeInstance::getAssigneeId, nodeInstance.getAssigneeId())
+                        .set(WorkflowNodeInstance::getAssigneeRole, nodeInstance.getAssigneeRole())
+                        .set(WorkflowNodeInstance::getTimeoutAt, nodeInstance.getTimeoutAt()));
+            } else if (nodeInstance.getTimeoutAt() != null) {
                 nodeInstanceMapper.update(null, new LambdaUpdateWrapper<WorkflowNodeInstance>()
                         .eq(WorkflowNodeInstance::getId, nodeInstance.getId())
                         .set(WorkflowNodeInstance::getTimeoutAt, nodeInstance.getTimeoutAt()));
@@ -198,7 +208,19 @@ public class WorkflowScheduler {
             instance.setVariables(writeJson(variables));
             instanceMapper.updateById(instance);
 
-            WorkflowNode node = nodeMapper.selectById(nodeInstance.getNodeId());
+            // 人工任务判定与驳回回退（52 号 P2，53 号 §3.2）
+            String nodeType = nodeInstance.getNodeType() == null ? "" : nodeInstance.getNodeType();
+            // 审批人行完成：走判定聚合（不直接推进），聚合判定通过/驳回后由 judgeApproval 驱动
+            if ("approval".equals(nodeType) && nodeInstance.getBranchKey() != null
+                    && nodeInstance.getBranchKey().startsWith("approver-")) {
+                WorkflowNode approvalNode = nodeMapper.selectById(nodeInstance.getNodeId());
+                if (approvalNode != null) {
+                    judgeApproval(instance, approvalNode, nodeInstance, variables);
+                    return;
+                }
+            }
+
+            WorkflowNode node = completedNode;
             if (node != null) {
                 advanceFrom(instance, node, nodeInstance.getBranchKey(),
                         nodeInstance.getIteration() == null ? 0 : nodeInstance.getIteration(), variables);
@@ -480,6 +502,45 @@ public class WorkflowScheduler {
         log.info("工作流实例完成: instanceId={}, return={}", instance.getId(), node.getId());
     }
 
+    /** 错误终态节点（53 号 §3.7）：实例 FAILED + errorMessage（onError goto 的落点） */
+    private void activateErrorEnd(WorkflowInstance instance, WorkflowNode node,
+                                  String branchKey, int iteration, long now) {
+        WorkflowNodeInstance row = insertNodeInstance(instance.getId(), node, branchKey, iteration, now);
+        row.setStatus("completed");
+        row.setCompletedAt(now);
+        Map<String, Object> config = parseConfig(node.getConfig());
+        String message = String.valueOf(config.getOrDefault("message", "流程在错误终态结束"));
+        row.setOutput(jsonOrNull(writeJson(Map.of("error", message))));
+        nodeInstanceMapper.updateById(row);
+        failInstance(instance, message);
+    }
+
+    /** 终止终态节点（53 号 §3.7）：其余在途分支全部 cancelled，实例 TERMINATED */
+    private void activateTerminateEnd(WorkflowInstance instance, WorkflowNode node,
+                                      String branchKey, int iteration, long now) {
+        WorkflowNodeInstance row = insertNodeInstance(instance.getId(), node, branchKey, iteration, now);
+        row.setStatus("completed");
+        row.setCompletedAt(now);
+        nodeInstanceMapper.updateById(row);
+        // 其余在途分支全部取消（不含本行）
+        List<WorkflowNodeInstance> active = nodeInstanceMapper.selectList(
+                new LambdaQueryWrapper<WorkflowNodeInstance>()
+                        .eq(WorkflowNodeInstance::getInstanceId, instance.getId())
+                        .in(WorkflowNodeInstance::getStatus, "running", "waiting"));
+        for (WorkflowNodeInstance other : active) {
+            if (other.getId().equals(row.getId())) {
+                continue;
+            }
+            other.setStatus("cancelled");
+            other.setCompletedAt(now);
+            nodeInstanceMapper.updateById(other);
+        }
+        instance.setStatus("terminated");
+        instance.setCompletedAt(now);
+        instanceMapper.updateById(instance);
+        log.info("终止终态生效: instanceId={}, cancelled={}", instance.getId(), active.size());
+    }
+
     // ==================== 分支终结与终态 ====================
 
     /** 分支终结判定：无活动节点（running/waiting）且无待决 join → 实例 completed */
@@ -536,6 +597,149 @@ public class WorkflowScheduler {
     void joinArriveForTest(WorkflowInstance instance, WorkflowNode joinNode, String fromNodeId,
                            String branchKey, int iteration, String upstreamOutput) {
         joinArrive(instance, joinNode, fromNodeId, branchKey, iteration, upstreamOutput);
+    }
+
+    // ==================== 审批判定与驳回回退（52 号 P2，53 号 §3.2） ====================
+
+    /**
+     * 审批判定（审批人行完成时调用）：按策略聚合，达阈值时以聚合行完成驱动推进/驳回。
+     * 聚合行（branch_key=''）完成回调携带 approved/rejectTargetNodeId，由 onCompletion 辨析。
+     */
+    private void judgeApproval(WorkflowInstance instance, WorkflowNode approvalNode,
+                               WorkflowNodeInstance completedRow, Map<String, Object> variables) {
+        Map<String, Object> config = parseConfig(approvalNode.getConfig());
+        String strategy = String.valueOf(config.getOrDefault("approvalMode", "ALL"));
+        double ratio = parseDouble(config.get("approveRatio"), 1.0);
+
+        List<WorkflowNodeInstance> rows = nodeInstanceMapper.selectList(
+                new LambdaQueryWrapper<WorkflowNodeInstance>()
+                        .eq(WorkflowNodeInstance::getInstanceId, instance.getId())
+                        .eq(WorkflowNodeInstance::getNodeId, approvalNode.getId())
+                        .eq(WorkflowNodeInstance::getIteration,
+                                completedRow.getIteration() == null ? 0 : completedRow.getIteration())
+                        .ne(WorkflowNodeInstance::getBranchKey, ""));
+        int total = rows.size();
+        int approvedCount = 0;
+        int rejectedCount = 0;
+        for (WorkflowNodeInstance row : rows) {
+            if (!"completed".equals(row.getStatus())) {
+                continue;
+            }
+            Map<String, Object> output = parseJsonMap(row.getOutput());
+            if (Boolean.parseBoolean(String.valueOf(output.getOrDefault("approved", "false")))) {
+                approvedCount++;
+            } else if (output.containsKey("approved")) {
+                rejectedCount++;
+            }
+        }
+        boolean approved;
+        boolean rejected;
+        boolean release = switch (strategy) {
+            case "ANY" -> {
+                approved = approvedCount >= 1;
+                rejected = rejectedCount >= total;
+                yield approved || rejected;
+            }
+            case "RATIO" -> {
+                approved = total > 0 && (double) approvedCount / total >= ratio;
+                rejected = total > 0 && (double) rejectedCount / total > (1 - ratio);
+                yield approved || rejected;
+            }
+            default -> { // ALL 会签
+                approved = approvedCount >= total;
+                rejected = rejectedCount >= 1;
+                yield approved || rejected;
+            }
+        };
+        log.info("审批判定: instanceId={}, nodeId={}, mode={}, approved={}/{}, rejected={}, release={}",
+                instance.getId(), approvalNode.getId(), strategy, approvedCount, total, rejectedCount, release);
+        if (!release) {
+            return; // 继续等待其余审批人
+        }
+        // 判定落变量并直接推进/驳回（53 号 §3.2 修订：审批人行即审计记录，无独立聚合行）
+        Map<String, Object> output = new LinkedHashMap<>();
+        output.put("approved", approved);
+        output.put("strategy", strategy);
+        output.put("approvedCount", approvedCount);
+        output.put("rejectTargetNodeId", config.get("rejectTargetNodeId"));
+        variables.put(varKey(approvalNode), writeJson(output));
+        instance.setVariables(writeJson(variables));
+        instanceMapper.updateById(instance);
+        if (approved) {
+            advanceFrom(instance, approvalNode, "", 0, variables);
+        } else {
+            rejectAndReturn(instance, approvalNode,
+                    String.valueOf(config.getOrDefault("rejectTargetNodeId", "")));
+        }
+    }
+
+    /**
+     * 驳回回退原语（PRD F-033/BR-023）：取消全部在途行，按
+     * rejectTargetNodeId（画布业务 ID，缺省=拓扑前驱）重新激活目标节点。
+     */
+    private void rejectAndReturn(WorkflowInstance instance, WorkflowNode approvalNode,
+                                 String rejectTargetNodeId) {
+        long now = System.currentTimeMillis();
+        List<WorkflowNodeInstance> active = nodeInstanceMapper.selectList(
+                new LambdaQueryWrapper<WorkflowNodeInstance>()
+                        .eq(WorkflowNodeInstance::getInstanceId, instance.getId())
+                        .in(WorkflowNodeInstance::getStatus, "running", "waiting"));
+        for (WorkflowNodeInstance row : active) {
+            row.setStatus("cancelled");
+            row.setCompletedAt(now);
+            nodeInstanceMapper.updateById(row);
+        }
+        String targetBizId = rejectTargetNodeId != null && !rejectTargetNodeId.isBlank()
+                && !"null".equals(rejectTargetNodeId) ? rejectTargetNodeId : null;
+        WorkflowNode target = targetBizId != null
+                ? nodeMapper.selectOne(new LambdaQueryWrapper<WorkflowNode>()
+                        .eq(WorkflowNode::getWorkflowId, instance.getWorkflowId())
+                        .and(w -> w.eq(WorkflowNode::getBizNodeId, targetBizId)
+                                .or().eq(WorkflowNode::getId, targetBizId))
+                        .last("LIMIT 1"))
+                : topologyPredecessor(approvalNode.getId());
+        if (target == null) {
+            target = topologyPredecessor(approvalNode.getId());
+        }
+        if (target == null) {
+            failInstance(instance, "审批驳回且无可回退目标节点");
+            return;
+        }
+        instance.setStatus("running");
+        instance.setCurrentNodeId(target.getId());
+        instanceMapper.updateById(instance);
+        // 轮次 +1（P2 冒烟发现项：同节点重复审批的行唯一键按 iteration 区分，
+        // 回退重审是新轮次——旧轮次行留存作审计）
+        int nextIteration = nodeInstanceMapper.selectList(
+                new LambdaQueryWrapper<WorkflowNodeInstance>()
+                        .eq(WorkflowNodeInstance::getInstanceId, instance.getId())
+                        .eq(WorkflowNodeInstance::getNodeId, target.getId()))
+                .stream().mapToInt(r -> r.getIteration() == null ? 0 : r.getIteration()).max().orElse(0) + 1;
+        log.info("审批驳回回退: instanceId={}, approvalNodeId={}, target={}, iteration={}",
+                instance.getId(), approvalNode.getId(), target.getId(), nextIteration);
+        activateNode(instance, target, "", nextIteration, "");
+    }
+
+    /** 拓扑前驱（驳回缺省目标）：指向本节点的边的 from（按 sort/创建序取首条） */
+    private WorkflowNode topologyPredecessor(String nodeId) {
+        List<WorkflowTransition> edges = transitionMapper.selectList(
+                new LambdaQueryWrapper<WorkflowTransition>()
+                        .eq(WorkflowTransition::getToNodeId, nodeId));
+        return edges.isEmpty() ? null : nodeMapper.selectById(edges.get(0).getFromNodeId());
+    }
+
+    private double parseDouble(Object value, double defaultValue) {
+        if (value instanceof Number n) {
+            return n.doubleValue();
+        }
+        if (value != null) {
+            try {
+                return Double.parseDouble(String.valueOf(value));
+            } catch (NumberFormatException ignored) {
+                // 非数字按缺省
+            }
+        }
+        return defaultValue;
     }
 
     // ==================== 辅助 ====================

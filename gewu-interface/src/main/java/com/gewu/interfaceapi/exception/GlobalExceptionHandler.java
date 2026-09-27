@@ -25,6 +25,13 @@ import org.springframework.web.context.request.async.AsyncRequestTimeoutExceptio
 @RestControllerAdvice
 public class GlobalExceptionHandler {
 
+    @ExceptionHandler(com.veloflow.engine.commons.VeloflowException.class)
+    public Object handleVeloflow(com.veloflow.engine.commons.VeloflowException e, HttpServletRequest request) {
+        log.warn("Veloflow 业务异常: code={}, message={}", e.getCode(), e.getMessage());
+        return respond(request, HttpStatus.OK,
+                Result.fail(e.getCode(), e.getMessage()), e.getMessage());
+    }
+
     @ExceptionHandler(BusinessException.class)
     public Object handleBusinessException(BusinessException e, HttpServletRequest request) {
         log.warn("业务异常: code={}, message={}", e.getCode(), e.getMessage());
