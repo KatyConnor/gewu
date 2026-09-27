@@ -349,3 +349,8 @@ logging:
     org.springframework.security: DEBUG
   pattern:
     dateformat: yyyy-MM-dd HH:mm:ss.SSS
+
+# Veloflow 独立流程引擎（52 号 P1 平台接入）
+veloflow:
+  rest:
+    enabled: true

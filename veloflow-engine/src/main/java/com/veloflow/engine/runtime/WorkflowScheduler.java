@@ -15,6 +15,7 @@ import com.veloflow.engine.persistence.mapper.WorkflowNodeInstanceMapper;
 import com.veloflow.engine.persistence.mapper.WorkflowNodeMapper;
 import com.veloflow.engine.persistence.mapper.WorkflowTransitionMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -49,6 +50,7 @@ public class WorkflowScheduler {
     private final WorkflowTransitionMapper transitionMapper;
     private final WorkflowNodeHandlerRegistry handlerRegistry;
     private final WorkflowExpressionEvaluator expressionEvaluator;
+    @Qualifier("objectMapper")
     private final ObjectMapper objectMapper;
 
     /** 实例级推进锁（单实例部署；多副本时替换为分布式锁） */

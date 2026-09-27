@@ -76,6 +76,11 @@
             <artifactId>mockito-junit-jupiter</artifactId>
             <scope>test</scope>
         </dependency>
+    <dependency>
+            <groupId>com.veloflow</groupId>
+            <artifactId>veloflow-engine</artifactId>
+            <version>1.0.0</version>
+        </dependency>
     </dependencies>
 
 </project>

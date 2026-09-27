@@ -18,11 +18,7 @@ export const API_ENDPOINTS = {
   AUTH_REFRESH: '/v1/auth/refresh',
   AUTH_LOGOUT: '/v1/auth/logout',
   // 工作流相关
-  WORKFLOWS: '/v1/workflows',
-  WORKFLOW_RUN: '/v1/workflows/run',
-  WORKFLOW_PUBLISH: '/v1/workflows/publish',
-  WORKFLOW_STATUS: '/v1/workflows/status',
-  // 智能体相关
+          // 智能体相关
   AGENTS: '/v1/agents',
   AGENT_MARKET: '/v1/agents/market',
   // 技能相关

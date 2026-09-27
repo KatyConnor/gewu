@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.veloflow.engine.runtime.WorkflowNodeContext;
 import com.veloflow.engine.runtime.WorkflowNodeHandler;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
@@ -15,6 +16,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class JsonParseHandler implements WorkflowNodeHandler {
 
+    @Qualifier("objectMapper")
     private final ObjectMapper objectMapper;
 
     @Override

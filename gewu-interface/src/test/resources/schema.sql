@@ -614,3 +614,164 @@ CREATE TABLE IF NOT EXISTS git_credential (
     created_by VARCHAR(26) DEFAULT NULL,
     PRIMARY KEY (id)
 );
+
+-- ============================================================
+-- Veloflow 流程引擎表（H2 测试版，52 号 P1 平台切换）
+-- 与 veloflow_init.sql 基线一致：JSON/LONGTEXT → CLOB（H2 MODE=MySQL）
+-- ============================================================
+CREATE TABLE IF NOT EXISTS VLF_WORKFLOW (
+    id VARCHAR(26) NOT NULL,
+    workflow_name VARCHAR(128) NOT NULL,
+    description CLOB DEFAULT NULL,
+    version INT NOT NULL DEFAULT 1,
+    status TINYINT DEFAULT 0,
+    category VARCHAR(64) DEFAULT NULL,
+    config CLOB DEFAULT NULL,
+    published_at BIGINT DEFAULT NULL,
+    tenant_id VARCHAR(26) DEFAULT 'default',
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    updated_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_NODE (
+    id VARCHAR(26) NOT NULL,
+    workflow_id VARCHAR(26) NOT NULL,
+    biz_node_id VARCHAR(64) DEFAULT NULL,
+    node_name VARCHAR(128) NOT NULL,
+    node_type VARCHAR(32) NOT NULL,
+    config CLOB DEFAULT NULL,
+    position_x FLOAT DEFAULT NULL,
+    position_y FLOAT DEFAULT NULL,
+    sort_order INT DEFAULT 0,
+    tenant_id VARCHAR(26) DEFAULT 'default',
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    updated_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_TRANSITION (
+    id VARCHAR(26) NOT NULL,
+    workflow_id VARCHAR(26) NOT NULL,
+    from_node_id VARCHAR(64) NOT NULL,
+    to_node_id VARCHAR(64) NOT NULL,
+    condition_expr CLOB DEFAULT NULL,
+    label VARCHAR(64) DEFAULT NULL,
+    sort_order INT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    PRIMARY KEY (id)
+);
+CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_INSTANCE (
+    id VARCHAR(26) NOT NULL,
+    workflow_id VARCHAR(26) NOT NULL,
+    workflow_version INT NOT NULL DEFAULT 1,
+    version_id VARCHAR(26) DEFAULT NULL,
+    title VARCHAR(256) DEFAULT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'running',
+    initiator_id VARCHAR(26) NOT NULL,
+    trigger_type VARCHAR(32) DEFAULT 'MANUAL',
+    current_node_id VARCHAR(64) DEFAULT NULL,
+    variables CLOB DEFAULT NULL,
+    final_output CLOB DEFAULT NULL,
+    error_message CLOB DEFAULT NULL,
+    started_at BIGINT NOT NULL,
+    completed_at BIGINT DEFAULT NULL,
+    tenant_id VARCHAR(26) DEFAULT 'default',
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    updated_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id)
+);
+CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_NODE_INSTANCE (
+    id VARCHAR(26) NOT NULL,
+    instance_id VARCHAR(26) NOT NULL,
+    node_id VARCHAR(64) NOT NULL,
+    branch_key VARCHAR(64) NOT NULL DEFAULT '',
+    iteration INT NOT NULL DEFAULT 0,
+    node_name VARCHAR(128) NOT NULL,
+    node_type VARCHAR(32) NOT NULL,
+    status VARCHAR(32) NOT NULL DEFAULT 'pending',
+    assignee_id VARCHAR(26) DEFAULT NULL,
+    input CLOB DEFAULT NULL,
+    output CLOB DEFAULT NULL,
+    retry_count INT NOT NULL DEFAULT 0,
+    error_message CLOB DEFAULT NULL,
+    started_at BIGINT DEFAULT NULL,
+    completed_at BIGINT DEFAULT NULL,
+    timeout_at BIGINT DEFAULT NULL,
+    remark CLOB DEFAULT NULL,
+    tenant_id VARCHAR(26) DEFAULT 'default',
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    PRIMARY KEY (id)
+);
+CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_NOTIFICATION (
+    id VARCHAR(26) NOT NULL,
+    instance_id VARCHAR(26) NOT NULL,
+    node_instance_id VARCHAR(26) DEFAULT NULL,
+    type VARCHAR(50) NOT NULL,
+    recipient_id VARCHAR(26) NOT NULL,
+    title VARCHAR(200) NOT NULL,
+    content CLOB DEFAULT NULL,
+    is_read TINYINT DEFAULT 0,
+    sent_at BIGINT NOT NULL,
+    created_at BIGINT NOT NULL,
+    PRIMARY KEY (id)
+);
+CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_AUDIT_LOG (
+    id VARCHAR(26) NOT NULL,
+    workflow_id VARCHAR(26) NOT NULL,
+    instance_id VARCHAR(26) DEFAULT NULL,
+    node_id VARCHAR(64) DEFAULT NULL,
+    operation VARCHAR(50) NOT NULL,
+    operator_id VARCHAR(26) NOT NULL,
+    operator_name VARCHAR(50) DEFAULT NULL,
+    before_state VARCHAR(20) DEFAULT NULL,
+    after_state VARCHAR(20) DEFAULT NULL,
+    ip_address VARCHAR(45) DEFAULT NULL,
+    request_body CLOB DEFAULT NULL,
+    response_code INT DEFAULT NULL,
+    response_time BIGINT DEFAULT NULL,
+    created_at BIGINT NOT NULL,
+    PRIMARY KEY (id)
+);
+CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_VERSION (
+    id VARCHAR(26) NOT NULL,
+    workflow_id VARCHAR(26) NOT NULL,
+    version INT NOT NULL,
+    definition_snapshot CLOB NOT NULL,
+    published_by VARCHAR(26) DEFAULT NULL,
+    published_at BIGINT DEFAULT NULL,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    PRIMARY KEY (id)
+);
+CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_SCHEDULE (
+    id VARCHAR(26) NOT NULL,
+    workflow_id VARCHAR(26) NOT NULL,
+    cron_expr VARCHAR(64) NOT NULL,
+    timezone VARCHAR(64) DEFAULT 'Asia/Shanghai',
+    input_template CLOB DEFAULT NULL,
+    enabled TINYINT DEFAULT 1,
+    last_fire_at BIGINT DEFAULT NULL,
+    next_fire_at BIGINT DEFAULT NULL,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    PRIMARY KEY (id)
+);
+CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_WEBHOOK (
+    id VARCHAR(26) NOT NULL,
+    workflow_id VARCHAR(26) NOT NULL,
+    token_hash VARCHAR(128) NOT NULL,
+    enabled TINYINT DEFAULT 1,
+    created_at BIGINT NOT NULL,
+    updated_at BIGINT NOT NULL,
+    PRIMARY KEY (id)
+);

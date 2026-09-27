@@ -5,6 +5,7 @@ import com.veloflow.engine.runtime.WorkflowExpressionEvaluator;
 import com.veloflow.engine.runtime.WorkflowNodeContext;
 import com.veloflow.engine.runtime.WorkflowNodeHandler;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -19,6 +20,7 @@ import java.util.Map;
 public class TransformHandler implements WorkflowNodeHandler {
 
     private final WorkflowExpressionEvaluator evaluator;
+    @Qualifier("objectMapper")
     private final ObjectMapper objectMapper;
 
     @Override

@@ -10,6 +10,7 @@ import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.List;
@@ -19,6 +20,7 @@ import java.util.List;
  */
 @Slf4j
 @RestController
+@ConditionalOnProperty(name = "veloflow.rest.enabled", havingValue = "true", matchIfMissing = false)
 @RequestMapping("/api/v1/workflows")
 @RequiredArgsConstructor
 @Tag(name = "工作流管理", description = "工作流定义的创建、发布、归档及图编排")

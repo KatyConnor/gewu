@@ -27,6 +27,7 @@ import com.veloflow.engine.persistence.mapper.WorkflowNodeMapper;
 import com.veloflow.engine.persistence.mapper.WorkflowNotificationMapper;
 import com.veloflow.engine.persistence.mapper.WorkflowTransitionMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Qualifier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -54,6 +55,7 @@ public class WorkflowInstanceService {
     private final WorkflowNotificationMapper workflowNotificationMapper;
     private final WorkflowAuditLogMapper workflowAuditLogMapper;
     private final FlowIdentityProvider identityProvider;
+    @Qualifier("objectMapper")
     private final ObjectMapper objectMapper;
     private final com.veloflow.engine.runtime.WorkflowScheduler workflowScheduler;
 
