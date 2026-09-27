@@ -6,7 +6,6 @@ import com.veloflow.engine.persistence.mapper.WorkflowTransitionMapper;
 import com.veloflow.engine.persistence.model.WorkflowNode;
 import com.veloflow.engine.persistence.model.WorkflowTransition;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Qualifier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
@@ -251,8 +250,8 @@ public class WorkflowDefinitionValidator {
             return java.util.Map.of();
         }
         try {
-            return new com.fasterxml.jackson.databind.ObjectMapper()
-                    .readValue(configJson, new com.fasterxml.jackson.core.type.TypeReference<
+            return com.veloflow.engine.commons.VeloflowJson.MAPPER.readValue(configJson,
+                    new com.fasterxml.jackson.core.type.TypeReference<
                             java.util.LinkedHashMap<String, Object>>() { });
         } catch (Exception e) {
             return java.util.Map.of();

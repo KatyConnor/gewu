@@ -2,7 +2,6 @@ package com.veloflow.engine.definition;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.veloflow.engine.definition.dto.*;
 import com.veloflow.engine.identity.FlowIdentityProvider;
 import com.veloflow.engine.commons.FlowPage;
@@ -27,7 +26,6 @@ import com.veloflow.engine.persistence.mapper.WorkflowNodeMapper;
 import com.veloflow.engine.persistence.mapper.WorkflowNotificationMapper;
 import com.veloflow.engine.persistence.mapper.WorkflowTransitionMapper;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Qualifier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -55,8 +53,6 @@ public class WorkflowInstanceService {
     private final WorkflowNotificationMapper workflowNotificationMapper;
     private final WorkflowAuditLogMapper workflowAuditLogMapper;
     private final FlowIdentityProvider identityProvider;
-    @Qualifier("objectMapper")
-    private final ObjectMapper objectMapper;
     private final com.veloflow.engine.runtime.WorkflowScheduler workflowScheduler;
 
     /**
@@ -174,7 +170,7 @@ public class WorkflowInstanceService {
 
     private String writeJson(Object value) {
         try {
-            return objectMapper.writeValueAsString(value);
+            return com.veloflow.engine.commons.VeloflowJson.MAPPER.writeValueAsString(value);
         } catch (Exception e) {
             return String.valueOf(value);
         }
@@ -330,7 +326,7 @@ public class WorkflowInstanceService {
     private String resolveAssignee(WorkflowNode node) {
         if (node.getConfig() == null || node.getConfig().isBlank()) return null;
         try {
-            Map<String, Object> config = objectMapper.readValue(node.getConfig(), new TypeReference<>() {});
+            Map<String, Object> config = com.veloflow.engine.commons.VeloflowJson.MAPPER.readValue(node.getConfig(), new TypeReference<>() {});
             Object assignee = config.get("assigneeId");
             return assignee == null ? null : String.valueOf(assignee);
         } catch (Exception e) {
@@ -341,7 +337,7 @@ public class WorkflowInstanceService {
     private Map<String, Object> parseVariables(String json) {
         if (json == null || json.isBlank()) return new HashMap<>();
         try {
-            return objectMapper.readValue(json, new TypeReference<>() {});
+            return com.veloflow.engine.commons.VeloflowJson.MAPPER.readValue(json, new TypeReference<>() {});
         } catch (Exception e) {
             return new HashMap<>();
         }

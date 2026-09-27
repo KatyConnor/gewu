@@ -3,7 +3,6 @@ package com.veloflow.engine.runtime;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.veloflow.engine.runtime.handler.ConditionHandler;
 import com.veloflow.engine.commons.VlfId;
 import com.veloflow.engine.persistence.model.WorkflowInstance;
@@ -15,7 +14,6 @@ import com.veloflow.engine.persistence.mapper.WorkflowNodeInstanceMapper;
 import com.veloflow.engine.persistence.mapper.WorkflowNodeMapper;
 import com.veloflow.engine.persistence.mapper.WorkflowTransitionMapper;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Qualifier;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -50,8 +48,6 @@ public class WorkflowScheduler {
     private final WorkflowTransitionMapper transitionMapper;
     private final WorkflowNodeHandlerRegistry handlerRegistry;
     private final WorkflowExpressionEvaluator expressionEvaluator;
-    @Qualifier("objectMapper")
-    private final ObjectMapper objectMapper;
 
     /** 实例级推进锁（单实例部署；多副本时替换为分布式锁） */
     private final Map<String, ReentrantLock> instanceLocks = new ConcurrentHashMap<>();
@@ -625,7 +621,7 @@ public class WorkflowScheduler {
             return new LinkedHashMap<>();
         }
         try {
-            return objectMapper.readValue(json, new TypeReference<LinkedHashMap<String, Object>>() { });
+            return com.veloflow.engine.commons.VeloflowJson.MAPPER.readValue(json, new TypeReference<LinkedHashMap<String, Object>>() { });
         } catch (Exception e) {
             return new LinkedHashMap<>();
         }
@@ -636,7 +632,7 @@ public class WorkflowScheduler {
             return null;
         }
         try {
-            return objectMapper.readValue(json, Object.class);
+            return com.veloflow.engine.commons.VeloflowJson.MAPPER.readValue(json, Object.class);
         } catch (Exception e) {
             return json;
         }
@@ -644,7 +640,7 @@ public class WorkflowScheduler {
 
     private String writeJson(Object value) {
         try {
-            return objectMapper.writeValueAsString(value);
+            return com.veloflow.engine.commons.VeloflowJson.MAPPER.writeValueAsString(value);
         } catch (Exception e) {
             return String.valueOf(value);
         }

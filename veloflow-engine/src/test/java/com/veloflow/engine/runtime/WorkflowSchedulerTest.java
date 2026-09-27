@@ -1,7 +1,6 @@
 package com.veloflow.engine.runtime;
 
 import com.baomidou.mybatisplus.core.conditions.Wrapper;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.veloflow.engine.runtime.handler.ConditionHandler;
 import com.veloflow.engine.persistence.model.WorkflowInstance;
 import com.veloflow.engine.persistence.model.WorkflowNode;
@@ -44,7 +43,6 @@ class WorkflowSchedulerTest {
     @Mock WorkflowNodeInstanceMapper nodeInstanceMapper;
     @Mock WorkflowTransitionMapper transitionMapper;
 
-    private final ObjectMapper objectMapper = new ObjectMapper();
     private final WorkflowExpressionEvaluator evaluator = new WorkflowExpressionEvaluator();
     private WorkflowNodeHandlerRegistry registry;
     private WorkflowScheduler scheduler;
@@ -183,7 +181,7 @@ class WorkflowSchedulerTest {
     private WorkflowScheduler scheduler() {
         if (scheduler == null) {
             scheduler = new WorkflowScheduler(instanceMapper, nodeMapper, nodeInstanceMapper,
-                    transitionMapper, registry, evaluator, objectMapper);
+                    transitionMapper, registry, evaluator);
         }
         return scheduler;
     }

@@ -354,3 +354,5 @@ logging:
 veloflow:
   rest:
     enabled: true
+  mapper-scan:
+    enabled: false

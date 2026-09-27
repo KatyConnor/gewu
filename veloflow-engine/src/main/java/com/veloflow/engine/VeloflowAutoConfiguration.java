@@ -11,6 +11,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.ComponentScan;
+import org.mybatis.spring.SqlSessionTemplate;
 import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
@@ -21,9 +22,35 @@ import org.springframework.scheduling.annotation.EnableScheduling;
  */
 @AutoConfiguration
 @ComponentScan("com.veloflow.engine")
-@MapperScan("com.veloflow.engine.persistence.mapper")
+@MapperScan(basePackages = "com.veloflow.engine.persistence.mapper",
+        annotationClass = org.apache.ibatis.annotations.Mapper.class,
+        sqlSessionFactoryRef = "veloflowSqlSessionFactory")
 @EnableScheduling
 public class VeloflowAutoConfiguration {
+
+    /**
+     * 引擎自有 SqlSessionFactory（单数据源宿主默认路径）：
+     * 绑定宿主主 DataSource，MyBatis-Plus 全局配置透传。
+     * <p>多数据源宿主（如平台 MySQL 主 + PG 问石）应配置
+     * {@code veloflow.mapper-scan.enabled=false} 关闭本工厂，
+     * 并在主 @MapperScan 中追加本引擎 mapper 包（绑定主 factory）。
+     */
+    @Bean
+    @ConditionalOnProperty(name = "veloflow.mapper-scan.enabled", havingValue = "true", matchIfMissing = true)
+    public org.apache.ibatis.session.SqlSessionFactory veloflowSqlSessionFactory(
+            javax.sql.DataSource dataSource) throws Exception {
+        com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean factory =
+                new com.baomidou.mybatisplus.extension.spring.MybatisSqlSessionFactoryBean();
+        factory.setDataSource(dataSource);
+        return factory.getObject();
+    }
+
+    @Bean
+    @ConditionalOnMissingBean(FlowIdentityProvider.class)
+    public SqlSessionTemplate veloflowSqlSessionTemplate(
+            org.apache.ibatis.session.SqlSessionFactory veloflowSqlSessionFactory) {
+        return new SqlSessionTemplate(veloflowSqlSessionFactory);
+    }
 
     /** 身份 SPI：宿主未实现时默认 system 透传 */
     @Bean

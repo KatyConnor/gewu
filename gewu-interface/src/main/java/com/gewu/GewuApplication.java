@@ -17,7 +17,8 @@ import org.springframework.scheduling.annotation.EnableScheduling;
 @SpringBootApplication
 @ComponentScan(basePackages = "com.gewu")
 @EnableScheduling
-@MapperScan(basePackages = "com.gewu.infrastructure.mapper", annotationClass = Mapper.class,
+@MapperScan(basePackages = {"com.gewu.infrastructure.mapper",
+        "com.veloflow.engine.persistence.mapper"}, annotationClass = Mapper.class,
         sqlSessionFactoryRef = "sqlSessionFactory")
 public class GewuApplication {
 

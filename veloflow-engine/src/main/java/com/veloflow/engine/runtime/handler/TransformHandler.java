@@ -1,11 +1,9 @@
 package com.veloflow.engine.runtime.handler;
 
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.veloflow.engine.runtime.WorkflowExpressionEvaluator;
 import com.veloflow.engine.runtime.WorkflowNodeContext;
 import com.veloflow.engine.runtime.WorkflowNodeHandler;
 import lombok.RequiredArgsConstructor;
-import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
@@ -20,8 +18,6 @@ import java.util.Map;
 public class TransformHandler implements WorkflowNodeHandler {
 
     private final WorkflowExpressionEvaluator evaluator;
-    @Qualifier("objectMapper")
-    private final ObjectMapper objectMapper;
 
     @Override
     public String type() {
@@ -56,7 +52,7 @@ public class TransformHandler implements WorkflowNodeHandler {
             }
         }
         try {
-            context.complete(objectMapper.writeValueAsString(output));
+            context.complete(com.veloflow.engine.commons.VeloflowJson.MAPPER.writeValueAsString(output));
         } catch (Exception e) {
             context.complete(false, "转换结果序列化失败: " + e.getMessage());
         }
