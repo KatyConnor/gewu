@@ -93,6 +93,8 @@ veloflow-engine/                     ← 新独立模块（本仓库内开发，
 
 ---
 
+> **节点目录更新（2026-09-27）**：51 号 §二 的 26 类节点目录已被 **53 号节点体系 v2（7 大类 34 种）**取代——对标 BPMN 2.0 补齐人工任务族（task/approval）、端点事件（error-end/terminate-end）、决策表（decision）、消息中间形态（receive-message/respond/event-wait）与 parallel/join 前端表达；node_type VARCHAR(32) 容量足够，无 DDL 变更。
+
 ## 四、表结构（VLF_ 前缀，11 张）
 
 | 原表 | VLF_ 表 | 变更 |
