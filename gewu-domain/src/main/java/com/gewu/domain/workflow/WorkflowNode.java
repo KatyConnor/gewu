@@ -11,6 +11,8 @@ import lombok.EqualsAndHashCode;
 public class WorkflowNode extends BaseEntity {
 
     private String workflowId;
+    /** 业务节点 ID（画布定义的 nodeId，表达式引用键） */
+    private String bizNodeId;
     private String nodeName;
     private String nodeType;
     private String config;

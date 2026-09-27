@@ -122,8 +122,13 @@ public class HttpRequestHandler implements WorkflowNodeHandler {
 
     /** 简易 ${变量} 模板渲染（未定义替换空串，与编排 VariableTemplates 语义一致） */
     private String render(String template, WorkflowNodeContext context) {
-        if (template == null || !template.contains("${")) {
-            return template == null ? "" : template;
+        if (template == null) {
+            return "";
+        }
+        // XSS 层（CR-019）中和了 < >：URL/body 模板先对称还原再替换变量
+        template = template.replace("&gt;", ">").replace("&lt;", "<");
+        if (!template.contains("${")) {
+            return template;
         }
         StringBuilder rendered = new StringBuilder();
         int cursor = 0;

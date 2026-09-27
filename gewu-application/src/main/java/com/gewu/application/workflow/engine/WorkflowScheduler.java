@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper;
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gewu.application.workflow.engine.handler.ConditionHandler;
+import com.gewu.common.ulid.Ulid;
 import com.gewu.domain.workflow.WorkflowInstance;
 import com.gewu.domain.workflow.WorkflowNode;
 import com.gewu.domain.workflow.WorkflowNodeInstance;
@@ -81,13 +82,18 @@ public class WorkflowScheduler {
 
         // 触发器节点：建行即完成（输出 trigger 变量快照），随后推进
         WorkflowNodeInstance triggerInstance = insertNodeInstance(instance.getId(), triggerNode, "", 0, now);
+        String triggerOutput = writeJson(variables.get("trigger"));
         triggerInstance.setStatus("completed");
-        triggerInstance.setOutput(writeJson(variables.get("trigger")));
+        triggerInstance.setOutput(jsonOrNull(triggerOutput));
         triggerInstance.setCompletedAt(now);
         nodeInstanceMapper.updateById(triggerInstance);
+        // 触发器输出写入变量空间（下游节点 input/表达式引用，同节点输出约定）
+        variables.put(varKey(triggerNode), triggerOutput);
+        instance.setVariables(writeJson(variables));
+        instanceMapper.updateById(instance);
 
         lock(instance.getId(), () ->
-                advanceFrom(instance, triggerNode, "", 0, reloadVariables(instance)));
+                advanceFrom(instance, triggerNode, "", 0, reloadVariables(instance.getId())));
         return instance;
     }
 
@@ -117,11 +123,11 @@ public class WorkflowScheduler {
         instance.setCurrentNodeId(node.getId());
         instanceMapper.updateById(instance);
 
-        Map<String, Object> variables = reloadVariables(instance);
+        Map<String, Object> variables = reloadVariables(instance.getId());
         Map<String, Object> mergedVars = new HashMap<>(variables);
         Map<String, Object> config = parseConfig(node.getConfig());
-        // 上游输出作为本节点输入（串行链语义）
-        nodeInstance.setInput(upstreamOutput);
+        // 上游输出作为本节点输入（串行链语义）；JSON 列空串非法，转 NULL
+        nodeInstance.setInput(jsonOrNull(upstreamOutput));
         nodeInstanceMapper.updateById(nodeInstance);
 
         WorkflowNodeContext context = WorkflowNodeContext.of(instance, node, nodeInstance,
@@ -136,8 +142,13 @@ public class WorkflowScheduler {
             onCompletion(instance.getId(),
                     new WorkflowNodeContext.Completion(nodeInstance.getId(), false, String.valueOf(e.getMessage())));
         } finally {
-            // Handler 激活期间对节点实例的修改（如 WAITING 型登记 timeoutAt）落库
-            nodeInstanceMapper.updateById(nodeInstance);
+            // 仅落 Handler 登记的 timeout_at（等待型）（冒烟发现项修复：无条件整行
+            // updateById 会用激活前的内存对象覆写 AUTO 节点同步完成已写入的终态）
+            if (nodeInstance.getTimeoutAt() != null) {
+                nodeInstanceMapper.update(null, new LambdaUpdateWrapper<WorkflowNodeInstance>()
+                        .eq(WorkflowNodeInstance::getId, nodeInstance.getId())
+                        .set(WorkflowNodeInstance::getTimeoutAt, nodeInstance.getTimeoutAt()));
+            }
         }
     }
 
@@ -156,7 +167,7 @@ public class WorkflowScheduler {
                     .eq(WorkflowNodeInstance::getId, completion.nodeInstanceId())
                     .in(WorkflowNodeInstance::getStatus, "running", "waiting")
                     .set(WorkflowNodeInstance::getStatus, completion.success() ? "completed" : "failed")
-                    .set(WorkflowNodeInstance::getOutput, completion.outputJson())
+                    .set(WorkflowNodeInstance::getOutput, jsonOrNull(completion.outputJson()))
                     .set(WorkflowNodeInstance::getErrorMessage, completion.success() ? null : completion.outputJson())
                     .set(WorkflowNodeInstance::getCompletedAt, System.currentTimeMillis()));
             if (advanced == 0) {
@@ -177,8 +188,11 @@ public class WorkflowScheduler {
                 return;
             }
             // 写变量：nodeId → 输出（同编排约定），供表达式与下游引用
-            Map<String, Object> variables = reloadVariables(instance);
-            variables.put(nodeInstance.getNodeId(), completion.outputJson());
+            Map<String, Object> variables = reloadVariables(instance.getId());
+            WorkflowNode completedNode = nodeMapper.selectById(nodeInstance.getNodeId());
+            variables.put(varKey(completedNode), completion.outputJson());
+            log.info("节点完成写变量: instanceId={}, varKey={}, keys={}",
+                    instanceId, varKey(completedNode), variables.keySet());
             Object parsed = parseJson(completion.outputJson());
             if (parsed instanceof Map<?, ?> map) {
                 map.forEach((k, v) -> variables.putIfAbsent(String.valueOf(k), v));
@@ -191,7 +205,7 @@ public class WorkflowScheduler {
                 advanceFrom(instance, node, nodeInstance.getBranchKey(),
                         nodeInstance.getIteration() == null ? 0 : nodeInstance.getIteration(), variables);
             } else {
-                checkBranchEnd(instance, variables);
+                checkBranchEnd(instance);
             }
         });
     }
@@ -203,7 +217,7 @@ public class WorkflowScheduler {
                              String branchKey, int iteration, Map<String, Object> variables) {
         List<WorkflowTransition> edges = outgoing(fromNode.getId());
         if (edges.isEmpty()) {
-            checkBranchEnd(instance, variables);
+            checkBranchEnd(instance);
             return;
         }
         // loop 回边：目标为 loop 节点 → 迭代推进而非激活
@@ -232,10 +246,11 @@ public class WorkflowScheduler {
             return;
         }
         if ("join".equals(target.getNodeType())) {
-            joinArrive(instance, target, fromNode.getId(), branchKey, iteration, variables);
+            joinArrive(instance, target, fromNode.getId(), branchKey, iteration,
+                    String.valueOf(variables.getOrDefault(varKey(fromNode), "")));
             return;
         }
-        String upstreamOutput = String.valueOf(variables.getOrDefault(fromNode.getId(), ""));
+        String upstreamOutput = String.valueOf(variables.getOrDefault(varKey(fromNode), ""));
         activateNode(instance, target, branchKey, iteration, upstreamOutput);
     }
 
@@ -243,7 +258,7 @@ public class WorkflowScheduler {
     private WorkflowTransition route(WorkflowInstance instance, WorkflowNode fromNode,
                                      List<WorkflowTransition> edges, Map<String, Object> variables) {
         Object matched = null;
-        Object fromOutput = parseJson(String.valueOf(variables.getOrDefault(fromNode.getId(), "")));
+        Object fromOutput = parseJson(String.valueOf(variables.getOrDefault(varKey(fromNode), "")));
         if (fromOutput instanceof Map<?, ?> outputMap) {
             matched = outputMap.get("matched");
         }
@@ -280,7 +295,7 @@ public class WorkflowScheduler {
         nodeInstanceMapper.updateById(parallelRow);
 
         List<WorkflowTransition> edges = outgoing(node.getId());
-        Map<String, Object> variables = reloadVariables(instance);
+        Map<String, Object> variables = reloadVariables(instance.getId());
         fanOut(instance, node, edges, variables);
     }
 
@@ -292,9 +307,10 @@ public class WorkflowScheduler {
                 continue;
             }
             String branchKey = parallelNode.getId() + "-" + i;
-            String upstream = String.valueOf(variables.getOrDefault(parallelNode.getId(), ""));
+            String upstream = String.valueOf(variables.getOrDefault(varKey(parallelNode), ""));
             if ("join".equals(target.getNodeType())) {
-                joinArrive(instance, target, parallelNode.getId(), branchKey, 0, variables);
+                joinArrive(instance, target, parallelNode.getId(), branchKey, 0,
+                        String.valueOf(variables.getOrDefault(varKey(parallelNode), "")));
             } else {
                 activateNode(instance, target, branchKey, 0, upstream);
             }
@@ -302,65 +318,71 @@ public class WorkflowScheduler {
     }
 
     /**
-     * join 到达计数（51 号 §四 join 三策略，策略配置在 join 节点 config）：
-     * 到达记账于 variables.__joinArrived_<joinId>（去重前驱集合）；
-     * ALL 全部到达放行 / FIRST 首个放行（其余到忽略）/ N_OF_M 达 joinCount 放行。
+     * join 到达（行级记账，51 号 §四 join 三策略）：
+     * 每个上游分支到达即插入一条 join 节点实例行（branch_key=前驱节点行 ID，
+     * uk 四列防重复到达=幂等）；到达数=DB 实际行数（无缓存竞态）。
+     * ALL 全部到达放行 / FIRST 首个放行（其余到忽略）/ N_OF_M 达 joinCount 放行；
+     * 策略配置在 join 节点 config。无入边的 join 为非法图（WV 兜底）不推进。
      */
     private void joinArrive(WorkflowInstance instance, WorkflowNode joinNode, String fromNodeId,
-                            String branchKey, int iteration, Map<String, Object> originalVariables) {
-        // 防御：记账需要写入，统一转可变快照（调用方可能传不可变 Map）
-        Map<String, Object> variables = new LinkedHashMap<>(originalVariables);
-        String key = "__joinArrived_" + joinNode.getId();
-        String doneKey = "__joinDone_" + joinNode.getId();
-        if (Boolean.TRUE.equals(variables.get(doneKey))) {
-            checkBranchEnd(instance, variables);
-            return; // FIRST/N_OF_M 已放行，后续到达忽略
-        }
-        List<String> arrived = new java.util.ArrayList<>(((List<String>) variables
-                .getOrDefault(key, List.of())));
-        if (!arrived.contains(fromNodeId)) {
-            arrived.add(fromNodeId);
-        }
-        variables.put(key, arrived);
-
+                            String branchKey, int iteration, String upstreamOutput) {
+        long now = System.currentTimeMillis();
         Map<String, Object> config = parseConfig(joinNode.getConfig());
         String strategy = String.valueOf(config.getOrDefault("joinStrategy", "ALL"));
+        try {
+            WorkflowNodeInstance arrivalRow = new WorkflowNodeInstance();
+            arrivalRow.setId(Ulid.next());
+            arrivalRow.setInstanceId(instance.getId());
+            arrivalRow.setNodeId(joinNode.getId());
+            arrivalRow.setNodeName(joinNode.getNodeName());
+            arrivalRow.setNodeType("join");
+            arrivalRow.setBranchKey(fromNodeId);
+            arrivalRow.setIteration(0);
+            arrivalRow.setStatus("completed");
+            arrivalRow.setOutput(jsonOrNull(upstreamOutput));
+            arrivalRow.setCompletedAt(now);
+            arrivalRow.setStartedAt(now);
+            nodeInstanceMapper.insert(arrivalRow);
+        } catch (org.springframework.dao.DuplicateKeyException e) {
+            return; // 重复到达：幂等忽略
+        }
+        long arrived = nodeInstanceMapper.selectCount(new LambdaQueryWrapper<WorkflowNodeInstance>()
+                .eq(WorkflowNodeInstance::getInstanceId, instance.getId())
+                .eq(WorkflowNodeInstance::getNodeId, joinNode.getId())
+                .eq(WorkflowNodeInstance::getStatus, "completed"));
         int expect = transitionMapper.selectList(new LambdaQueryWrapper<WorkflowTransition>()
                 .eq(WorkflowTransition::getToNodeId, joinNode.getId())).size();
         if (expect == 0) {
-            // 无入边的 join 为非法图（WV 校验兜底）：记账落库但不推进
-            instance.setVariables(writeJson(variables));
-            instanceMapper.updateById(instance);
-            return;
+            return; // 无入边的 join 为非法图（WV 校验兜底）：不推进
         }
         boolean release = switch (strategy) {
-            case "FIRST" -> !arrived.isEmpty();
-            case "N_OF_M" -> {
-                int count = parseInt(config.get("joinCount"), expect);
-                yield arrived.size() >= count;
-            }
-            default -> arrived.size() >= expect; // ALL
+            case "FIRST" -> arrived >= 1;
+            case "N_OF_M" -> arrived >= Math.min(parseInt(config.get("joinCount"), expect), expect);
+            default -> arrived >= expect; // ALL
         };
+        log.info("join 到达记账: joinId={}, arrived={}/{}, strategy={}, release={}",
+                joinNode.getId(), arrived, expect, strategy, release);
         if (!release) {
-            instance.setVariables(writeJson(variables));
-            instanceMapper.updateById(instance);
-            return; // 未达策略阈值：记账后等待其余分支
+            return; // 未达策略阈值：等待其余分支
         }
-        variables.put(doneKey, Boolean.TRUE);
-        instance.setVariables(writeJson(variables));
+        // 放行：聚合输出写入实例变量空间（return/下游表达式经节点键引用）
+        Map<String, Object> joinedVars = reloadVariables(instance.getId());
+        List<WorkflowNodeInstance> arrivalRows = nodeInstanceMapper.selectList(
+                new LambdaQueryWrapper<WorkflowNodeInstance>()
+                        .eq(WorkflowNodeInstance::getInstanceId, instance.getId())
+                        .eq(WorkflowNodeInstance::getNodeId, joinNode.getId())
+                        .eq(WorkflowNodeInstance::getStatus, "completed"));
+        String merged = arrivalRows.stream()
+                .map(r -> String.valueOf(r.getOutput() == null ? "" : r.getOutput()))
+                .reduce((a, b) -> a + "\n" + b)
+                .orElse("");
+        joinedVars.put(varKey(joinNode), merged);
+        instance.setVariables(writeJson(joinedVars));
         instanceMapper.updateById(instance);
-
-        // 放行：join 节点建行即完成（聚合各前驱输出），沿唯一出边继续
-        long now = System.currentTimeMillis();
-        WorkflowNodeInstance joinRow = insertNodeInstance(instance.getId(), joinNode, branchKey, iteration, now);
-        joinRow.setStatus("completed");
-        joinRow.setOutput(writeJson(Map.of("joinedFrom", arrived)));
-        joinRow.setCompletedAt(now);
-        nodeInstanceMapper.updateById(joinRow);
-
+        // 未放行时在途的其他分支不再推进（FIRST/N_OF_M 语义）：后续到达被唯一键/计数吸收
         List<WorkflowTransition> edges = outgoing(joinNode.getId());
         if (edges.isEmpty()) {
-            checkBranchEnd(instance, variables);
+            checkBranchEnd(instance);
             return;
         }
         WorkflowNode target = nodeMapper.selectById(edges.get(0).getToNodeId());
@@ -368,12 +390,8 @@ public class WorkflowScheduler {
             failInstance(instance, "join 出边指向不存在的节点");
             return;
         }
-        String merged = arrived.stream()
-                .map(id -> String.valueOf(variables.getOrDefault(id, "")))
-                .reduce((a, b) -> a + "\n" + b)
-                .orElse("");
         if ("join".equals(target.getNodeType())) {
-            joinArrive(instance, target, joinNode.getId(), branchKey, iteration, variables);
+            joinArrive(instance, target, joinNode.getId(), branchKey, iteration, merged);
         } else {
             activateNode(instance, target, branchKey, iteration, merged);
         }
@@ -390,29 +408,33 @@ public class WorkflowScheduler {
         String stateKey = "__loop_" + loopNode.getId();
         Map<String, Object> config = parseConfig(loopNode.getConfig());
         Map<String, Object> state = (Map<String, Object>) variables.getOrDefault(stateKey, null);
+        List<?> items;
+        int total;
+        int index;
         if (state == null) {
-            // 首次进入：求值数组初始化状态
+            // 首次进入：求值数组，从第 0 项开始（首迭代不跳过——冒烟发现项修复）
             Object array = expressionEvaluator.evaluate(
                     String.valueOf(config.getOrDefault("arrayExpr", "trigger.items")), variables);
-            List<?> items = array instanceof List<?> list ? list : List.of();
-            int maxIterations = Math.min(parseInt(config.get("maxIterations"), 100), 100);
-            if (items.isEmpty() || maxIterations <= 0) {
+            items = array instanceof List<?> list ? list : List.of();
+            total = Math.min(items.size(), Math.min(parseInt(config.get("maxIterations"), 100), 100));
+            if (total <= 0) {
                 loopDone(instance, loopNode, variables);
                 return;
             }
+            index = 0;
             state = new LinkedHashMap<>();
-            state.put("index", 0);
-            state.put("total", Math.min(items.size(), maxIterations));
-            state.put("items", items);
-        }
-        int index = parseInt(state.get("index"), 0) + 1;
-        int total = parseInt(state.get("total"), 0);
-        List<?> items = (List<?>) state.get("items");
-        if (index >= total) {
-            loopDone(instance, loopNode, variables);
-            return;
+        } else {
+            items = (List<?>) state.get("items");
+            total = parseInt(state.get("total"), 0);
+            index = parseInt(state.get("index"), 0) + 1;
+            if (index >= total) {
+                loopDone(instance, loopNode, variables);
+                return;
+            }
         }
         state.put("index", index);
+        state.put("total", total);
+        state.put("items", items);
         variables.put(stateKey, state);
         variables.put("loop", Map.of("item", items.get(index), "index", index));
         instance.setVariables(writeJson(variables));
@@ -432,10 +454,10 @@ public class WorkflowScheduler {
     private void loopDone(WorkflowInstance instance, WorkflowNode loopNode, Map<String, Object> variables) {
         WorkflowNode target = edgeTarget(loopNode.getId(), "done");
         if (target == null) {
-            checkBranchEnd(instance, variables);
+            checkBranchEnd(instance);
             return;
         }
-        String upstream = String.valueOf(variables.getOrDefault(loopNode.getId(), ""));
+        String upstream = String.valueOf(variables.getOrDefault(varKey(loopNode), ""));
         activateNode(instance, target, "", 0, upstream);
     }
 
@@ -446,11 +468,11 @@ public class WorkflowScheduler {
         row.setStatus("completed");
         row.setCompletedAt(now);
         Map<String, Object> config = parseConfig(node.getConfig());
-        Map<String, Object> variables = reloadVariables(instance);
+        Map<String, Object> variables = reloadVariables(instance.getId());
         Object output = config.containsKey("outputExpression")
                 ? expressionEvaluator.evaluate(String.valueOf(config.get("outputExpression")), variables)
                 : upstreamOutput;
-        row.setOutput(writeJson(output));
+        row.setOutput(jsonOrNull(writeJson(output)));
         nodeInstanceMapper.updateById(row);
 
         instance.setStatus("completed");
@@ -463,7 +485,23 @@ public class WorkflowScheduler {
     // ==================== 分支终结与终态 ====================
 
     /** 分支终结判定：无活动节点（running/waiting）且无待决 join → 实例 completed */
-    private void checkBranchEnd(WorkflowInstance instance, Map<String, Object> variables) {
+    /** 分支终结判定（实例 ID 重查版：join 行级记账路径使用，规避实体缓存） */
+    private void checkBranchEnd(String instanceId) {
+        WorkflowInstance instance = instanceMapper.selectById(instanceId);
+        if (instance == null) {
+            return;
+        }
+        checkBranchEnd(instance);
+    }
+
+    private void failInstanceById(String instanceId, String reason) {
+        WorkflowInstance instance = instanceMapper.selectById(instanceId);
+        if (instance != null) {
+            failInstance(instance, reason);
+        }
+    }
+
+    private void checkBranchEnd(WorkflowInstance instance) {
         Long active = nodeInstanceMapper.selectCount(new LambdaQueryWrapper<WorkflowNodeInstance>()
                 .eq(WorkflowNodeInstance::getInstanceId, instance.getId())
                 .in(WorkflowNodeInstance::getStatus, "running", "waiting"));
@@ -498,8 +536,8 @@ public class WorkflowScheduler {
 
     /** 测试访问（包级）：join 到达计数路径 */
     void joinArriveForTest(WorkflowInstance instance, WorkflowNode joinNode, String fromNodeId,
-                           String branchKey, int iteration, Map<String, Object> variables) {
-        joinArrive(instance, joinNode, fromNodeId, branchKey, iteration, variables);
+                           String branchKey, int iteration, String upstreamOutput) {
+        joinArrive(instance, joinNode, fromNodeId, branchKey, iteration, upstreamOutput);
     }
 
     // ==================== 辅助 ====================
@@ -562,8 +600,18 @@ public class WorkflowScheduler {
         return node != null && "loop".equals(node.getNodeType());
     }
 
-    private Map<String, Object> reloadVariables(WorkflowInstance instance) {
-        return parseJsonMap(instance.getVariables());
+    /**
+     * 变量重载（冒烟诊断修复）：必须按单列 select 重查而非读传入实体——
+     * 同事务内 selectById 会命中 MyBatis 一级缓存返回陈旧快照，
+     * 并行分支完成回调的变量写与 join 记账因此"丢失"。
+     */
+    private Map<String, Object> reloadVariables(String instanceId) {
+        WorkflowInstance fresh = instanceMapper.selectOne(
+                new LambdaQueryWrapper<WorkflowInstance>()
+                        .select(WorkflowInstance::getVariables, WorkflowInstance::getStatus)
+                        .eq(WorkflowInstance::getId, instanceId)
+                        .last("LIMIT 1"));
+        return parseJsonMap(fresh != null ? fresh.getVariables() : null);
     }
 
     private Map<String, Object> parseConfig(String configJson) {
@@ -612,6 +660,20 @@ public class WorkflowScheduler {
             }
         }
         return defaultValue;
+    }
+
+    /** 变量键：节点业务 ID 优先（画布表达式引用键），回退行 ID（51 号 §五） */
+    private String varKey(WorkflowNode node) {
+        if (node == null) {
+            return "__unknown__";
+        }
+        return node.getBizNodeId() != null && !node.getBizNodeId().isBlank()
+                ? node.getBizNodeId() : node.getId();
+    }
+
+    /** JSON 列防御：空串/空白视为 NULL（MySQL JSON 列拒绝空文档） */
+    private String jsonOrNull(String json) {
+        return json == null || json.isBlank() ? null : json;
     }
 
     private String truncate(String text) {

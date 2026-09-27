@@ -72,6 +72,7 @@ class WorkflowSchedulerTest {
     void setUp() {
         registry = new WorkflowNodeHandlerRegistry(List.of(new ConditionHandler(evaluator)));
         lenient().when(instanceMapper.selectById(anyString())).thenAnswer(inv -> instance);
+        lenient().when(instanceMapper.selectOne(any())).thenAnswer(inv -> instance);
         lenient().when(nodeInstanceMapper.update(any(), any(com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper.class)))
                 .thenAnswer(inv -> completionGate.getAndIncrement() == 0 ? 1 : 0);
         lenient().when(nodeInstanceMapper.updateById(any())).thenReturn(1);
@@ -133,25 +134,27 @@ class WorkflowSchedulerTest {
     }
 
     @Test
-    @DisplayName("join ALL：两分支到齐才放行，单分支到达不推进 join 出边")
+    @DisplayName("join 行级记账：单分支到达不放行（插入到达行，未激活出边目标）")
     void joinAllWaitsForAllBranches() {
         instance.setId("inst-1");
         instance.setStatus("running");
-        instance.setVariables("{}");
         WorkflowNode join = node("j1", "join");
         join.setConfig("{\"joinStrategy\":\"ALL\"}");
         WorkflowNode target = node("after", "transform");
         lenient().when(nodeMapper.selectById("j1")).thenReturn(join);
-        lenient().when(nodeMapper.selectById("after")).thenReturn(target);
-        lenient().when(nodeMapper.selectById("b1")).thenReturn(node("b1", "transform"));
-        // selectList 统一返回空：入边期待数=0 触发防御不推进（WV 兜底语义）
-        when(transitionMapper.selectList(any())).thenReturn(List.of());
+        // 入边/出边查询各返回一条（expect=1），到达行数为 1 >= 1 会放行——
+        // 因此到达计数 selectCount 返回 0 模拟"仅 1/2 到达"的 ALL 未齐场景
+        lenient().when(transitionMapper.selectList(any())).thenReturn(List.of(edge("j1", "after", null)));
+        lenient().when(nodeInstanceMapper.selectCount(any())).thenReturn(0L);
 
-        scheduler().joinArriveForTest(instance, join, "b1", "", 0, Map.of());
+        scheduler().joinArriveForTest(instance, join, "b1", "", 0, null);
 
-        // 仅 1/2 到达：join 未放行（不激活 after），记账已写回
-        verify(instanceMapper).updateById(any(WorkflowInstance.class));
-        verify(nodeInstanceMapper, never()).insert(any(WorkflowNodeInstance.class));
+        // 到达行已插入（行级记账，branch_key=前驱），ALL 未齐未激活出边目标
+        ArgumentCaptor<WorkflowNodeInstance> captor = ArgumentCaptor.forClass(WorkflowNodeInstance.class);
+        verify(nodeInstanceMapper, org.mockito.Mockito.atLeastOnce()).insert(captor.capture());
+        assertEquals("j1", captor.getValue().getNodeId());
+        assertEquals("b1", captor.getValue().getBranchKey());
+        verify(nodeMapper, never()).selectById("after");
     }
 
     @Test
@@ -171,8 +174,8 @@ class WorkflowSchedulerTest {
         scheduler().onCompletion("inst-1", new WorkflowNodeContext.Completion("row-1", true, "{\"a\":1}"));
 
         // 幂等证明：第二次回调被状态机闸吞掉——不再查询节点定义、不再推进
-        // （首次推进查一次 n1；若第二次未被吞掉将查两次）
-        verify(nodeMapper, org.mockito.Mockito.times(1)).selectById("n1");
+        // （首次回调查两次 n1：变量写取 varKey + 推进取节点；被吞的第二次为 0 次）
+        verify(nodeMapper, org.mockito.Mockito.times(2)).selectById("n1");
     }
 
     // ---------- 辅助 ----------

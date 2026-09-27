@@ -150,6 +150,7 @@ public class WorkflowService {
             for (WorkflowNodeDTO dto : command.getNodes()) {
                 WorkflowNode node = new WorkflowNode();
                 node.setWorkflowId(workflowId);
+                node.setBizNodeId(dto.getNodeId());
                 node.setNodeName(dto.getNodeName());
                 node.setNodeType(dto.getNodeType());
                 node.setConfig(dto.getConfig());

@@ -31,6 +31,23 @@ import java.util.Set;
 @Component
 public class WorkflowExpressionEvaluator {
 
+    /**
+     * HTML 实体反转义（冒烟发现项修复）：平台全局 XSS 包装器（CR-019）会中和 JSON 字符串
+     * 值中的 < >（&gt;/&lt;），破坏表达式比较符——求值入口对称还原；表达式仅进求值器
+     * 不回显 HTML，安全模型不受影响。&amp; 最后还原避免实体二次叠加。
+     */
+    private static String unescapeHtml(String expression) {
+        if (!expression.contains("&")) {
+            return expression;
+        }
+        return expression
+                .replace("&gt;", ">")
+                .replace("&lt;", "<")
+                .replace("&quot;", "\"")
+                .replace("&#x27;", "'")
+                .replace("&amp;", "&");
+    }
+
     /** 表达式长度上限（防超长注入面） */
     public static final int MAX_EXPRESSION_LENGTH = 1024;
 
@@ -45,7 +62,7 @@ public class WorkflowExpressionEvaluator {
         if (expression.length() > MAX_EXPRESSION_LENGTH) {
             throw new IllegalArgumentException("表达式超长（上限 " + MAX_EXPRESSION_LENGTH + " 字符）");
         }
-        Parser parser = new Parser(expression.trim(), variables == null ? Map.of() : variables);
+        Parser parser = new Parser(unescapeHtml(expression.trim()), variables == null ? Map.of() : variables);
         Object result = parser.parseExpression();
         parser.expectEnd();
         return result;
