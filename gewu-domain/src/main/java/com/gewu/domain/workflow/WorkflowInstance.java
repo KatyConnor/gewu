@@ -15,6 +15,12 @@ public class WorkflowInstance extends BaseEntity {
     private String title;
     private String status;
     private String initiatorId;
+    /** 触发方式: MANUAL/SCHEDULE/WEBHOOK/EVENT/UPSTREAM */
+    private String triggerType;
+    /** 终态输出（return 节点产出） */
+    private String finalOutput;
+    /** 失败原因 */
+    private String errorMessage;
     private String currentNodeId;
     private String variables;
     private Long startedAt;

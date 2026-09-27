@@ -244,7 +244,7 @@ public class OrchestrationController {
      */
     @PostMapping(value = "/webhooks/{token}", produces = MediaType.APPLICATION_JSON_VALUE)
     @Operation(summary = "Webhook 触发编排图（匿名）", description = "body 原样作为执行输入；错误 token 返回 404")
-    public org.springframework.http.ResponseEntity<Result<OrchestrationExecutionEntity>> triggerByWebhook(
+    public org.springframework.http.ResponseEntity<Result<java.util.Map<String, String>>> triggerByWebhook(
             @PathVariable String token,
             @RequestBody(required = false) String body) {
         if (!webhookEnabled) {

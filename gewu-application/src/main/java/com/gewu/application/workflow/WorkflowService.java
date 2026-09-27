@@ -40,6 +40,7 @@ public class WorkflowService {
     private final WorkflowNodeMapper workflowNodeMapper;
     private final WorkflowTransitionMapper workflowTransitionMapper;
     private final WorkflowInstanceMapper workflowInstanceMapper;
+    private final com.gewu.application.workflow.engine.WorkflowDefinitionValidator definitionValidator;
 
     @Transactional
     public WorkflowDTO createWorkflow(CreateWorkflowCommand command) {
@@ -101,6 +102,8 @@ public class WorkflowService {
     @Transactional
     public WorkflowDTO publishWorkflow(String workflowId) {
         Workflow workflow = getWorkflowEntity(workflowId);
+        // 发布闸（51 号 WV 双闸）：ERROR 级结构问题阻断发布
+        runDefinitionValidation(workflowId);
         workflow.setStatus(1);
         workflow.setPublishedAt(Instant.now().toEpochMilli());
         workflowMapper.updateById(workflow);
@@ -174,6 +177,32 @@ public class WorkflowService {
                 workflowTransitionMapper.insert(transition);
                 dto.setTransitionId(transition.getId());
             }
+        }
+        runDefinitionValidation(workflowId);
+    }
+
+    /**
+     * 保存闸（51 号 WV 双闸）：图保存后执行结构校验，ERROR 级回滚保存并抛可读错误。
+     * （保存与校验同事务：校验失败抛异常触发回滚，节点/流转不落库）
+     */
+    private void runDefinitionValidation(String workflowId) {
+        List<com.gewu.application.workflow.engine.WorkflowDefinitionValidator.ValidationIssue> issues =
+                definitionValidator.validate(workflowId);
+        List<String> errors = issues.stream()
+                .filter(com.gewu.application.workflow.engine.WorkflowDefinitionValidator.ValidationIssue::isError)
+                .map(issue -> issue.ruleId() + ": " + issue.message())
+                .toList();
+        if (!errors.isEmpty()) {
+            throw com.gewu.common.result.BusinessException.of(
+                    com.gewu.common.result.ResultCode.WORKFLOW_INVALID_STATE,
+                    "工作流结构校验未通过: " + String.join("; ", errors));
+        }
+        List<String> warnings = issues.stream()
+                .filter(issue -> !issue.isError())
+                .map(issue -> issue.ruleId() + ": " + issue.message())
+                .toList();
+        if (!warnings.isEmpty()) {
+            log.warn("工作流结构警告: workflowId={}, warnings={}", workflowId, warnings);
         }
     }
 

@@ -138,12 +138,16 @@ export async function listInstances(
     `/v1/workflows/instances?page=${page}&size=${size}${wfParam}`));
 }
 
+/**
+ * 完成指定节点实例（P1 内核重构：按 nodeInstanceId 精确完成，幂等）。
+ */
 export async function completeInstanceNode(
   instanceId: string,
+  nodeInstanceId: string,
   command: { comment?: string; variables?: string; approved?: boolean }
 ): Promise<void> {
   return unwrap(request.put<ApiResponse<void>>(
-    `/v1/workflows/instances/${instanceId}/complete`, command));
+    `/v1/workflows/instances/${instanceId}/nodes/${nodeInstanceId}/complete`, command));
 }
 
 export async function suspendInstance(instanceId: string): Promise<void> {

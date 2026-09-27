@@ -55,54 +55,35 @@ public class WorkflowInstanceService {
     private final WorkflowAuditLogMapper workflowAuditLogMapper;
     private final UserAccountMapper userAccountMapper;
     private final ObjectMapper objectMapper;
+    private final com.gewu.application.workflow.engine.WorkflowScheduler workflowScheduler;
 
+    /**
+     * 启动工作流实例（P1 内核重构，51 号 §四）：
+     * 仅已发布工作流可发起；调度器完成触发器激活与推进（支持并行/循环/自动节点）。
+     */
     @Transactional
     public WorkflowInstanceDTO startInstance(String workflowId, StartInstanceCommand command) {
         Workflow workflow = workflowMapper.selectById(workflowId);
         if (workflow == null) {
             throw BusinessException.of(ResultCode.WORKFLOW_NOT_FOUND);
         }
+        if (workflow.getStatus() == null || workflow.getStatus() != 1) {
+            throw BusinessException.of(ResultCode.WORKFLOW_INVALID_STATE, "工作流未发布，不能发起实例");
+        }
         String initiatorId = requireCurrentUser();
 
-        WorkflowNode startNode = workflowNodeMapper.selectOne(
+        WorkflowNode triggerNode = workflowNodeMapper.selectOne(
                 new LambdaQueryWrapper<WorkflowNode>()
                         .eq(WorkflowNode::getWorkflowId, workflowId)
-                        .eq(WorkflowNode::getNodeType, "start"));
-        if (startNode == null) {
-            throw BusinessException.of(ResultCode.WORKFLOW_NODE_NOT_FOUND, "工作流缺少起始节点");
+                        .in(WorkflowNode::getNodeType, "manual-trigger", "start")
+                        .last("LIMIT 1"));
+        if (triggerNode == null) {
+            throw BusinessException.of(ResultCode.WORKFLOW_NODE_NOT_FOUND, "工作流缺少触发器节点");
         }
 
-        long now = Instant.now().toEpochMilli();
-        WorkflowInstance instance = new WorkflowInstance();
-        instance.setWorkflowId(workflowId);
-        instance.setWorkflowVersion(workflow.getVersion());
-        instance.setTitle(command.getTitle());
-        instance.setStatus("running");
-        instance.setInitiatorId(initiatorId);
-        instance.setVariables(command.getVariables());
-        instance.setStartedAt(now);
-        workflowInstanceMapper.insert(instance);
-
-        WorkflowNode nextNode = findNextNode(startNode.getId(), parseVariables(command.getVariables()));
-        if (nextNode == null) {
-            throw BusinessException.of(ResultCode.WORKFLOW_INVALID_STATE, "起始节点无后续流转");
-        }
-
-        if ("end".equals(nextNode.getNodeType())) {
-            instance.setCurrentNodeId(nextNode.getId());
-            instance.setStatus("completed");
-            instance.setCompletedAt(now);
-            workflowInstanceMapper.updateById(instance);
-            writeAuditLog(workflowId, instance.getId(), nextNode.getId(), "START", null, "completed");
-            return toInstanceDTO(instance);
-        }
-
-        WorkflowNodeInstance nodeInstance = createRunningNodeInstance(instance.getId(), nextNode, now);
-        instance.setCurrentNodeId(nextNode.getId());
-        workflowInstanceMapper.updateById(instance);
-
-        sendNotification(instance.getId(), nodeInstance.getId(), nodeInstance.getAssigneeId(), nextNode.getNodeName());
-        writeAuditLog(workflowId, instance.getId(), nextNode.getId(), "START", null, "running");
+        WorkflowInstance instance = workflowScheduler.start(triggerNode, initiatorId,
+                command.getTitle(), parseVariables(command.getVariables()), "MANUAL");
+        writeAuditLog(workflowId, instance.getId(), triggerNode.getId(), "START", null, "running");
         return toInstanceDTO(instance);
     }
 
@@ -131,57 +112,58 @@ public class WorkflowInstanceService {
         return PageResult.of(enrichInstances(result.getRecords()), result.getTotal(), query.getPage(), query.getSize());
     }
 
+    /**
+     * 完成节点（人工动作，P1 重构）：按 nodeInstanceId 精确完成，推进交由调度器
+     * （幂等：重复提交被状态机原子更新吞掉）。approved 语义并入输出 JSON 供表达式引用。
+     */
     @Transactional
-    public WorkflowNodeInstanceDTO completeNode(String instanceId, CompleteNodeCommand command) {
+    public WorkflowNodeInstanceDTO completeNode(String instanceId, String nodeInstanceId,
+                                                CompleteNodeCommand command) {
         WorkflowInstance instance = getInstanceEntity(instanceId);
-        if (!"running".equals(instance.getStatus())) {
-            throw BusinessException.of(ResultCode.WORKFLOW_INVALID_STATE, "实例非运行中，无法完成节点");
+        WorkflowNodeInstance nodeInstance = workflowNodeInstanceMapper.selectById(nodeInstanceId);
+        if (nodeInstance == null || !instanceId.equals(nodeInstance.getInstanceId())) {
+            throw BusinessException.of(ResultCode.WORKFLOW_NODE_NOT_FOUND, "节点实例不存在或不属于该流程");
         }
-
-        List<WorkflowNodeInstance> runningNodes = workflowNodeInstanceMapper.selectList(
-                new LambdaQueryWrapper<WorkflowNodeInstance>()
-                        .eq(WorkflowNodeInstance::getInstanceId, instanceId)
-                        .eq(WorkflowNodeInstance::getStatus, "running")
-                        .orderByDesc(WorkflowNodeInstance::getCreatedAt));
-        if (runningNodes.isEmpty()) {
-            throw BusinessException.of(ResultCode.WORKFLOW_INVALID_STATE, "当前无运行中的节点");
+        if (!"waiting".equals(nodeInstance.getStatus()) && !"running".equals(nodeInstance.getStatus())) {
+            throw BusinessException.of(ResultCode.WORKFLOW_INVALID_STATE,
+                    "节点已完成/失败，无法重复完成（状态: " + nodeInstance.getStatus() + "）");
         }
-        WorkflowNodeInstance currentNodeInstance = runningNodes.get(0);
-        long now = Instant.now().toEpochMilli();
+        if (command.getRemark() != null && !command.getRemark().isBlank()) {
+            nodeInstance.setRemark(command.getRemark());
+            workflowNodeInstanceMapper.updateById(nodeInstance);
+        }
+        String outputJson = buildCompletionOutput(command);
+        workflowScheduler.completeNodeExternally(instanceId, nodeInstanceId, true, outputJson);
+        writeAuditLog(instance.getWorkflowId(), instanceId, nodeInstance.getNodeId(),
+                command.getApproved() != null && !command.getApproved() ? "REJECT" : "COMPLETE",
+                nodeInstance.getStatus(), "completed");
+        WorkflowNodeInstance updated = workflowNodeInstanceMapper.selectById(nodeInstanceId);
+        return toNodeInstanceDTO(updated != null ? updated : nodeInstance);
+    }
 
-        currentNodeInstance.setStatus("completed");
-        currentNodeInstance.setOutput(command.getOutput());
-        currentNodeInstance.setRemark(command.getRemark());
-        currentNodeInstance.setCompletedAt(now);
-        workflowNodeInstanceMapper.updateById(currentNodeInstance);
-
-        Map<String, Object> variables = parseVariables(instance.getVariables());
+    /** 输出组装：command.output 优先；审批语义 approved 并入 JSON 输出（供下游表达式） */
+    private String buildCompletionOutput(CompleteNodeCommand command) {
+        Map<String, Object> output = new HashMap<>();
+        if (command.getOutput() != null && !command.getOutput().isBlank()) {
+            Map<String, Object> parsed = parseVariables(command.getOutput());
+            if (!parsed.isEmpty()) {
+                output.putAll(parsed);
+            } else {
+                output.put("output", command.getOutput());
+            }
+        }
         if (command.getApproved() != null) {
-            variables.put("approved", command.getApproved());
+            output.put("approved", command.getApproved());
         }
-        WorkflowNode nextNode = findNextNode(currentNodeInstance.getNodeId(), variables);
-        if (nextNode == null) {
-            throw BusinessException.of(ResultCode.WORKFLOW_INVALID_STATE, "节点无后续流转");
+        return output.isEmpty() ? "{}" : writeJson(output);
+    }
+
+    private String writeJson(Object value) {
+        try {
+            return objectMapper.writeValueAsString(value);
+        } catch (Exception e) {
+            return String.valueOf(value);
         }
-
-        if ("end".equals(nextNode.getNodeType())) {
-            instance.setCurrentNodeId(nextNode.getId());
-            instance.setStatus("completed");
-            instance.setCompletedAt(now);
-            workflowInstanceMapper.updateById(instance);
-            writeAuditLog(instance.getWorkflowId(), instanceId, nextNode.getId(), "COMPLETE",
-                    "running", "completed");
-            return toNodeInstanceDTO(currentNodeInstance);
-        }
-
-        WorkflowNodeInstance nextNodeInstance = createRunningNodeInstance(instanceId, nextNode, now);
-        instance.setCurrentNodeId(nextNode.getId());
-        workflowInstanceMapper.updateById(instance);
-
-        sendNotification(instanceId, nextNodeInstance.getId(), nextNodeInstance.getAssigneeId(), nextNode.getNodeName());
-        writeAuditLog(instance.getWorkflowId(), instanceId, nextNode.getId(), "COMPLETE",
-                "running", "running");
-        return toNodeInstanceDTO(nextNodeInstance);
     }
 
     @Transactional

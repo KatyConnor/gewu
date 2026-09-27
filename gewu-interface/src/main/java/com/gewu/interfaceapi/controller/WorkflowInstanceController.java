@@ -53,11 +53,12 @@ public class WorkflowInstanceController {
         return Result.success(workflowInstanceService.listMyInstances(query));
     }
 
-    @PutMapping("/{instanceId}/complete")
-    @Operation(summary = "完成当前节点", description = "完成当前运行节点并推进至下一节点，审批节点可携带 approved 字段")
+    @PutMapping("/{instanceId}/nodes/{nodeInstanceId}/complete")
+    @Operation(summary = "完成指定节点", description = "按节点实例 ID 精确完成并推进（幂等）；审批节点可携带 approved 字段（P1 内核重构）")
     public Result<WorkflowNodeInstanceDTO> completeNode(@PathVariable String instanceId,
+                                                       @PathVariable String nodeInstanceId,
                                                        @Valid @RequestBody CompleteNodeCommand command) {
-        return Result.success(workflowInstanceService.completeNode(instanceId, command));
+        return Result.success(workflowInstanceService.completeNode(instanceId, nodeInstanceId, command));
     }
 
     @PutMapping("/{instanceId}/suspend")
