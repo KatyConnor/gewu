@@ -12,6 +12,8 @@ public class WorkflowInstance extends BaseEntity {
 
     private String workflowId;
     private Integer workflowVersion;
+    /** 绑定的定义版本快照 ID */
+    private String versionId;
     private String title;
     private String status;
     private String initiatorId;

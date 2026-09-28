@@ -51,6 +51,7 @@ public class WorkflowInstanceService {
     private final WorkflowTransitionMapper workflowTransitionMapper;
     private final WorkflowNotificationMapper workflowNotificationMapper;
     private final WorkflowAuditLogMapper workflowAuditLogMapper;
+    private final com.veloflow.engine.persistence.mapper.WorkflowVersionMapper workflowVersionMapper;
     private final FlowIdentityProvider identityProvider;
     private final com.veloflow.engine.runtime.WorkflowScheduler workflowScheduler;
 
@@ -94,8 +95,33 @@ public class WorkflowInstanceService {
         }
         WorkflowInstance instance = workflowScheduler.start(triggerNode, initiatorId,
                 title != null ? title : triggerType + " 触发", parseVariables(variables), triggerType);
+        bindDefinitionVersion(instance);
         writeAuditLog(workflowId, instance.getId(), triggerNode.getId(), "START", null, "running");
         return toInstanceDTO(instance);
+    }
+
+    /**
+     * 实例绑定定义版本（51 号 T4.4）：workflow_version + version_id（最新发布快照）。
+     * 推进过程不读这两列（同事务内精确两列更新，避免整行覆写推进态）。
+     */
+    private void bindDefinitionVersion(WorkflowInstance instance) {
+        Workflow workflow = workflowMapper.selectById(instance.getWorkflowId());
+        if (workflow == null) {
+            return;
+        }
+        com.veloflow.engine.persistence.model.WorkflowVersion latest = workflowVersionMapper.selectOne(
+                new LambdaQueryWrapper<com.veloflow.engine.persistence.model.WorkflowVersion>()
+                        .eq(com.veloflow.engine.persistence.model.WorkflowVersion::getWorkflowId,
+                                instance.getWorkflowId())
+                        .orderByDesc(com.veloflow.engine.persistence.model.WorkflowVersion::getVersion)
+                        .last("LIMIT 1"));
+        workflowInstanceMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<WorkflowInstance>()
+                .eq(WorkflowInstance::getId, instance.getId())
+                .set(WorkflowInstance::getWorkflowVersion,
+                        workflow.getWorkflowVersion() != null ? workflow.getWorkflowVersion() : 1)
+                .set(WorkflowInstance::getVersionId, latest != null ? latest.getId() : null));
+        instance.setWorkflowVersion(workflow.getWorkflowVersion() != null ? workflow.getWorkflowVersion() : 1);
+        instance.setVersionId(latest != null ? latest.getId() : null);
     }
 
     /**
@@ -124,6 +150,7 @@ public class WorkflowInstanceService {
 
         WorkflowInstance instance = workflowScheduler.start(triggerNode, initiatorId,
                 command.getTitle(), parseVariables(command.getVariables()), "MANUAL");
+        bindDefinitionVersion(instance);
         writeAuditLog(workflowId, instance.getId(), triggerNode.getId(), "START", null, "running");
         return toInstanceDTO(instance);
     }

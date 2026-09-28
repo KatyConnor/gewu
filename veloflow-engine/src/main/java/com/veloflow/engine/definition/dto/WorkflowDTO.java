@@ -15,6 +15,8 @@ public class WorkflowDTO {
     private String workflowName;
     private String description;
     private Integer version;
+    /** 定义版本号（发布一次 +1） */
+    private Integer workflowVersion;
     private Integer status;
     private String statusDesc;
     private String category;

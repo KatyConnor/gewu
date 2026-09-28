@@ -86,6 +86,28 @@ public class WorkflowController {
         return FlowResult.success();
     }
 
+    // ==================== 版本快照（51 号 T4.4） ====================
+
+    @GetMapping("/{workflowId}/versions")
+    @Operation(summary = "版本列表", description = "定义版本快照元数据（新→旧）")
+    public FlowResult<List<WorkflowVersionDTO>> listVersions(@PathVariable String workflowId) {
+        return FlowResult.success(workflowService.listVersions(workflowId));
+    }
+
+    @GetMapping("/{workflowId}/versions/{version}")
+    @Operation(summary = "版本快照详情", description = "指定版本的图结构（设计器加载对比）")
+    public FlowResult<SaveWorkflowGraphCommand> getVersionSnapshot(
+            @PathVariable String workflowId, @PathVariable int version) {
+        return FlowResult.success(workflowService.getVersionSnapshot(workflowId, version));
+    }
+
+    @PostMapping("/{workflowId}/versions/{version}/rollback")
+    @Operation(summary = "回滚到历史版本", description = "存在运行中实例时拒绝；快照写回活表并置回草稿，重新发布产生新版本号")
+    public FlowResult<WorkflowDTO> rollbackToVersion(
+            @PathVariable String workflowId, @PathVariable int version) {
+        return FlowResult.success(workflowService.rollbackToVersion(workflowId, version));
+    }
+
     @GetMapping("/{workflowId}/nodes")
     @Operation(summary = "工作流节点列表", description = "获取工作流下所有节点定义")
     public FlowResult<List<WorkflowNodeDTO>> getWorkflowNodes(@PathVariable String workflowId) {

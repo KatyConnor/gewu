@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS VLF_WORKFLOW (
     workflow_name VARCHAR(128) NOT NULL COMMENT '流程名称',
     description TEXT COMMENT '描述',
     version INT NOT NULL DEFAULT 1 COMMENT '版本号',
+    workflow_version INT NOT NULL DEFAULT 1 COMMENT '定义版本号（发布一次+1）',
     status TINYINT DEFAULT 0 COMMENT '0=草稿 1=已发布 2=已归档',
     category VARCHAR(64) COMMENT '分类',
     config JSON COMMENT '流程配置（状态机定义）',
@@ -174,6 +175,9 @@ CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_VERSION (
     version INT NOT NULL,
     definition_snapshot LONGTEXT NOT NULL COMMENT 'nodes+transitions+config 不可变快照',
     published_by VARCHAR(26), published_at BIGINT,
+    tenant_id VARCHAR(26) DEFAULT 'default',
+    created_by VARCHAR(26), updated_by VARCHAR(26),
+    deleted TINYINT DEFAULT 0,
     created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uk_vlf_version (workflow_id, version)
