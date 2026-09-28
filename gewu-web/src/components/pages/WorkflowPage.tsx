@@ -246,6 +246,7 @@ export default function WorkflowPage() {
     return (
       <div>
         <WorkflowCanvas
+          workflowId={editingWorkflowId ?? undefined}
           name={workflowName}
           description={workflowDesc}
           onBack={() => { setView('list'); setEditingWorkflowId(null); setWorkflowName(''); setWorkflowDesc(''); loadWorkflows(); }}

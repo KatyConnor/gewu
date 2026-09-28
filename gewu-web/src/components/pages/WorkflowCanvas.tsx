@@ -6,18 +6,24 @@ import {
   Bot, Search, Code, ArrowRightLeft, Braces, Variable,
   Database, Mail, Bell, Timer, Hash, Workflow, CornerDownRight,
   Copy, Scissors, ChevronRight, Plus, Minus, ArrowDown, Send,
+  ArrowDownUp, UserCheck, Stamp, Table2, GitFork, Merge,
+  BrainCircuit, Inbox, Reply, Radio, OctagonX, Ban,
 } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import {
   nodeTypes, categoryConfig, generateId, getNodeConfig, getDefaultConfig,
+  validateRequiredConfig, buildNodeConfigJson,
   type WorkflowNode, type WorkflowConnection, type NodeTypeConfig, type NodeCategory,
 } from './workflowTypes';
+import { getWorkflowGraph, saveWorkflowGraph } from '@/lib/workflow';
 
 // --- Icon Map ---
 const iconMap: Record<string, React.ComponentType<{ className?: string }>> = {
   Hand, Clock, Globe, Zap, GitBranch, Split, Repeat, Filter,
   Bot, Search, Code, ArrowRightLeft, Braces, Variable,
   Database, Mail, Bell, Timer, Hash, Workflow, CornerDownRight,
+  ArrowDownUp, UserCheck, Stamp, Table2, GitFork, Merge,
+  BrainCircuit, Inbox, Reply, Radio, OctagonX, Ban,
 };
 
 // --- Constants ---
@@ -164,17 +170,21 @@ function ContextMenu({ x, y, items, onClose }: {
 // --- Main Canvas Component ---
 
 interface WorkflowCanvasProps {
+  workflowId?: string;
   name: string;
   description: string;
   onBack: () => void;
   onPublish?: () => void;
 }
 
-export default function WorkflowCanvas({ name, description, onBack, onPublish }: WorkflowCanvasProps) {
+export default function WorkflowCanvas({ workflowId, name, description, onBack, onPublish }: WorkflowCanvasProps) {
   const [nodes, setNodes] = useState<WorkflowNode[]>([
     { id: 'start', type: 'manual-trigger', label: '手动触发', x: 60, y: 140, config: getDefaultConfig('manual-trigger') },
   ]);
   const [connections, setConnections] = useState<WorkflowConnection[]>([]);
+  const [dirty, setDirty] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const skipDirtyRef = useRef(false);
   const [selectedNode, setSelectedNode] = useState<string | null>(null);
   const [connecting, setConnecting] = useState<{ nodeId: string; portId: string } | null>(null);
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
@@ -186,6 +196,116 @@ export default function WorkflowCanvas({ name, description, onBack, onPublish }:
   const [collapsedCategories, setCollapsedCategories] = useState<Set<NodeCategory>>(new Set());
   const canvasRef = useRef<HTMLDivElement>(null);
   const toast = useToast();
+
+  // --- 加载已有图回显（P5：getWorkflowGraph → 画布状态） ---
+  useEffect(() => {
+    if (!workflowId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const graph = await getWorkflowGraph(workflowId);
+        if (cancelled) return;
+        const loadedNodes: WorkflowNode[] = (graph.nodes || []).map((n, i) => {
+          let type = n.nodeType as WorkflowNode['type'];
+          if (!nodeTypes.some(t => t.type === type)) type = 'manual-trigger'; // 未知类型兜底
+          let config: Record<string, string> = {};
+          try { config = JSON.parse(n.config || '{}') || {}; } catch { config = {}; }
+          // CR-019 XSS 层在响应侧中和了 < >：加载时对称还原（与后端求值器同规则，&amp; 最后）
+          const unescapeEntities = (v: unknown) =>
+            String(v ?? '')
+              .replace(/&gt;/g, '>').replace(/&lt;/g, '<')
+              .replace(/&quot;/g, '"').replace(/&#x27;/g, "'")
+              .replace(/&amp;/g, '&');
+          return {
+            id: n.nodeId,
+            type,
+            label: n.nodeName || type,
+            x: n.positionX ?? 60 + (i % 4) * 220,
+            y: n.positionY ?? 60 + Math.floor(i / 4) * 140,
+            config: Object.fromEntries(
+              Object.entries(config).map(([k, v]) => [k, unescapeEntities(v)])),
+          };
+        });
+        const loadedConnections = (graph.transitions || []).map((t, i): WorkflowConnection | null => {
+          const fromNode = loadedNodes.find(n => n.id === t.fromNodeId);
+          const toNode = loadedNodes.find(n => n.id === t.toNodeId);
+          const fromCfg = fromNode ? getNodeConfig(fromNode.type) : null;
+          const toCfg = toNode ? getNodeConfig(toNode.type) : null;
+          // 后端流转只存节点 ID：出端口按标签回配（缺省首输出），入端口取首个
+          const fromPort = (t.label && fromCfg?.outputs.find(p => p.label === t.label)) || fromCfg?.outputs[0];
+          const toPort = toCfg?.inputs[0];
+          if (!fromNode || !toNode || !fromPort || !toPort) return null;
+          return {
+            id: t.transitionId || `${t.fromNodeId}-${t.toNodeId}-${i}`,
+            from: t.fromNodeId, fromPort: fromPort.id,
+            to: t.toNodeId, toPort: toPort.id,
+            label: t.label || fromPort.label,
+          };
+        }).filter((c): c is WorkflowConnection => c !== null);
+        if (loadedNodes.length > 0) setNodes(loadedNodes);
+        setConnections(loadedConnections);
+        skipDirtyRef.current = true;
+        setDirty(false);
+      } catch (e) {
+        toast(`图加载失败: ${e instanceof Error ? e.message : '未知错误'}`, 'error');
+      }
+    })();
+    return () => { cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workflowId]);
+
+  // --- 保存图（P5：必填同源校验 → PUT /graph） ---
+  const handleSave = useCallback(async () => {
+    if (!workflowId) {
+      toast('缺少工作流 ID，无法保存', 'error');
+      return;
+    }
+    const missing = validateRequiredConfig(nodes);
+    if (missing.length > 0) {
+      toast(`存在未填写的必填配置：${missing[0]}${missing.length > 1 ? ` 等 ${missing.length} 项` : ''}`, 'error');
+      return;
+    }
+    setSaving(true);
+    try {
+      const triggers = nodes.filter(n => getNodeConfig(n.type).category === 'trigger');
+      const ordered = [...triggers, ...nodes.filter(n => getNodeConfig(n.type).category !== 'trigger')];
+      await saveWorkflowGraph(workflowId, {
+        nodes: ordered.map((n, i) => ({
+          nodeId: n.id,
+          nodeName: n.label,
+          nodeType: n.type,
+          config: buildNodeConfigJson(n),
+          positionX: Math.round(n.x),
+          positionY: Math.round(n.y),
+          sortOrder: i,
+        })),
+        transitions: connections.map((c, i) => {
+          const fromNode = nodes.find(n => n.id === c.from);
+          const fromCfg = fromNode ? getNodeConfig(fromNode.type) : null;
+          const port = fromCfg?.outputs.find(p => p.id === c.fromPort);
+          return {
+            fromNodeId: c.from,
+            toNodeId: c.to,
+            conditionExpr: c.fromPort === 'false' ? 'false' : null,
+            label: port?.label || null,
+            sortOrder: i,
+          };
+        }),
+      });
+      setDirty(false);
+      toast('工作流图已保存', 'success');
+    } catch (e) {
+      toast(`保存失败: ${e instanceof Error ? e.message : '未知错误'}`, 'error');
+    } finally {
+      setSaving(false);
+    }
+  }, [workflowId, nodes, connections, toast]);
+
+  // 变更即标脏（加载回显的那次变更跳过）
+  useEffect(() => {
+    if (skipDirtyRef.current) { skipDirtyRef.current = false; return; }
+    setDirty(true);
+  }, [nodes, connections]);
 
   // --- Drag node from sidebar ---
   const [draggedType, setDraggedType] = useState<NodeTypeConfig | null>(null);
@@ -472,8 +592,8 @@ export default function WorkflowCanvas({ name, description, onBack, onPublish }:
             <button onClick={zoomIn} className="p-1.5 text-ink-400 hover:text-ink-200 rounded transition-colors" title="放大"><Plus className="w-4 h-4" /></button>
             <button onClick={zoomReset} className="p-1.5 text-ink-400 hover:text-ink-200 rounded transition-colors" title="适应画布"><Maximize2 className="w-4 h-4" /></button>
             <div className="w-px h-4 bg-ink-700 mx-1" />
-            <button onClick={() => toast('工作流已保存', 'success')} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-ink-200 hover:text-ink-100 border border-tech-500/10 rounded-md hover:border-tech-500/25 transition-all">
-              <Save className="w-3.5 h-3.5" /> 保存
+            <button onClick={handleSave} disabled={saving} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-ink-200 hover:text-ink-100 border border-tech-500/10 rounded-md hover:border-tech-500/25 transition-all disabled:opacity-50">
+              <Save className="w-3.5 h-3.5" /> 保存{dirty ? ' ·未保存' : ''}
             </button>
             {onPublish && (
               <button onClick={onPublish} className="flex items-center gap-1.5 px-3 py-1.5 text-xs text-tech-400 border border-tech-500/20 rounded-md hover:bg-tech-500/10 transition-all">
@@ -570,18 +690,20 @@ export default function WorkflowCanvas({ name, description, onBack, onPublish }:
           <div className="flex-1 overflow-y-auto scrollbar-thin p-3 space-y-3">
             {selectedConfig.configFields.map(field => (
               <div key={field.key}>
-                <label className="block text-[11px] text-ink-400 mb-1">{field.label}</label>
+                <label className="block text-[11px] text-ink-400 mb-1">
+                  {field.label}{field.required && field.key !== 'name' && <span className="text-cinnabar-400 ml-0.5">*</span>}
+                </label>
                 {field.type === 'select' ? (
                   <select value={selectedNodeData.config[field.key] || field.defaultValue || ''}
                     onChange={e => setNodes(prev => prev.map(n => n.id === selectedNodeData.id ? { ...n, config: { ...n.config, [field.key]: e.target.value } } : n))}
                     className="w-full px-2.5 py-1.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-xs text-ink-100 outline-none focus:border-tech-500/30 color-scheme-dark">
                     {field.options?.map(opt => <option key={opt.value} value={opt.value}>{opt.label}</option>)}
                   </select>
-                ) : field.type === 'textarea' ? (
-                  <textarea rows={3} placeholder={field.placeholder}
+                ) : field.type === 'textarea' || field.type === 'json' ? (
+                  <textarea rows={field.type === 'json' ? 4 : 3} placeholder={field.placeholder}
                     value={selectedNodeData.config[field.key] || ''}
                     onChange={e => setNodes(prev => prev.map(n => n.id === selectedNodeData.id ? { ...n, config: { ...n.config, [field.key]: e.target.value } } : n))}
-                    className="w-full px-2.5 py-1.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-xs text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30 resize-none font-mono" />
+                    className={`w-full px-2.5 py-1.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-xs text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30 resize-none ${field.type === 'json' ? 'font-mono' : 'font-mono'}`} />
                 ) : field.type === 'number' ? (
                   <input type="number" placeholder={field.placeholder}
                     value={selectedNodeData.config[field.key] || ''}

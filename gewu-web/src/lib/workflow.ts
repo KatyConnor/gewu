@@ -113,6 +113,45 @@ export async function getWorkflowNodes(workflowId: string): Promise<WorkflowNode
   return unwrap(request.get<ApiResponse<WorkflowNodeDTO[]>>(`/v1/workflows/${workflowId}/nodes`));
 }
 
+// ==================== 工作流图（设计器保存/回显，P5） ====================
+
+/** 图节点（与后端 SaveWorkflowGraphCommand.WorkflowNodeDTO 同构） */
+export interface GraphNodeDTO {
+  nodeId: string;
+  nodeName: string;
+  nodeType: string;
+  /** 节点 config（JSON 文本） */
+  config?: string;
+  positionX?: number;
+  positionY?: number;
+  sortOrder?: number;
+}
+
+/** 图流转（与后端 WorkflowTransitionDTO 同构） */
+export interface GraphTransitionDTO {
+  transitionId?: string;
+  fromNodeId: string;
+  toNodeId: string;
+  conditionExpr?: string | null;
+  label?: string | null;
+  sortOrder?: number;
+}
+
+export interface WorkflowGraphDTO {
+  nodes: GraphNodeDTO[];
+  transitions: GraphTransitionDTO[];
+}
+
+/** 读取工作流图（画布回显） */
+export async function getWorkflowGraph(workflowId: string): Promise<WorkflowGraphDTO> {
+  return unwrap(request.get<ApiResponse<WorkflowGraphDTO>>(`/v1/workflows/${workflowId}/graph`));
+}
+
+/** 覆盖保存工作流图（节点/流转全量替换；草稿态可保存） */
+export async function saveWorkflowGraph(workflowId: string, graph: WorkflowGraphDTO): Promise<void> {
+  await unwrap(request.put<ApiResponse<void>>(`/v1/workflows/${workflowId}/graph`, graph));
+}
+
 // ==================== 工作流实例 API ====================
 
 export async function startInstance(

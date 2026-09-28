@@ -122,16 +122,27 @@ public class WorkflowService {
 
     public SaveWorkflowGraphCommand getWorkflowGraph(String workflowId) {
         getWorkflowEntity(workflowId);
-        List<WorkflowNodeDTO> nodes = workflowNodeMapper.selectList(
-                        new LambdaQueryWrapper<WorkflowNode>()
-                                .eq(WorkflowNode::getWorkflowId, workflowId)
-                                .orderByAsc(WorkflowNode::getSortOrder))
-                .stream().map(this::toNodeDTO).toList();
+        List<WorkflowNode> nodeEntities = workflowNodeMapper.selectList(
+                new LambdaQueryWrapper<WorkflowNode>()
+                        .eq(WorkflowNode::getWorkflowId, workflowId)
+                        .orderByAsc(WorkflowNode::getSortOrder));
+        // 画布坐标系统一 biz_node_id（保存入参身份；V57 断桥修复的回显侧闭环），
+        // 行 ID 仅在 biz 缺失（存量数据）时兜底；流转端点同步映射回 biz 身份
+        Map<String, String> rowToBiz = new HashMap<>();
+        for (WorkflowNode node : nodeEntities) {
+            rowToBiz.put(node.getId(), node.getBizNodeId() != null ? node.getBizNodeId() : node.getId());
+        }
+        List<WorkflowNodeDTO> nodes = nodeEntities.stream().map(this::toNodeDTO).toList();
         List<WorkflowTransitionDTO> transitions = workflowTransitionMapper.selectList(
                         new LambdaQueryWrapper<WorkflowTransition>()
                                 .eq(WorkflowTransition::getWorkflowId, workflowId)
                                 .orderByAsc(WorkflowTransition::getSortOrder))
-                .stream().map(this::toTransitionDTO).toList();
+                .stream().map(t -> {
+                    WorkflowTransitionDTO dto = toTransitionDTO(t);
+                    dto.setFromNodeId(rowToBiz.getOrDefault(t.getFromNodeId(), t.getFromNodeId()));
+                    dto.setToNodeId(rowToBiz.getOrDefault(t.getToNodeId(), t.getToNodeId()));
+                    return dto;
+                }).toList();
         SaveWorkflowGraphCommand graph = new SaveWorkflowGraphCommand();
         graph.setNodes(nodes);
         graph.setTransitions(transitions);
@@ -239,7 +250,7 @@ public class WorkflowService {
 
     private WorkflowNodeDTO toNodeDTO(WorkflowNode node) {
         return WorkflowNodeDTO.builder()
-                .nodeId(node.getId())
+                .nodeId(node.getBizNodeId() != null ? node.getBizNodeId() : node.getId())
                 .workflowId(node.getWorkflowId())
                 .nodeName(node.getNodeName())
                 .nodeType(node.getNodeType())
