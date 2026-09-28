@@ -199,9 +199,11 @@ public class WorkflowDefinitionValidator {
         for (WorkflowNode node : nodes) {
             String type = nodeType(node);
             // 触发器节点为流程锚点（调度器 start 定位后建行即完成，无运行时 Handler），
-            // 不参与 Handler 注册校验；其必填 config 由下方显式规则约束
+            // 不参与 Handler 注册校验；其必填 config 由下方显式规则约束；
+            // return/end/error-end/terminate-end 为调度器内置终态（同豁免）
             if (!STRUCTURAL_TYPES.contains(type) && !TRIGGER_TYPES.contains(type)
                     && !"return".equals(type) && !"end".equals(type)
+                    && !"error-end".equals(type) && !"terminate-end".equals(type)
                     && !handlerRegistry.isRegistered(type)) {
                 issues.add(new ValidationIssue("WV-06", LEVEL_ERROR, node.getId(),
                         "未知节点类型 '" + type + "'（已注册: " + handlerRegistry.registeredTypes() + "）"));

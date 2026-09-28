@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_NODE_INSTANCE (
     assignee_id VARCHAR(26) COMMENT '办理人/审批人',
     assignee_role VARCHAR(64) COMMENT '指派审批/办理角色（assigneeId 为空时角色成员可办）',
     message_key VARCHAR(128) COMMENT '消息等待关联键（receive-message 挂起时登记）',
+    child_instance_id VARCHAR(26) COMMENT '子工作流实例 ID（sub-workflow 挂起时登记）',
     input LONGTEXT COMMENT '节点输入（任意文本）',
     output LONGTEXT COMMENT '节点输出（任意文本，可为 JSON）',
     retry_count INT NOT NULL DEFAULT 0,
@@ -111,7 +112,8 @@ CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_NODE_INSTANCE (
     PRIMARY KEY (id),
     UNIQUE KEY uk_vlf_ni (instance_id, node_id, branch_key, iteration),
     KEY idx_vlf_ni_instance (instance_id, status),
-    KEY idx_vlf_ni_message_key (message_key, status)
+    KEY idx_vlf_ni_message_key (message_key, status),
+    KEY idx_vlf_ni_child (child_instance_id, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Veloflow 节点实例';
 
 -- 6. 通知表

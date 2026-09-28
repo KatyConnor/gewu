@@ -8,7 +8,7 @@ export type NodeType =
   // 人工任务（2）
   | 'task' | 'approval'
   // 逻辑控制（7）
-  | 'condition' | 'switch' | 'decision' | 'loop' | 'parallel' | 'join'
+  | 'condition' | 'switch' | 'decision' | 'loop' | 'parallel' | 'join' | 'filter'
   // AI 能力（4）
   | 'llm' | 'agent' | 'orchestration' | 'knowledge'
   // 数据处理（3）
@@ -16,7 +16,7 @@ export type NodeType =
   // 集成对接（1+）
   | 'http-request'
   // 流程控制与事件（6）
-  | 'delay' | 'receive-message' | 'respond' | 'event-wait'
+  | 'delay' | 'receive-message' | 'respond' | 'event-wait' | 'sub-workflow'
   // 终结事件（3）
   | 'return' | 'error-end' | 'terminate-end';
 
@@ -251,6 +251,21 @@ export const nodeTypes: NodeTypeConfig[] = [
     ],
   },
   {
+    type: 'filter', label: '门控过滤', category: 'logic',
+    icon: 'Filter', color: 'text-purple-400', bgColor: 'bg-purple-500/10', borderColor: 'border-purple-500/30',
+    description: '表达式通过放行 / 不通过拦截',
+    inputs: [{ id: 'in', label: '输入', type: 'input' }],
+    outputs: [
+      { id: 'pass', label: '通过', type: 'output' },
+      { id: 'block', label: '拦截', type: 'output' },
+    ],
+    configFields: [
+      { key: 'name', label: '节点名称', type: 'text', placeholder: '门控过滤', defaultValue: '门控过滤' },
+      { key: 'expression', label: '过滤表达式', type: 'textarea', placeholder: 'item.score > 60',
+        required: true, hint: 'true 走"通过"边，false 走"拦截"边（拦截边建议接错误终态）' },
+    ],
+  },
+  {
     type: 'loop', label: '循环遍历', category: 'logic',
     icon: 'Repeat', color: 'text-purple-400', bgColor: 'bg-purple-500/10', borderColor: 'border-purple-500/30',
     description: '遍历数组逐个/并行处理',
@@ -473,6 +488,20 @@ export const nodeTypes: NodeTypeConfig[] = [
   },
 
   // ===== 终结事件（3） =====
+  {
+    type: 'sub-workflow', label: '子工作流', category: 'flow',
+    icon: 'Workflow', color: 'text-orange-400', bgColor: 'bg-orange-500/10', borderColor: 'border-orange-500/30',
+    description: '启动子工作流并等待其完成（53 号 §3.7）',
+    inputs: [{ id: 'in', label: '输入', type: 'input' }],
+    outputs: [{ id: 'out', label: '输出', type: 'output' }],
+    configFields: [
+      { key: 'name', label: '节点名称', type: 'text', placeholder: '子工作流', defaultValue: '子工作流' },
+      { key: 'workflowId', label: '子工作流 ID', type: 'text', placeholder: '01M3...（须为已发布）', required: true,
+        hint: '子流程成功完成以其最终输出推进本节点；失败/终止联动本实例失败。嵌套上限 10 层' },
+      { key: 'inputTemplate', label: '输入模板', type: 'textarea', placeholder: '{"order": "${orderId}"}',
+        hint: '支持 ${变量名} 占位符；子流程变量继承父空间' },
+    ],
+  },
   {
     type: 'return', label: '返回结果', category: 'terminal',
     icon: 'CornerDownRight', color: 'text-red-400', bgColor: 'bg-red-500/10', borderColor: 'border-red-500/30',

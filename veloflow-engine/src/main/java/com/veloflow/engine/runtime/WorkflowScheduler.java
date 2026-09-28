@@ -157,6 +157,7 @@ public class WorkflowScheduler {
                         .set(WorkflowNodeInstance::getAssigneeId, nodeInstance.getAssigneeId())
                         .set(WorkflowNodeInstance::getAssigneeRole, nodeInstance.getAssigneeRole())
                         .set(WorkflowNodeInstance::getMessageKey, nodeInstance.getMessageKey())
+                        .set(WorkflowNodeInstance::getChildInstanceId, nodeInstance.getChildInstanceId())
                         .set(WorkflowNodeInstance::getTimeoutAt, nodeInstance.getTimeoutAt()));
             } else if (nodeInstance.getTimeoutAt() != null) {
                 nodeInstanceMapper.update(null, new LambdaUpdateWrapper<WorkflowNodeInstance>()

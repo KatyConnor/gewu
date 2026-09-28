@@ -232,7 +232,7 @@ export default function WorkflowCanvas({ workflowId, name, description, onBack, 
           const fromCfg = fromNode ? getNodeConfig(fromNode.type) : null;
           const toCfg = toNode ? getNodeConfig(toNode.type) : null;
           // 后端流转只存节点 ID：出端口按标签回配（缺省首输出），入端口取首个
-          const fromPort = (t.label && fromCfg?.outputs.find(p => p.label === t.label)) || fromCfg?.outputs[0];
+          const fromPort = (t.label && fromCfg?.outputs.find(p => p.id === t.label || p.label === t.label)) || fromCfg?.outputs[0];
           const toPort = toCfg?.inputs[0];
           if (!fromNode || !toNode || !fromPort || !toPort) return null;
           return {
@@ -282,12 +282,13 @@ export default function WorkflowCanvas({ workflowId, name, description, onBack, 
         transitions: connections.map((c, i) => {
           const fromNode = nodes.find(n => n.id === c.from);
           const fromCfg = fromNode ? getNodeConfig(fromNode.type) : null;
+          // 存端口 id 作 label（引擎 matched 路由语义：true/false、pass/block、case 值/default）
           const port = fromCfg?.outputs.find(p => p.id === c.fromPort);
           return {
             fromNodeId: c.from,
             toNodeId: c.to,
             conditionExpr: c.fromPort === 'false' ? 'false' : null,
-            label: port?.label || null,
+            label: port?.id || null,
             sortOrder: i,
           };
         }),

@@ -6,12 +6,14 @@ import com.fasterxml.jackson.core.type.TypeReference;
 import com.veloflow.engine.commons.VeloflowJson;
 import com.veloflow.engine.definition.WorkflowInstanceService;
 import com.veloflow.engine.persistence.mapper.WorkflowEventSubscriptionMapper;
+import com.veloflow.engine.persistence.mapper.WorkflowNodeInstanceMapper;
 import com.veloflow.engine.persistence.mapper.WorkflowMapper;
 import com.veloflow.engine.persistence.mapper.WorkflowNodeMapper;
 import com.veloflow.engine.persistence.model.Workflow;
 import com.veloflow.engine.persistence.model.WorkflowEventSubscription;
 import com.veloflow.engine.persistence.model.WorkflowInstance;
 import com.veloflow.engine.persistence.model.WorkflowNode;
+import com.veloflow.engine.persistence.model.WorkflowNodeInstance;
 import com.veloflow.engine.runtime.WorkflowRuntimeListener;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -43,6 +45,7 @@ public class WorkflowEventService implements WorkflowRuntimeListener {
     private final WorkflowEventSubscriptionMapper subscriptionMapper;
     private final WorkflowNodeMapper nodeMapper;
     private final WorkflowMapper workflowMapper;
+    private final WorkflowNodeInstanceMapper nodeInstanceMapper;
     /**
      * 延迟解析（断环）：调度器持有本类（监听器列表），本类又需实例服务
      * （completeNodeBySystem/startByTrigger），直接注入构成
@@ -187,11 +190,47 @@ public class WorkflowEventService implements WorkflowRuntimeListener {
     @Override
     public void onInstanceCompleted(WorkflowInstance instance) {
         startUpstreamWorkflows(instance);
+        wakeSubWorkflowParents(instance, true);
     }
 
     @Override
     public void onInstanceCancelled(WorkflowInstance instance) {
         cancelInstanceSubscriptions(instance.getId());
+        wakeSubWorkflowParents(instance, false);
+    }
+
+    // ==================== sub-workflow 唤醒（53 号 §3.7） ====================
+
+    /**
+     * 子实例终态驱动父等待行：成功以子 finalOutput 完成推进；失败/终止时父行
+     * 走失败完成（onError 默认语义 → 父实例 failed）。幂等：仅 waiting 行可被驱动。
+     */
+    private void wakeSubWorkflowParents(WorkflowInstance child, boolean success) {
+        List<WorkflowNodeInstance> parents = nodeInstanceMapper.selectList(
+                new LambdaQueryWrapper<WorkflowNodeInstance>()
+                        .eq(WorkflowNodeInstance::getNodeType, "sub-workflow")
+                        .eq(WorkflowNodeInstance::getStatus, "waiting")
+                        .eq(WorkflowNodeInstance::getChildInstanceId, child.getId()));
+        for (WorkflowNodeInstance parent : parents) {
+            try {
+                if (success) {
+                    String output = child.getFinalOutput() == null ? "" : child.getFinalOutput();
+                    instanceService().completeNodeBySystem(parent.getInstanceId(), parent.getId(),
+                            output, "sub-workflow");
+                    log.info("子流程完成唤醒父节点: child={}, parent={}, instanceId={}",
+                            child.getId(), parent.getId(), parent.getInstanceId());
+                } else {
+                    instanceService().completeNodeBySystem(parent.getInstanceId(), parent.getId(),
+                            false, "子流程" + ("terminated".equals(child.getStatus()) ? "终止" : "失败")
+                                    + ": " + child.getId(), "sub-workflow");
+                    log.info("子流程失败联动父节点: child={}, parent={}, instanceId={}",
+                            child.getId(), parent.getId(), parent.getInstanceId());
+                }
+            } catch (Exception e) {
+                log.warn("sub-workflow 唤醒失败（父实例可能已终结）: child={}, parent={}, err={}",
+                        child.getId(), parent.getId(), e.getMessage());
+            }
+        }
     }
 
     // ==================== 辅助 ====================

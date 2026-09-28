@@ -37,6 +37,7 @@ class WorkflowEventServiceTest {
     @Mock WorkflowEventSubscriptionMapper subscriptionMapper;
     @Mock WorkflowNodeMapper nodeMapper;
     @Mock WorkflowMapper workflowMapper;
+    @Mock com.veloflow.engine.persistence.mapper.WorkflowNodeInstanceMapper nodeInstanceMapper;
     @Mock WorkflowInstanceService instanceService;
 
     private WorkflowEventService service;
@@ -57,7 +58,7 @@ class WorkflowEventServiceTest {
         org.springframework.beans.factory.ObjectProvider<WorkflowInstanceService> provider =
                 org.mockito.Mockito.mock(org.springframework.beans.factory.ObjectProvider.class);
         org.mockito.Mockito.lenient().when(provider.getObject()).thenReturn(instanceService);
-        service = new WorkflowEventService(subscriptionMapper, nodeMapper, workflowMapper, provider);
+        service = new WorkflowEventService(subscriptionMapper, nodeMapper, workflowMapper, nodeInstanceMapper, provider);
     }
 
     private WorkflowEventSubscription waitingSub(String eventType) {

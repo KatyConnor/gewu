@@ -12,6 +12,7 @@ import com.veloflow.engine.persistence.mapper.WorkflowNodeInstanceMapper;
 import com.veloflow.engine.runtime.handler.TaskHandler;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
@@ -34,6 +35,10 @@ public class WorkflowTimerRunner {
     private final WorkflowNotificationMapper notificationMapper;
     private final com.veloflow.engine.persistence.mapper.WorkflowInstanceMapper instanceMapper;
     private final WorkflowScheduler scheduler;
+
+    /** escalate 升级通知的额外接收人（管理员用户 ID，逗号分隔；宿主配置） */
+    @Value("${veloflow.escalate.notify-userids:}")
+    private String escalateNotifyUserIds;
 
     /**
      * 每分钟扫描到期等待行：
@@ -90,9 +95,14 @@ public class WorkflowTimerRunner {
                         true, "{\"approved\": false, \"timeout\": true}");
             }
             default -> {
-                // escalate：通知发起人并顺延一个超时周期继续等待（管理员通知待 SPI 扩展）
+                // escalate：通知发起人与配置的管理员，顺延一个超时周期继续等待
                 long hours = TaskHandler.parseLong(config.get("timeoutHours"), 24);
-                notify(row, "TIMEOUT_WARNING", "任务超时升级提醒", title + "（已超时，请尽快处理）");
+                String escalateContent = title + "（已超时，请尽快处理）";
+                notify(row, "TIMEOUT_WARNING", "任务超时升级提醒", escalateContent);
+                for (String adminId : configuredEscalateRecipients()) {
+                    notifyUser(row, "ESCALATION", "任务超时升级：实例 " + row.getInstanceId()
+                            + " 的 " + row.getNodeName() + " 已超时待处理", escalateContent, adminId);
+                }
                 nodeInstanceMapper.update(null, new LambdaUpdateWrapper<WorkflowNodeInstance>()
                         .eq(WorkflowNodeInstance::getId, row.getId())
                         .eq(WorkflowNodeInstance::getStatus, "running")
@@ -103,14 +113,33 @@ public class WorkflowTimerRunner {
         }
     }
 
+    /** 宿主配置的 escalate 管理员接收人（veloflow.escalate.notify-userids） */
+    private List<String> configuredEscalateRecipients() {
+        List<String> result = new java.util.ArrayList<>();
+        if (escalateNotifyUserIds == null) {
+            return result;
+        }
+        for (String id : escalateNotifyUserIds.split(",")) {
+            if (!id.isBlank()) {
+                result.add(id.trim());
+            }
+        }
+        return result;
+    }
+
     /** 超时通知（发起人，recipient=instance.initiatorId） */
     private void notify(WorkflowNodeInstance row, String type, String content, String title) {
+        notifyUser(row, type, content, title, recipientOf(row.getInstanceId()));
+    }
+
+    /** 站内通知（指定接收人） */
+    private void notifyUser(WorkflowNodeInstance row, String type, String content, String title, String recipientId) {
         WorkflowNotification n = new WorkflowNotification();
         n.setId(VlfId.next());
         n.setInstanceId(row.getInstanceId());
         n.setNodeInstanceId(row.getId());
         n.setType(type);
-        n.setRecipientId(recipientOf(row.getInstanceId()));
+        n.setRecipientId(recipientId != null ? recipientId : "system");
         n.setTitle(title);
         n.setContent(content);
         n.setIsRead(0);

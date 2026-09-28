@@ -213,6 +213,13 @@ public class WorkflowInstanceService {
     @Transactional
     public WorkflowNodeInstanceDTO completeNodeBySystem(String instanceId, String nodeInstanceId,
                                                         String outputJson, String operator) {
+        return completeNodeBySystem(instanceId, nodeInstanceId, true, outputJson, operator);
+    }
+
+    /** 系统完成（可指定成败）：sub-workflow 子实例失败时父行走失败完成 */
+    @Transactional
+    public WorkflowNodeInstanceDTO completeNodeBySystem(String instanceId, String nodeInstanceId,
+                                                        boolean success, String outputJson, String operator) {
         WorkflowInstance instance = getInstanceEntity(instanceId);
         WorkflowNodeInstance nodeInstance = workflowNodeInstanceMapper.selectById(nodeInstanceId);
         if (nodeInstance == null || !instanceId.equals(nodeInstance.getInstanceId())) {
@@ -222,9 +229,10 @@ public class WorkflowInstanceService {
             throw VeloflowException.of(VeloflowErrorCode.FLOW_INVALID_STATE,
                     "节点已完成/失败，无法重复完成（状态: " + nodeInstance.getStatus() + "）");
         }
-        workflowScheduler.completeNodeExternally(instanceId, nodeInstanceId, true, outputJson);
+        workflowScheduler.completeNodeExternally(instanceId, nodeInstanceId, success, outputJson);
         writeAuditLog(instance.getWorkflowId(), instanceId, nodeInstance.getNodeId(),
-                "SYSTEM_COMPLETE", nodeInstance.getStatus(), "completed");
+                success ? "SYSTEM_COMPLETE" : "SYSTEM_FAIL", nodeInstance.getStatus(),
+                success ? "completed" : "failed");
         WorkflowNodeInstance updated = workflowNodeInstanceMapper.selectById(nodeInstanceId);
         return toNodeInstanceDTO(updated != null ? updated : nodeInstance);
     }

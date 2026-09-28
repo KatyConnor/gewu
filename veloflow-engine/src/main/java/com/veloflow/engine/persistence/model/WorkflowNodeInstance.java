@@ -24,6 +24,8 @@ public class WorkflowNodeInstance extends BaseEntity {
     private String assigneeRole;
     /** 消息等待关联键（receive-message 挂起时登记，交付端点按此推进） */
     private String messageKey;
+    /** 子工作流实例 ID（sub-workflow 挂起时登记，子实例终态驱动唤醒） */
+    private String childInstanceId;
     private String input;
     private String output;
     /** 重试次数 */
