@@ -17,6 +17,11 @@
     <description>格物平台 - 应用层</description>
 
     <dependencies>
+        <!-- 工作流 email 节点（VeloflowMailBridge）：SMTP 配置化发送 -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-mail</artifactId>
+        </dependency>
         <!-- 内部模块 -->
         <dependency>
             <groupId>com.gewu</groupId>

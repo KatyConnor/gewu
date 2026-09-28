@@ -18,8 +18,10 @@ import java.util.Map;
 @Component
 public class LlmHandler extends AiNodeHandler {
 
+    private final ObjectProvider<FlowAiBridge> bridgeProvider;
+
     public LlmHandler(ObjectProvider<FlowAiBridge> bridgeProvider) {
-        super(bridgeProvider);
+        this.bridgeProvider = bridgeProvider;
     }
 
     @Override
@@ -45,7 +47,7 @@ public class LlmHandler extends AiNodeHandler {
     @Override
     public void activate(WorkflowNodeContext context) {
         Map<String, Object> config = context.config();
-        FlowAiBridge bridge = bridge();
+        FlowAiBridge bridge = bridgeProvider.getIfAvailable();
         if (bridge == null) {
             context.complete(false, "AI 桥未接入（宿主未提供 FlowAiBridge 实现），无法执行 LLM 节点");
             return;

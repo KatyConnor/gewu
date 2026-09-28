@@ -352,6 +352,16 @@ logging:
 
 # Veloflow 独立流程引擎（52 号 P1 平台接入）
 veloflow:
+  # IM 推送节点（im-notify）：渠道 webhook 入宿主配置，不落流程定义
+  im:
+    webhooks:
+      # dingtalk: https://oapi.dingtalk.com/robot/send?access_token=xxx
+      # wecom: https://qyapi.weixin.qq.com/cgi-bin/webhook/send?key=xxx
+      # feishu: https://open.feishu.cn/open-apis/bot/v2/hook/xxx
+  # 邮件节点（email）：true 且 spring.mail.host 配置后启用
+  mail:
+    enabled: false
+    # from: noreply@gewu.local
   rest:
     enabled: true
   webhook:

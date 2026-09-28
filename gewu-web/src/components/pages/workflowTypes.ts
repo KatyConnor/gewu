@@ -13,10 +13,10 @@ export type NodeType =
   | 'llm' | 'agent' | 'orchestration' | 'knowledge'
   // 数据处理（3）
   | 'transform' | 'json-parse' | 'set-variable'
-  // 集成对接（1+）
-  | 'http-request'
+  // 集成对接（4）
+  | 'http-request' | 'database' | 'email' | 'im-notify'
   // 流程控制与事件（6）
-  | 'delay' | 'receive-message' | 'respond' | 'event-wait' | 'sub-workflow'
+  | 'delay' | 'receive-message' | 'respond' | 'event-wait' | 'sub-workflow' | 'counter'
   // 终结事件（3）
   | 'return' | 'error-end' | 'terminate-end';
 
@@ -432,6 +432,51 @@ export const nodeTypes: NodeTypeConfig[] = [
     ],
   },
 
+  {
+    type: 'database', label: '数据库查询', category: 'integration',
+    icon: 'Database', color: 'text-blue-400', bgColor: 'bg-blue-500/10', borderColor: 'border-blue-500/30',
+    description: '受控数据源只读查询（SQL 守卫）',
+    inputs: [{ id: 'in', label: '输入', type: 'input' }],
+    outputs: [{ id: 'out', label: '输出', type: 'output' }],
+    configFields: [
+      { key: 'name', label: '节点名称', type: 'text', placeholder: '数据库查询', defaultValue: '数据库查询' },
+      { key: 'dataSourceId', label: '数据源标识', type: 'text', placeholder: 'wenshi', required: true,
+        hint: '宿主受控只读数据源（wenshi 报表库）' },
+      { key: 'sql', label: 'SQL（只读）', type: 'textarea', placeholder: 'SELECT * FROM reports WHERE id = ${reportId}',
+        required: true, hint: '仅 SELECT/WITH；禁分号多语句/注释/写关键字；支持 ${变量} 占位' },
+      { key: 'maxRows', label: '行数上限', type: 'number', placeholder: '100', defaultValue: '100', hint: '最大 1000' },
+    ],
+  },
+  {
+    type: 'email', label: '发送邮件', category: 'integration',
+    icon: 'Mail', color: 'text-blue-400', bgColor: 'bg-blue-500/10', borderColor: 'border-blue-500/30',
+    description: 'SMTP 发送纯文本邮件',
+    inputs: [{ id: 'in', label: '输入', type: 'input' }],
+    outputs: [{ id: 'out', label: '输出', type: 'output' }],
+    configFields: [
+      { key: 'name', label: '节点名称', type: 'text', placeholder: '发送邮件', defaultValue: '发送邮件' },
+      { key: 'to', label: '收件人', type: 'text', placeholder: 'user@example.com（多人逗号分隔）', required: true,
+        hint: '支持 ${变量} 占位；SMTP 由平台配置（veloflow.mail.enabled）' },
+      { key: 'subject', label: '主题', type: 'text', placeholder: '工作流通知：${title}', required: true },
+      { key: 'body', label: '正文模板', type: 'textarea', placeholder: '您好，流程 ${title} 已到您办理' },
+    ],
+  },
+  {
+    type: 'im-notify', label: 'IM 推送', category: 'integration',
+    icon: 'Bell', color: 'text-blue-400', bgColor: 'bg-blue-500/10', borderColor: 'border-blue-500/30',
+    description: '推送到钉钉/企微/飞书机器人',
+    inputs: [{ id: 'in', label: '输入', type: 'input' }],
+    outputs: [{ id: 'out', label: '输出', type: 'output' }],
+    configFields: [
+      { key: 'name', label: '节点名称', type: 'text', placeholder: 'IM 推送', defaultValue: 'IM 推送' },
+      { key: 'channel', label: '推送渠道', type: 'select', options: [
+        { value: 'dingtalk', label: '钉钉' }, { value: 'wecom', label: '企业微信' }, { value: 'feishu', label: '飞书' },
+      ], defaultValue: 'dingtalk' },
+      { key: 'messageTemplate', label: '消息模板', type: 'textarea', placeholder: '流程 ${title} 审批已通过',
+        required: true, hint: 'webhook 地址由平台配置（veloflow.im.webhooks.<channel>），不落流程定义' },
+    ],
+  },
+
   // ===== 流程控制与事件（6） =====
   {
     type: 'delay', label: '延时等待', category: 'flow',
@@ -443,6 +488,22 @@ export const nodeTypes: NodeTypeConfig[] = [
       { key: 'name', label: '节点名称', type: 'text', placeholder: '延时等待', defaultValue: '延时等待' },
       { key: 'duration', label: '等待时长', type: 'number', placeholder: '30', required: true },
       { key: 'unit', label: '时间单位', type: 'select', options: [{ value: 'SECONDS', label: '秒' }, { value: 'MINUTES', label: '分钟' }, { value: 'HOURS', label: '小时' }], defaultValue: 'SECONDS' },
+    ],
+  },
+  {
+    type: 'counter', label: '计数器', category: 'flow',
+    icon: 'Hash', color: 'text-orange-400', bgColor: 'bg-orange-500/10', borderColor: 'border-orange-500/30',
+    description: '实例内计数（变量空间累计）',
+    inputs: [{ id: 'in', label: '输入', type: 'input' }],
+    outputs: [{ id: 'out', label: '输出', type: 'output' }],
+    configFields: [
+      { key: 'name', label: '节点名称', type: 'text', placeholder: '计数器', defaultValue: '计数器' },
+      { key: 'key', label: '计数器名', type: 'text', placeholder: 'retryCount', required: true,
+        hint: '以该名写入流程变量空间（实例隔离）' },
+      { key: 'step', label: '步长表达式', type: 'text', placeholder: '1（可负数递减）', defaultValue: '1' },
+      { key: 'reset', label: '先归零', type: 'select', options: [
+        { value: 'false', label: '否（累加）' }, { value: 'true', label: '是（归零后计）' },
+      ], defaultValue: 'false' },
     ],
   },
   {
