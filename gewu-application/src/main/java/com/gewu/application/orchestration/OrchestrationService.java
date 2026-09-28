@@ -303,9 +303,23 @@ public class OrchestrationService {
     }
 
     /**
+     * 工作流编排节点调用入口（51 号 §九互操作，P4）：仅允许 active 图，
+     * triggerType=WORKFLOW_CALL，编排执行记录 sessionId 填工作流实例 ID（可追溯）；
+     * 编排侧不感知工作流内部结构。
+     */
+    public OrchestrationExecutionEntity executeGraphForWorkflow(String graphId, String workflowInstanceId,
+                                                                String input) {
+        OrchestrationGraphEntity graphEntity = graphMapper.selectById(graphId);
+        if (graphEntity == null || !"active".equals(graphEntity.getStatus())) {
+            throw new IllegalArgumentException("编排图不存在或未激活，无法由工作流调用: " + graphId);
+        }
+        return executeGraphInternal(graphId, "workflow", workflowInstanceId, input, "WORKFLOW_CALL");
+    }
+
+    /**
      * 同步执行编排图（指定触发类型）。
      * <p>triggerType：MANUAL / AGENT_TOOL（WFC-01，Agent 会话工具化调用）/
-     * SCHEDULE（WFC-02，定时触发）/ WEBHOOK（WFC-03）。
+     * SCHEDULE（WFC-02，定时触发）/ WEBHOOK（WFC-03）/ WORKFLOW_CALL（工作流编排节点）。
      */
     public OrchestrationExecutionEntity executeGraphInternal(String graphId, String userId,
                                                               String sessionId, String input,

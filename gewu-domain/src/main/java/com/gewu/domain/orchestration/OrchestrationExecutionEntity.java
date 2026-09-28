@@ -25,7 +25,7 @@ public class OrchestrationExecutionEntity extends BaseEntity {
     private String userId;
     /** 会话 ID */
     private String sessionId;
-    /** 触发方式: MANUAL/API/AGENT_TOOL/SCHEDULE/WEBHOOK */
+    /** 触发方式: MANUAL/API/AGENT_TOOL/SCHEDULE/WEBHOOK/WORKFLOW_CALL */
     private String triggerType;
     /** 状态: PENDING/RUNNING/PAUSED/SUCCEEDED/FAILED/CANCELLED */
     private String status;
