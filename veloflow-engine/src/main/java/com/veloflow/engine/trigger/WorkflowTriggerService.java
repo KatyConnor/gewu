@@ -7,12 +7,15 @@ import com.veloflow.engine.commons.VlfId;
 import com.veloflow.engine.commons.VlfSm3;
 import com.veloflow.engine.definition.WorkflowInstanceService;
 import com.veloflow.engine.persistence.mapper.WorkflowMapper;
+import com.veloflow.engine.persistence.mapper.WorkflowNodeMapper;
 import com.veloflow.engine.persistence.mapper.WorkflowScheduleMapper;
 import com.veloflow.engine.persistence.mapper.WorkflowWebhookMapper;
+import com.veloflow.engine.persistence.model.WorkflowNode;
 import com.veloflow.engine.persistence.model.WorkflowSchedule;
 import com.veloflow.engine.persistence.model.WorkflowWebhook;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.support.CronExpression;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -22,11 +25,14 @@ import java.time.Instant;
 import java.time.ZoneId;
 import java.util.Base64;
 import java.util.List;
+import java.util.concurrent.TimeoutException;
 
 /**
  * 触发配置服务（53 号 §3.1，51 号 §六）：定时（Cron）与 Webhook。
  * <p>Webhook token 明文仅创建/重置响应返回一次，库内只存 SM3 哈希；
  * 匿名触发按哈希索引命中，未命中/停用统一 404（不暴露存在性）。
+ * <p>respond 配对（53 号 §3.3）：流程含 respond 节点时触发线程同步等待
+ * payload（veloflow.webhook.sync-timeout-ms，默认 15s），超时回退 202。
  */
 @Slf4j
 @Service
@@ -34,9 +40,15 @@ import java.util.List;
 public class WorkflowTriggerService {
 
     private final WorkflowMapper workflowMapper;
+    private final WorkflowNodeMapper nodeMapper;
     private final WorkflowScheduleMapper scheduleMapper;
     private final WorkflowWebhookMapper webhookMapper;
     private final WorkflowInstanceService instanceService;
+    private final WebhookResponseRegistry responseRegistry;
+
+    /** respond 同步等待上限（毫秒）；0/负值=禁用等待直接 202 */
+    @Value("${veloflow.webhook.sync-timeout-ms:15000}")
+    private long syncTimeoutMs = 15000;
 
     // ==================== 定时触发 ====================
 
@@ -137,13 +149,18 @@ public class WorkflowTriggerService {
                 .stream().findFirst().orElse(null);
     }
 
+    /** Webhook 触发结果：responded=true 时 payload 为 respond 节点同步产出（200）；否则 202 */
+    public record WebhookTriggerResult(String instanceId, String respondPayload, boolean responded) {
+    }
+
     /**
      * Webhook 匿名触发：按 token SM3 哈希命中启用中的配置且流程为已发布才执行，
      * triggerType=WEBHOOK，发起人记为 webhook 便于审计。
+     * <p>流程含 respond 节点时同步等待 payload（超时回退 responded=false）。
      *
-     * @return 实例 ID；未命中/停用/流程不可执行返回 null（端点统一 404）
+     * @return 触发结果；未命中/停用/流程不可执行返回 null（端点统一 404）
      */
-    public String triggerByWebhook(String token, String input) {
+    public WebhookTriggerResult triggerByWebhook(String token, String input) {
         if (token == null || token.isBlank()) {
             return null;
         }
@@ -160,8 +177,32 @@ public class WorkflowTriggerService {
             return null;
         }
         log.info("Webhook 触发流程: workflowId={}, webhookId={}", webhook.getWorkflowId(), webhook.getId());
-        return instanceService.startByTrigger(webhook.getWorkflowId(), "webhook", null,
+        String instanceId = instanceService.startByTrigger(webhook.getWorkflowId(), "webhook", null,
                 input != null ? input : "", "WEBHOOK").getInstanceId();
+        if (!hasRespondNode(webhook.getWorkflowId())) {
+            return new WebhookTriggerResult(instanceId, null, false);
+        }
+        // respond 在 start 调用线程内同步完成时直接命中已完成缓存
+        String payload = responseRegistry.pollCompleted(instanceId);
+        if (payload == null && syncTimeoutMs > 0) {
+            responseRegistry.register(instanceId);
+            try {
+                payload = responseRegistry.await(instanceId, syncTimeoutMs);
+            } catch (TimeoutException e) {
+                log.info("Webhook 同步等待超时，回退 202: instanceId={}, timeoutMs={}",
+                        instanceId, syncTimeoutMs);
+                payload = null;
+            } finally {
+                responseRegistry.cleanup(instanceId);
+            }
+        }
+        return new WebhookTriggerResult(instanceId, payload, payload != null);
+    }
+
+    private boolean hasRespondNode(String workflowId) {
+        return !nodeMapper.selectList(new LambdaQueryWrapper<WorkflowNode>()
+                .eq(WorkflowNode::getWorkflowId, workflowId)
+                .eq(WorkflowNode::getNodeType, "respond")).isEmpty();
     }
 
     // ==================== 辅助 ====================

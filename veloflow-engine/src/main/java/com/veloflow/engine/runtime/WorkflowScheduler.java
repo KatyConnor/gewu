@@ -15,6 +15,7 @@ import com.veloflow.engine.persistence.mapper.WorkflowNodeMapper;
 import com.veloflow.engine.persistence.mapper.WorkflowTransitionMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -51,6 +52,10 @@ public class WorkflowScheduler {
 
     /** 实例级推进锁（单实例部署；多副本时替换为分布式锁） */
     private final Map<String, ReentrantLock> instanceLocks = new ConcurrentHashMap<>();
+
+    /** 运行时监听器（可选；trigger 层注册 webhook 同步返回/订阅清理/上游联动） */
+    @Autowired(required = false)
+    private List<WorkflowRuntimeListener> runtimeListeners = List.of();
 
     // ==================== 启动 ====================
 
@@ -151,6 +156,7 @@ public class WorkflowScheduler {
                         .set(WorkflowNodeInstance::getBranchKey, nodeInstance.getBranchKey())
                         .set(WorkflowNodeInstance::getAssigneeId, nodeInstance.getAssigneeId())
                         .set(WorkflowNodeInstance::getAssigneeRole, nodeInstance.getAssigneeRole())
+                        .set(WorkflowNodeInstance::getMessageKey, nodeInstance.getMessageKey())
                         .set(WorkflowNodeInstance::getTimeoutAt, nodeInstance.getTimeoutAt()));
             } else if (nodeInstance.getTimeoutAt() != null) {
                 nodeInstanceMapper.update(null, new LambdaUpdateWrapper<WorkflowNodeInstance>()
@@ -221,6 +227,18 @@ public class WorkflowScheduler {
             }
 
             WorkflowNode node = completedNode;
+            // respond 节点：payload 落实例列并通知同步返回链路（P3 二期，53 号 §3.3）
+            if (node != null && "respond".equals(node.getNodeType())) {
+                instanceMapper.update(null, new LambdaUpdateWrapper<WorkflowInstance>()
+                        .eq(WorkflowInstance::getId, instance.getId())
+                        .set(WorkflowInstance::getRespondPayload, completion.outputJson()));
+                runtimeListeners.forEach(l -> l.onRespond(instance.getId(), completion.outputJson()));
+            }
+            // event-wait 节点离开等待：清理该节点残留订阅（幂等）
+            if (node != null && "event-wait".equals(node.getNodeType())) {
+                runtimeListeners.forEach(l -> l.onEventWaitNodeSettled(
+                        instance.getId(), nodeInstance.getId()));
+            }
             if (node != null) {
                 advanceFrom(instance, node, nodeInstance.getBranchKey(),
                         nodeInstance.getIteration() == null ? 0 : nodeInstance.getIteration(), variables);
@@ -500,6 +518,8 @@ public class WorkflowScheduler {
         instance.setCompletedAt(now);
         instanceMapper.updateById(instance);
         log.info("工作流实例完成: instanceId={}, return={}", instance.getId(), node.getId());
+        // upstream-trigger 联动（P3 二期）：return 终态同 checkBranchEnd 通知监听器
+        runtimeListeners.forEach(l -> l.onInstanceCompleted(instance));
     }
 
     /** 错误终态节点（53 号 §3.7）：实例 FAILED + errorMessage（onError goto 的落点） */
@@ -539,6 +559,7 @@ public class WorkflowScheduler {
         instance.setCompletedAt(now);
         instanceMapper.updateById(instance);
         log.info("终止终态生效: instanceId={}, cancelled={}", instance.getId(), active.size());
+        runtimeListeners.forEach(l -> l.onInstanceCancelled(instance));
     }
 
     // ==================== 分支终结与终态 ====================
@@ -574,6 +595,8 @@ public class WorkflowScheduler {
         instance.setCompletedAt(System.currentTimeMillis());
         instanceMapper.updateById(instance);
         log.info("工作流实例全部分支终结: instanceId={}", instance.getId());
+        // upstream-trigger 联动：通知监听器按上游完成发起下游流程（P3 二期）
+        runtimeListeners.forEach(l -> l.onInstanceCompleted(instance));
     }
 
     private void failInstance(WorkflowInstance instance, String reason) {
@@ -582,6 +605,7 @@ public class WorkflowScheduler {
         instance.setCompletedAt(System.currentTimeMillis());
         instanceMapper.updateById(instance);
         log.warn("工作流实例失败: instanceId={}, reason={}", instance.getId(), reason);
+        runtimeListeners.forEach(l -> l.onInstanceCancelled(instance));
     }
 
     // ==================== 人工/外部完成入口 ====================

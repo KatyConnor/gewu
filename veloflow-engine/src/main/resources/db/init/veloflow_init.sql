@@ -71,6 +71,7 @@ CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_INSTANCE (
     current_node_id VARCHAR(64),
     variables JSON COMMENT '流程变量',
     final_output LONGTEXT COMMENT '终态输出',
+    respond_payload LONGTEXT COMMENT '同步响应载荷（respond 节点产出，webhook 触发链路同步返回）',
     error_message TEXT,
     started_at BIGINT NOT NULL, completed_at BIGINT,
     tenant_id VARCHAR(26) DEFAULT 'default',
@@ -94,6 +95,8 @@ CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_NODE_INSTANCE (
     node_type VARCHAR(32) NOT NULL,
     status VARCHAR(32) NOT NULL DEFAULT 'pending' COMMENT 'pending/running/waiting/completed/failed/skipped/cancelled',
     assignee_id VARCHAR(26) COMMENT '办理人/审批人',
+    assignee_role VARCHAR(64) COMMENT '指派审批/办理角色（assigneeId 为空时角色成员可办）',
+    message_key VARCHAR(128) COMMENT '消息等待关联键（receive-message 挂起时登记）',
     input LONGTEXT COMMENT '节点输入（任意文本）',
     output LONGTEXT COMMENT '节点输出（任意文本，可为 JSON）',
     retry_count INT NOT NULL DEFAULT 0,
@@ -102,11 +105,13 @@ CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_NODE_INSTANCE (
     timeout_at BIGINT COMMENT '等待型节点超时到期时间',
     remark TEXT,
     tenant_id VARCHAR(26) DEFAULT 'default',
+    created_by VARCHAR(26), updated_by VARCHAR(26),
     deleted TINYINT DEFAULT 0,
     created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
     PRIMARY KEY (id),
     UNIQUE KEY uk_vlf_ni (instance_id, node_id, branch_key, iteration),
-    KEY idx_vlf_ni_instance (instance_id, status)
+    KEY idx_vlf_ni_instance (instance_id, status),
+    KEY idx_vlf_ni_message_key (message_key, status)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Veloflow 节点实例';
 
 -- 6. 通知表
@@ -202,6 +207,25 @@ CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_WEBHOOK (
     UNIQUE KEY uk_vlf_hook_token (token_hash),
     UNIQUE KEY uk_vlf_hook_wf (workflow_id)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Veloflow Webhook 触发配置';
+
+-- 12. 事件订阅表（53 号 §3.3 event-wait / event-trigger）
+CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_EVENT_SUBSCRIPTION (
+    id VARCHAR(26) NOT NULL,
+    subscription_type VARCHAR(16) NOT NULL COMMENT 'WAIT=事件等待节点/TRIGGER=事件触发器节点',
+    workflow_id VARCHAR(26) NOT NULL,
+    instance_id VARCHAR(26) DEFAULT NULL COMMENT 'WAIT 订阅所属实例；TRIGGER 为 NULL',
+    node_id VARCHAR(26) NOT NULL,
+    node_instance_id VARCHAR(26) DEFAULT NULL COMMENT 'WAIT 订阅所属节点实例行；TRIGGER 为 NULL',
+    event_type VARCHAR(128) NOT NULL,
+    status VARCHAR(16) NOT NULL DEFAULT 'waiting' COMMENT 'waiting/consumed/cancelled',
+    tenant_id VARCHAR(26) DEFAULT 'default',
+    created_by VARCHAR(26), updated_by VARCHAR(26),
+    deleted TINYINT DEFAULT 0,
+    created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+    PRIMARY KEY (id),
+    KEY idx_vlf_es_event (event_type, status),
+    KEY idx_vlf_es_instance (instance_id, status)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Veloflow 事件订阅';
 
 -- ============================================================
 -- 演进脚本目录：db/upgrade/（V2 起按版本追加，手工执行）

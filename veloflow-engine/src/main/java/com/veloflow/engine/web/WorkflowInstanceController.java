@@ -42,6 +42,16 @@ public class WorkflowInstanceController {
         return FlowResult.success(workflowInstanceService.getInstance(instanceId));
     }
 
+    /** 实例内消息交付（53 号 §3.3 receive-message）：命中本实例等待中的消息节点并推进 */
+    @PostMapping("/{instanceId}/messages")
+    @Operation(summary = "消息交付（实例内）", description = "命中本实例等待中的 receive-message 节点并推进")
+    public FlowResult<WorkflowNodeInstanceDTO> deliverMessage(@PathVariable String instanceId,
+                                                              @RequestBody(required = false) MessageDeliveryCommand command) {
+        return FlowResult.success(workflowInstanceService.deliverMessage(instanceId,
+                command != null ? command.getMessageKey() : null,
+                command != null ? command.getPayload() : null));
+    }
+
     @GetMapping
     @Operation(summary = "实例列表", description = "分页查询工作流实例，可按 workflowId 过滤")
     public FlowResult<FlowPageResult<WorkflowInstanceDTO>> listInstances(

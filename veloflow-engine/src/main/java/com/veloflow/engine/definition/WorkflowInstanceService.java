@@ -207,6 +207,56 @@ public class WorkflowInstanceService {
     }
 
     /**
+     * 系统完成等待型节点（P3 二期）：事件交付/消息交付等无登录态链路，
+     * 跳过办理权限校验（operator 由调用方声明，审计兜底 system）。
+     */
+    @Transactional
+    public WorkflowNodeInstanceDTO completeNodeBySystem(String instanceId, String nodeInstanceId,
+                                                        String outputJson, String operator) {
+        WorkflowInstance instance = getInstanceEntity(instanceId);
+        WorkflowNodeInstance nodeInstance = workflowNodeInstanceMapper.selectById(nodeInstanceId);
+        if (nodeInstance == null || !instanceId.equals(nodeInstance.getInstanceId())) {
+            throw VeloflowException.of(VeloflowErrorCode.FLOW_NODE_NOT_FOUND, "节点实例不存在或不属于该流程");
+        }
+        if (!"waiting".equals(nodeInstance.getStatus()) && !"running".equals(nodeInstance.getStatus())) {
+            throw VeloflowException.of(VeloflowErrorCode.FLOW_INVALID_STATE,
+                    "节点已完成/失败，无法重复完成（状态: " + nodeInstance.getStatus() + "）");
+        }
+        workflowScheduler.completeNodeExternally(instanceId, nodeInstanceId, true, outputJson);
+        writeAuditLog(instance.getWorkflowId(), instanceId, nodeInstance.getNodeId(),
+                "SYSTEM_COMPLETE", nodeInstance.getStatus(), "completed");
+        WorkflowNodeInstance updated = workflowNodeInstanceMapper.selectById(nodeInstanceId);
+        return toNodeInstanceDTO(updated != null ? updated : nodeInstance);
+    }
+
+    /**
+     * 消息交付（53 号 §3.3 receive-message）：按实例/消息键定位等待中的
+     * receive-message 节点并推进；payloadJson 为节点输出（JSON 文本）。
+     */
+    @Transactional
+    public WorkflowNodeInstanceDTO deliverMessage(String instanceId, String messageKey,
+                                                  String payloadJson) {
+        LambdaQueryWrapper<WorkflowNodeInstance> query = new LambdaQueryWrapper<WorkflowNodeInstance>()
+                .eq(WorkflowNodeInstance::getNodeType, "receive-message")
+                .eq(WorkflowNodeInstance::getStatus, "waiting")
+                .orderByAsc(WorkflowNodeInstance::getCreatedAt)
+                .last("LIMIT 1");
+        if (instanceId != null && !instanceId.isBlank()) {
+            query.eq(WorkflowNodeInstance::getInstanceId, instanceId);
+        }
+        if (messageKey != null && !messageKey.isBlank()) {
+            query.eq(WorkflowNodeInstance::getMessageKey, messageKey);
+        }
+        WorkflowNodeInstance row = workflowNodeInstanceMapper.selectOne(query);
+        if (row == null) {
+            throw VeloflowException.of(VeloflowErrorCode.FLOW_NODE_NOT_FOUND,
+                    "无匹配的等待消息节点（instanceId=" + instanceId
+                            + ", messageKey=" + messageKey + "）");
+        }
+        return completeNodeBySystem(row.getInstanceId(), row.getId(), payloadJson, "message");
+    }
+
+    /**
      * 我的待办（51 号 §七）：waiting 态且 assignee 命中当前用户
      * （精确指派=本人；角色指派=角色成员；未指派=全员可见）。
      */
@@ -531,6 +581,7 @@ public class WorkflowInstanceService {
                 .currentNodeName(currentNode != null ? currentNode.getNodeName() : null)
                 .variables(instance.getVariables())
                 .finalOutput(instance.getFinalOutput())
+                .respondPayload(instance.getRespondPayload())
                 .errorMessage(instance.getErrorMessage())
                 .triggerType(instance.getTriggerType())
                 .startedAt(instance.getStartedAt())

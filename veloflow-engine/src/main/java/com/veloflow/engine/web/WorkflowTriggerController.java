@@ -2,7 +2,9 @@ package com.veloflow.engine.web;
 
 import com.veloflow.engine.commons.FlowResult;
 import com.veloflow.engine.commons.VeloflowErrorCode;
+import com.veloflow.engine.definition.WorkflowInstanceService;
 import com.veloflow.engine.persistence.model.WorkflowWebhook;
+import com.veloflow.engine.trigger.WorkflowEventService;
 import com.veloflow.engine.trigger.WorkflowTriggerService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
@@ -34,6 +36,8 @@ import java.util.Map;
 public class WorkflowTriggerController {
 
     private final WorkflowTriggerService triggerService;
+    private final WorkflowEventService eventService;
+    private final WorkflowInstanceService instanceService;
 
     @Value("${veloflow.webhook.enabled:false}")
     private boolean webhookEnabled;
@@ -74,9 +78,11 @@ public class WorkflowTriggerController {
 
     /**
      * Webhook 匿名触发：body 原样作为执行输入；未命中/停用/总开关关闭统一 404。
+     * 流程含 respond 节点且在 sync-timeout 内完成 → 200 + respondPayload；否则 202。
      */
     @PostMapping(value = "/webhooks/{token}", produces = MediaType.APPLICATION_JSON_VALUE)
-    @Operation(summary = "Webhook 匿名触发", description = "未命中/停用/总开关关闭统一 404")
+    @Operation(summary = "Webhook 匿名触发",
+            description = "未命中/停用/总开关关闭统一 404；respond 流程同步返回 200，超时回退 202")
     public ResponseEntity<FlowResult<Map<String, String>>> triggerByWebhook(
             @PathVariable String token, @RequestBody(required = false) String body) {
         if (!webhookEnabled) {
@@ -86,14 +92,41 @@ public class WorkflowTriggerController {
             log.warn("Webhook 请求体超限拒绝: tokenPrefix={}, length={}", token, body.length());
             return ResponseEntity.notFound().build();
         }
-        String instanceId = triggerService.triggerByWebhook(token, body);
-        if (instanceId == null) {
+        WorkflowTriggerService.WebhookTriggerResult result = triggerService.triggerByWebhook(token, body);
+        if (result == null) {
             return ResponseEntity.notFound().build();
         }
-        Map<String, String> accepted = new LinkedHashMap<>();
-        accepted.put("instanceId", instanceId);
-        accepted.put("status", "accepted");
-        return ResponseEntity.accepted().body(FlowResult.success(accepted));
+        Map<String, String> payload = new LinkedHashMap<>();
+        payload.put("instanceId", result.instanceId());
+        if (result.responded()) {
+            payload.put("status", "responded");
+            payload.put("respondPayload", result.respondPayload());
+            return ResponseEntity.ok(FlowResult.success(payload));
+        }
+        payload.put("status", "accepted");
+        return ResponseEntity.accepted().body(FlowResult.success(payload));
+    }
+
+    // ==================== 消息交付（53 号 §3.3 receive-message） ====================
+
+    /** 按消息键跨实例交付：命中全局最早等待中的 receive-message 节点并推进 */
+    @PostMapping("/messages/{messageKey}")
+    @Operation(summary = "消息交付（按消息键）", description = "命中等待中的 receive-message 节点并推进")
+    public FlowResult<Object> deliverMessageByKey(@PathVariable String messageKey,
+                                                  @RequestBody(required = false) MessageRequest request) {
+        return FlowResult.success(instanceService.deliverMessage(null, messageKey,
+                request != null ? request.getPayload() : null));
+    }
+
+    // ==================== 事件交付（53 号 §3.3 event-wait / event-trigger） ====================
+
+    /** 事件注入：唤醒匹配 event-wait 等待行 + 自动发起匹配 event-trigger 已发布流程 */
+    @PostMapping("/events/{eventType}")
+    @Operation(summary = "事件交付", description = "唤醒 event-wait 订阅并发起 event-trigger 流程")
+    public FlowResult<Object> deliverEvent(@PathVariable String eventType,
+                                           @RequestBody(required = false) MessageRequest request) {
+        return FlowResult.success(eventService.onEvent(eventType,
+                request != null ? request.getPayload() : null));
     }
 
     // ==================== DTO ====================
@@ -111,5 +144,12 @@ public class WorkflowTriggerController {
     public static class WebhookRequest {
         private Boolean enabled;
         private Boolean regenerate;
+    }
+
+    @Data
+    public static class MessageRequest {
+        /** 消息/事件载荷（JSON 文本，作为节点输出/触发输入原样透传） */
+        private String payload;
+        private String messageKey;
     }
 }

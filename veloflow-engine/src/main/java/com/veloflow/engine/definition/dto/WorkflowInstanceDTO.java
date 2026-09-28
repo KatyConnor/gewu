@@ -24,6 +24,8 @@ public class WorkflowInstanceDTO {
     private String variables;
     /** 终态输出（return 节点产出） */
     private String finalOutput;
+    /** 同步响应载荷（respond 节点产出，webhook 触发链路同步返回） */
+    private String respondPayload;
     /** 失败原因 */
     private String errorMessage;
     /** 触发方式: MANUAL/SCHEDULE/WEBHOOK/EVENT/UPSTREAM */

@@ -22,6 +22,8 @@ public class WorkflowNodeInstance extends BaseEntity {
     private String assigneeId;
     /** 指派审批/办理角色（assigneeId 为空时角色成员可办） */
     private String assigneeRole;
+    /** 消息等待关联键（receive-message 挂起时登记，交付端点按此推进） */
+    private String messageKey;
     private String input;
     private String output;
     /** 重试次数 */

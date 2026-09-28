@@ -198,7 +198,10 @@ public class WorkflowDefinitionValidator {
     private void validateRequiredConfig(List<WorkflowNode> nodes, List<ValidationIssue> issues) {
         for (WorkflowNode node : nodes) {
             String type = nodeType(node);
-            if (!STRUCTURAL_TYPES.contains(type) && !"return".equals(type) && !"end".equals(type)
+            // 触发器节点为流程锚点（调度器 start 定位后建行即完成，无运行时 Handler），
+            // 不参与 Handler 注册校验；其必填 config 由下方显式规则约束
+            if (!STRUCTURAL_TYPES.contains(type) && !TRIGGER_TYPES.contains(type)
+                    && !"return".equals(type) && !"end".equals(type)
                     && !handlerRegistry.isRegistered(type)) {
                 issues.add(new ValidationIssue("WV-06", LEVEL_ERROR, node.getId(),
                         "未知节点类型 '" + type + "'（已注册: " + handlerRegistry.registeredTypes() + "）"));
@@ -206,6 +209,15 @@ public class WorkflowDefinitionValidator {
             }
             if (STRUCTURAL_TYPES.contains(type)) {
                 continue; // 结构性节点配置由调度器兜底校验
+            }
+            // 触发器锚点显式必填（53 号 §3.1）
+            if ("event-trigger".equals(type)) {
+                requireConfig(node, type, "eventType", issues);
+                continue;
+            }
+            if ("upstream-trigger".equals(type)) {
+                requireConfig(node, type, "upstreamWorkflowId", issues);
+                continue;
             }
             WorkflowNodeHandler handler = handlerRegistry.resolve(type);
             if (handler == null) {
@@ -219,6 +231,14 @@ public class WorkflowDefinitionValidator {
                             type + " 节点缺少必填配置 " + field));
                 }
             }
+        }
+    }
+
+    private void requireConfig(WorkflowNode node, String type, String field, List<ValidationIssue> issues) {
+        Object value = parseConfig(node.getConfig()).get(field);
+        if (value == null || String.valueOf(value).isBlank()) {
+            issues.add(new ValidationIssue("WV-06", LEVEL_ERROR, node.getId(),
+                    type + " 节点缺少必填配置 " + field));
         }
     }
 
