@@ -103,6 +103,7 @@ CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_NODE_INSTANCE (
     timeout_at BIGINT COMMENT '等待型节点超时到期时间',
     remark TEXT,
     tenant_id VARCHAR(26) DEFAULT 'default',
+    created_by VARCHAR(26), updated_by VARCHAR(26),
     deleted TINYINT DEFAULT 0,
     created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
     PRIMARY KEY (id),
@@ -218,8 +219,8 @@ SELECT id, workflow_id, from_node_id, to_node_id, condition_expr, label, sort_or
 INSERT IGNORE INTO VLF_WORKFLOW_INSTANCE (id, workflow_id, workflow_version, version_id, title, status, initiator_id, trigger_type, current_node_id, variables, final_output, error_message, started_at, completed_at, tenant_id, created_by, updated_by, deleted, created_at, updated_at)
 SELECT id, workflow_id, workflow_version, version_id, title, status, initiator_id, COALESCE(trigger_type, 'MANUAL'), current_node_id, variables, final_output, error_message, started_at, completed_at, 'default', created_by, updated_by, deleted, created_at, updated_at FROM workflow_instance;
 
-INSERT IGNORE INTO VLF_WORKFLOW_NODE_INSTANCE (id, instance_id, node_id, branch_key, iteration, node_name, node_type, status, assignee_id, input, output, retry_count, error_message, started_at, completed_at, timeout_at, remark, tenant_id, deleted, created_at, updated_at)
-SELECT id, instance_id, node_id, branch_key, iteration, node_name, node_type, status, assignee_id, input, output, retry_count, error_message, started_at, completed_at, timeout_at, remark, 'default', deleted, created_at, updated_at FROM workflow_node_instance;
+INSERT IGNORE INTO VLF_WORKFLOW_NODE_INSTANCE (id, instance_id, node_id, branch_key, iteration, node_name, node_type, status, assignee_id, input, output, retry_count, error_message, started_at, completed_at, timeout_at, remark, tenant_id, created_by, updated_by, deleted, created_at, updated_at)
+SELECT id, instance_id, node_id, branch_key, iteration, node_name, node_type, status, assignee_id, input, output, retry_count, error_message, started_at, completed_at, timeout_at, remark, 'default', created_by, updated_by, deleted, created_at, updated_at FROM workflow_node_instance;
 
 INSERT IGNORE INTO VLF_WORKFLOW_NOTIFICATION (id, instance_id, node_instance_id, type, recipient_id, title, content, is_read, sent_at, created_at)
 SELECT id, instance_id, node_instance_id, type, recipient_id, title, content, is_read, sent_at, created_at FROM workflow_notification;

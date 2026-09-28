@@ -354,5 +354,7 @@ logging:
 veloflow:
   rest:
     enabled: true
+  webhook:
+    enabled: true
   mapper-scan:
     enabled: false

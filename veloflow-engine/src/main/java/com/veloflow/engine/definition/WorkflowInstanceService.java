@@ -55,6 +55,50 @@ public class WorkflowInstanceService {
     private final com.veloflow.engine.runtime.WorkflowScheduler workflowScheduler;
 
     /**
+     * 触发器启动入口（52 号 P3）：SCHEDULE/WEBHOOK/EVENT/UPSTREAM 触发时
+     * 以系统或外部身份发起；按触发类型定位对应触发器节点（宽松回退任意触发器）。
+     */
+    public WorkflowInstanceDTO startByTrigger(String workflowId, String initiatorId, String title,
+                                              String variables, String triggerType) {
+        Workflow workflow = workflowMapper.selectById(workflowId);
+        if (workflow == null) {
+            throw VeloflowException.of(VeloflowErrorCode.FLOW_NOT_FOUND);
+        }
+        if (workflow.getStatus() == null || workflow.getStatus() != 1) {
+            throw VeloflowException.of(VeloflowErrorCode.FLOW_INVALID_STATE, "工作流未发布，不能发起实例");
+        }
+        String triggerNodeType = switch (triggerType) {
+            case "SCHEDULE" -> "schedule-trigger";
+            case "WEBHOOK" -> "webhook-trigger";
+            case "EVENT" -> "event-trigger";
+            case "UPSTREAM" -> "upstream-trigger";
+            default -> "manual-trigger";
+        };
+        WorkflowNode triggerNode = workflowNodeMapper.selectOne(
+                new LambdaQueryWrapper<WorkflowNode>()
+                        .eq(WorkflowNode::getWorkflowId, workflowId)
+                        .eq(WorkflowNode::getNodeType, triggerNodeType)
+                        .last("LIMIT 1"));
+        if (triggerNode == null) {
+            // 宽松回退：任意触发器节点
+            triggerNode = workflowNodeMapper.selectOne(
+                    new LambdaQueryWrapper<WorkflowNode>()
+                            .eq(WorkflowNode::getWorkflowId, workflowId)
+                            .in(WorkflowNode::getNodeType,
+                                    "manual-trigger", "schedule-trigger", "webhook-trigger",
+                                    "event-trigger", "upstream-trigger", "start")
+                            .last("LIMIT 1"));
+        }
+        if (triggerNode == null) {
+            throw VeloflowException.of(VeloflowErrorCode.FLOW_NODE_NOT_FOUND, "工作流缺少触发器节点");
+        }
+        WorkflowInstance instance = workflowScheduler.start(triggerNode, initiatorId,
+                title != null ? title : triggerType + " 触发", parseVariables(variables), triggerType);
+        writeAuditLog(workflowId, instance.getId(), triggerNode.getId(), "START", null, "running");
+        return toInstanceDTO(instance);
+    }
+
+    /**
      * 启动工作流实例（P1 内核重构，51 号 §四）：
      * 仅已发布工作流可发起；调度器完成触发器激活与推进（支持并行/循环/自动节点）。
      */
@@ -431,8 +475,11 @@ public class WorkflowInstanceService {
         entry.setInstanceId(instanceId);
         entry.setNodeId(nodeId);
         entry.setOperation(operation);
-        entry.setOperatorId(identityProvider.currentUserId());
-        entry.setOperatorName(identityProvider.currentUsername());
+        // 触发链路（webhook/定时）无登录态：兜底 system（52 号 P2 冒烟发现项）
+        entry.setOperatorId(identityProvider.currentUserId() != null
+                ? identityProvider.currentUserId() : "system");
+        entry.setOperatorName(identityProvider.currentUsername() != null
+                ? identityProvider.currentUsername() : "system");
         entry.setBeforeState(beforeState);
         entry.setAfterState(afterState);
         workflowAuditLogMapper.insert(entry);
