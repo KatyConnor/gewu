@@ -205,7 +205,17 @@ export default function WorkflowCanvas({ workflowId, name, description, onBack, 
       try {
         const graph = await getWorkflowGraph(workflowId);
         if (cancelled) return;
-        const loadedNodes: WorkflowNode[] = (graph.nodes || []).map((n, i) => {
+        const graphNodes = graph.nodes || [];
+        // 存量冒烟/迁移数据坐标全为 (0,0)：?? 兜底不识别 0，节点会全部叠加在画布原点。
+        // 坐标被多个节点共用与缺失（null）同样视为无布局，按索引铺网格；唯一坐标（含真实的 0,0）保持原值
+        const coordUsage = new Map<string, number>();
+        for (const n of graphNodes) {
+          if (n.positionX != null && n.positionY != null) {
+            const key = `${n.positionX},${n.positionY}`;
+            coordUsage.set(key, (coordUsage.get(key) ?? 0) + 1);
+          }
+        }
+        const loadedNodes: WorkflowNode[] = graphNodes.map((n, i) => {
           let type = n.nodeType as WorkflowNode['type'];
           if (!nodeTypes.some(t => t.type === type)) type = 'manual-trigger'; // 未知类型兜底
           let config: Record<string, string> = {};
@@ -216,12 +226,16 @@ export default function WorkflowCanvas({ workflowId, name, description, onBack, 
               .replace(/&gt;/g, '>').replace(/&lt;/g, '<')
               .replace(/&quot;/g, '"').replace(/&#x27;/g, "'")
               .replace(/&amp;/g, '&');
+          const px = n.positionX;
+          const py = n.positionY;
+          const shared = px != null && py != null && (coordUsage.get(`${px},${py}`) ?? 0) > 1;
+          const hasPos = px != null && py != null && !shared;
           return {
             id: n.nodeId,
             type,
             label: n.nodeName || type,
-            x: n.positionX ?? 60 + (i % 4) * 220,
-            y: n.positionY ?? 60 + Math.floor(i / 4) * 140,
+            x: hasPos && px != null ? px : 60 + (i % 4) * 220,
+            y: hasPos && py != null ? py : 60 + Math.floor(i / 4) * 140,
             config: Object.fromEntries(
               Object.entries(config).map(([k, v]) => [k, unescapeEntities(v)])),
           };
