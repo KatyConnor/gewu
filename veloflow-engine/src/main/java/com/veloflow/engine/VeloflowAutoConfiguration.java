@@ -35,6 +35,14 @@ public class VeloflowAutoConfiguration {
      * {@code veloflow.mapper-scan.enabled=false} 关闭本工厂，
      * 并在主 @MapperScan 中追加本引擎 mapper 包（绑定主 factory）。
      */
+    /** 审计填充默认实现（宿主自有 MetaObjectHandler 时让位） */
+    @Bean
+    @org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean(
+            com.baomidou.mybatisplus.core.handlers.MetaObjectHandler.class)
+    public com.veloflow.engine.commons.VeloflowMetaObjectHandler veloflowMetaObjectHandler() {
+        return new com.veloflow.engine.commons.VeloflowMetaObjectHandler();
+    }
+
     @Bean
     @ConditionalOnProperty(name = "veloflow.mapper-scan.enabled", havingValue = "true", matchIfMissing = true)
     public org.apache.ibatis.session.SqlSessionFactory veloflowSqlSessionFactory(

@@ -83,8 +83,35 @@
     </dependency>
   </dependencies>
 
+  <!-- 发布仓库（私服地址按部署环境替换；本地验证可用
+       mvn deploy -DaltDeploymentRepository=local::default::file:///path/to/repo） -->
+  <distributionManagement>
+    <repository>
+      <id>veloflow-releases</id>
+      <name>Veloflow Releases</name>
+      <url>https://nexus.example.com/repository/veloflow-releases/</url>
+    </repository>
+    <snapshotRepository>
+      <id>veloflow-snapshots</id>
+      <name>Veloflow Snapshots</name>
+      <url>https://nexus.example.com/repository/veloflow-snapshots/</url>
+    </snapshotRepository>
+  </distributionManagement>
+
   <build>
     <plugins>
+      <!-- 发布套件：sources 归档随 deploy 一并发布（接入方 IDE 可溯源） -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-source-plugin</artifactId>
+        <version>3.3.1</version>
+        <executions>
+          <execution>
+            <id>attach-sources</id>
+            <goals><goal>jar-no-fork</goal></goals>
+          </execution>
+        </executions>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-compiler-plugin</artifactId>
