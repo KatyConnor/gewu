@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20260927-123010", "ts": "2026-09-27T12:30:10+08:00", "actor": "agent", "event": "CHECKPOINT", "summary": "检查点 cp-wf-p1-smoke", "detail": "类型:checkpoint 目标:cp-wf-p1-smoke", "prev_hash": null, "hash": "e82c23b43f43584b8b76b66ec6840f3b56feef1a12d8e79a1ab9e1f13b3013c2"}

@@ -85,7 +85,7 @@ mybatis-plus:
       logic-not-delete-value: 0
   configuration:
     map-underscore-to-camel-case: true
-    log-impl: org.apache.ibatis.logging.stdout.StdOutImpl
+    log-impl: org.apache.ibatis.logging.slf4j.Slf4jImpl  # 交由日志级别管控（原 StdOutImpl 直印 SQL 噪音大）
 
 # Agent 引擎配置
 agent:

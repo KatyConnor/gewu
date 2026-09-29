@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20260927-235516", "ts": "2026-09-27T23:55:16+08:00", "actor": "agent", "event": "CHECKPOINT", "summary": "检查点 cp-veloflow-p2", "detail": "类型:checkpoint 目标:cp-veloflow-p2", "prev_hash": null, "hash": "febfd35be5c897448c57b3688f2756ce4208b8711cc097f0084a9de51809e0a1"}

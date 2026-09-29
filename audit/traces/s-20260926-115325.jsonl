@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20260926-115325", "ts": "2026-09-26T11:53:25+08:00", "actor": "agent", "event": "CHECKPOINT", "summary": "检查点 cp-orch-o5-docs", "detail": "类型:checkpoint 目标:cp-orch-o5-docs", "prev_hash": null, "hash": "ae95bb6a41f21b5c0586e60615bedc0095b8ab33a5883db71be1bcadf88abfe6"}

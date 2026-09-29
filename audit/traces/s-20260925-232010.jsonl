@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20260925-232010", "ts": "2026-09-25T23:20:10+08:00", "actor": "agent", "event": "CHECKPOINT", "summary": "检查点 cp-before-smoke-restart", "detail": "类型:checkpoint 目标:cp-before-smoke-restart", "prev_hash": null, "hash": "7bcadadeae1510bea3c9f3f8aaf755540b8175718a7cb8854b5efc84e8227cc3"}

@@ -206,7 +206,7 @@ public class WorkflowScheduler {
             Map<String, Object> variables = reloadVariables(instance.getId());
             WorkflowNode completedNode = nodeMapper.selectById(nodeInstance.getNodeId());
             variables.put(varKey(completedNode), completion.outputJson());
-            log.info("节点完成写变量: instanceId={}, varKey={}, keys={}",
+            log.debug("节点完成写变量: instanceId={}, varKey={}, keys={}",
                     instanceId, varKey(completedNode), variables.keySet());
             Object parsed = parseJson(completion.outputJson());
             if (parsed instanceof Map<?, ?> map) {
@@ -399,7 +399,7 @@ public class WorkflowScheduler {
             case "N_OF_M" -> arrived >= Math.min(parseInt(config.get("joinCount"), expect), expect);
             default -> arrived >= expect; // ALL
         };
-        log.info("join 到达记账: joinId={}, arrived={}/{}, strategy={}, release={}",
+        log.debug("join 到达记账: joinId={}, arrived={}/{}, strategy={}, release={}",
                 joinNode.getId(), arrived, expect, strategy, release);
         if (!release) {
             return; // 未达策略阈值：等待其余分支

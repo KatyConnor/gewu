@@ -86,3 +86,9 @@ application-local.properties
 # 临时文件
 tmp/
 temp/
+
+# Next.js 构建产物（gewu-admin-web）
+.next/
+
+# 私服备份（S4 旧表退役备份等，不入库）
+deploy/backup/

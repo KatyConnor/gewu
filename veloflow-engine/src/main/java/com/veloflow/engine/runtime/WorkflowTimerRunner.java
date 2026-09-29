@@ -69,7 +69,7 @@ public class WorkflowTimerRunner {
                 handleHumanTimeout(nodeInstance, node);
                 continue;
             }
-            log.info("定时器到期驱动节点完成: instanceId={}, nodeId={}",
+            log.debug("定时器到期驱动节点完成: instanceId={}, nodeId={}",
                     nodeInstance.getInstanceId(), nodeInstance.getNodeId());
             scheduler.completeNodeExternally(nodeInstance.getInstanceId(), nodeInstance.getId(),
                     true, "{\"timerFired\": true}");
