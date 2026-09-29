@@ -52,6 +52,9 @@ class WorkflowVersionTest {
     @Mock WorkflowTransitionMapper workflowTransitionMapper;
     @Mock WorkflowInstanceMapper workflowInstanceMapper;
     @Mock WorkflowVersionMapper versionMapper;
+    @Mock com.veloflow.engine.persistence.mapper.WorkflowPermissionMapper permissionMapper;
+    @Mock com.veloflow.engine.persistence.mapper.WorkflowPermissionMatrixMapper permissionMatrixMapper;
+    @Mock com.veloflow.engine.identity.FlowIdentityProvider identityProvider;
     @Mock WorkflowDefinitionValidator definitionValidator;
 
     private WorkflowService service;
@@ -69,7 +72,9 @@ class WorkflowVersionTest {
     @BeforeEach
     void setUp() {
         service = new WorkflowService(workflowMapper, workflowNodeMapper, workflowTransitionMapper,
-                workflowInstanceMapper, versionMapper, definitionValidator);
+                workflowInstanceMapper, versionMapper, permissionMapper, permissionMatrixMapper,
+                identityProvider, definitionValidator);
+        lenient().when(permissionMapper.selectList(any())).thenReturn(java.util.List.of());
         lenient().when(definitionValidator.validate(any())).thenReturn(List.of());
     }
 

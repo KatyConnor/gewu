@@ -32,6 +32,12 @@ public class VeloflowIdentityBridge implements FlowIdentityProvider {
     }
 
     @Override
+    public java.util.List<String> currentRoles() {
+        com.gewu.common.context.UserContext ctx = com.gewu.common.context.UserContext.get();
+        return ctx != null && ctx.getRoleCodes() != null ? ctx.getRoleCodes() : java.util.List.of();
+    }
+
+    @Override
     public Map<String, String> batchUserNames(Set<String> userIds) {
         if (userIds == null || userIds.isEmpty()) {
             return Map.of();

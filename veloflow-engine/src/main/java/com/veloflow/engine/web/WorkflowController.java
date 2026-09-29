@@ -86,6 +86,21 @@ public class WorkflowController {
         return FlowResult.success();
     }
 
+    // ==================== 流程权限（权限体系接线） ====================
+
+    @GetMapping("/{workflowId}/permissions")
+    @Operation(summary = "查询流程权限集", description = "角色授权（START/EXECUTE/REVIEW/MANAGE）+ 节点类型办理矩阵")
+    public FlowResult<WorkflowPermissionDTO> getPermissions(@PathVariable String workflowId) {
+        return FlowResult.success(workflowService.getPermissions(workflowId));
+    }
+
+    @PutMapping("/{workflowId}/permissions")
+    @Operation(summary = "整体替换流程权限集", description = "admin/MANAGE 授权可管理；空集=公开可发起")
+    public FlowResult<WorkflowPermissionDTO> updatePermissions(
+            @PathVariable String workflowId, @RequestBody WorkflowPermissionDTO command) {
+        return FlowResult.success(workflowService.updatePermissions(workflowId, command));
+    }
+
     // ==================== 版本快照（51 号 T4.4） ====================
 
     @GetMapping("/{workflowId}/versions")

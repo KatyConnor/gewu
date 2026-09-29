@@ -149,6 +149,18 @@ CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_PERMISSION (
     UNIQUE KEY uk_vlf_perm (workflow_id, role_code, permission_type)
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Veloflow 流程权限';
 
+CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_PERMISSION_MATRIX (
+    id VARCHAR(26) NOT NULL,
+    workflow_id VARCHAR(26) NOT NULL,
+    node_type VARCHAR(32) NOT NULL COMMENT '节点类型（如 task/approval）',
+    required_role VARCHAR(50) NOT NULL COMMENT '办理所需角色',
+    permission_level VARCHAR(20) DEFAULT 'APPROVE' COMMENT 'APPROVE/EXECUTE 生效，VIEW 预留',
+    created_at BIGINT NOT NULL,
+    created_by VARCHAR(26) DEFAULT NULL,
+    PRIMARY KEY (id),
+    KEY idx_vlf_pm_wf (workflow_id, node_type)
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COMMENT='Veloflow 节点类型办理矩阵';
+
 -- 8. 审计日志表
 CREATE TABLE IF NOT EXISTS VLF_WORKFLOW_AUDIT_LOG (
     id VARCHAR(26) NOT NULL,

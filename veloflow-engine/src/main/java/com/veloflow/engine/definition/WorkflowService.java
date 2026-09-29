@@ -42,6 +42,9 @@ public class WorkflowService {
     private final WorkflowTransitionMapper workflowTransitionMapper;
     private final WorkflowInstanceMapper workflowInstanceMapper;
     private final com.veloflow.engine.persistence.mapper.WorkflowVersionMapper versionMapper;
+    private final com.veloflow.engine.persistence.mapper.WorkflowPermissionMapper permissionMapper;
+    private final com.veloflow.engine.persistence.mapper.WorkflowPermissionMatrixMapper permissionMatrixMapper;
+    private final com.veloflow.engine.identity.FlowIdentityProvider identityProvider;
     private final com.veloflow.engine.runtime.WorkflowDefinitionValidator definitionValidator;
 
     @Transactional
@@ -169,6 +172,98 @@ public class WorkflowService {
             return com.veloflow.engine.commons.VeloflowJson.MAPPER.writeValueAsString(snapshot);
         } catch (Exception e) {
             throw VeloflowException.of(VeloflowErrorCode.FLOW_INVALID_STATE, "版本快照序列化失败: " + e.getMessage());
+        }
+    }
+
+    /** 查询流程权限集（角色授权 + 节点矩阵） */
+    public WorkflowPermissionDTO getPermissions(String workflowId) {
+        getWorkflowEntity(workflowId);
+        List<com.veloflow.engine.persistence.model.WorkflowPermission> grants =
+                permissionMapper.selectList(new LambdaQueryWrapper<com.veloflow.engine.persistence.model.WorkflowPermission>()
+                        .eq(com.veloflow.engine.persistence.model.WorkflowPermission::getWorkflowId, workflowId));
+        List<com.veloflow.engine.persistence.model.WorkflowPermissionMatrix> rules =
+                permissionMatrixMapper.selectList(
+                        new LambdaQueryWrapper<com.veloflow.engine.persistence.model.WorkflowPermissionMatrix>()
+                                .eq(com.veloflow.engine.persistence.model.WorkflowPermissionMatrix::getWorkflowId, workflowId));
+        return WorkflowPermissionDTO.builder()
+                .permissions(grants.stream().map(g -> WorkflowPermissionDTO.PermissionGrant.builder()
+                        .roleCode(g.getRoleCode()).permissionType(g.getPermissionType()).build()).toList())
+                .matrix(rules.stream().map(r -> WorkflowPermissionDTO.MatrixRule.builder()
+                        .nodeType(r.getNodeType()).requiredRole(r.getRequiredRole())
+                        .permissionLevel(r.getPermissionLevel()).build()).toList())
+                .build();
+    }
+
+    /**
+     * 整体替换流程权限集（权限体系接线）。管理权：平台 admin 角色，或持有该流程
+     * MANAGE 授权，或权限集为空时的首次配置者。变更写审计。
+     */
+    @Transactional
+    public WorkflowPermissionDTO updatePermissions(String workflowId, WorkflowPermissionDTO command) {
+        getWorkflowEntity(workflowId);
+        requireManagePermission(workflowId);
+        permissionMapper.delete(new LambdaQueryWrapper<com.veloflow.engine.persistence.model.WorkflowPermission>()
+                .eq(com.veloflow.engine.persistence.model.WorkflowPermission::getWorkflowId, workflowId));
+        permissionMatrixMapper.delete(
+                new LambdaQueryWrapper<com.veloflow.engine.persistence.model.WorkflowPermissionMatrix>()
+                        .eq(com.veloflow.engine.persistence.model.WorkflowPermissionMatrix::getWorkflowId, workflowId));
+        if (command.getPermissions() != null) {
+            for (WorkflowPermissionDTO.PermissionGrant grant : command.getPermissions()) {
+                if (grant.getRoleCode() == null || grant.getRoleCode().isBlank()
+                        || grant.getPermissionType() == null || grant.getPermissionType().isBlank()) {
+                    throw VeloflowException.of(VeloflowErrorCode.FLOW_VALIDATION_FAILED,
+                            "权限授权缺少 roleCode/permissionType");
+                }
+                com.veloflow.engine.persistence.model.WorkflowPermission entity =
+                        new com.veloflow.engine.persistence.model.WorkflowPermission();
+                entity.setId(com.veloflow.engine.commons.VlfId.next());
+                entity.setWorkflowId(workflowId);
+                entity.setRoleCode(grant.getRoleCode().trim());
+                entity.setPermissionType(grant.getPermissionType().trim().toUpperCase());
+                permissionMapper.insert(entity);
+            }
+        }
+        if (command.getMatrix() != null) {
+            for (WorkflowPermissionDTO.MatrixRule rule : command.getMatrix()) {
+                if (rule.getNodeType() == null || rule.getNodeType().isBlank()
+                        || rule.getRequiredRole() == null || rule.getRequiredRole().isBlank()) {
+                    throw VeloflowException.of(VeloflowErrorCode.FLOW_VALIDATION_FAILED,
+                            "矩阵规则缺少 nodeType/requiredRole");
+                }
+                com.veloflow.engine.persistence.model.WorkflowPermissionMatrix entity =
+                        new com.veloflow.engine.persistence.model.WorkflowPermissionMatrix();
+                entity.setId(com.veloflow.engine.commons.VlfId.next());
+                entity.setWorkflowId(workflowId);
+                entity.setNodeType(rule.getNodeType().trim());
+                entity.setRequiredRole(rule.getRequiredRole().trim());
+                entity.setPermissionLevel(rule.getPermissionLevel() == null
+                        ? "APPROVE" : rule.getPermissionLevel().trim().toUpperCase());
+                permissionMatrixMapper.insert(entity);
+            }
+        }
+        log.info("流程权限集已更新: workflowId={}, grants={}, matrixRules={}",
+                workflowId,
+                command.getPermissions() == null ? 0 : command.getPermissions().size(),
+                command.getMatrix() == null ? 0 : command.getMatrix().size());
+        return getPermissions(workflowId);
+    }
+
+    /** 管理权校验：admin 角色 / MANAGE 授权 / 权限集为空（首次配置） */
+    private void requireManagePermission(String workflowId) {
+        List<String> myRoles = identityProvider.currentRoles();
+        // 平台角色码大小写不敏感（实际 claim 为 ADMIN）
+        if (myRoles.stream().anyMatch("admin"::equalsIgnoreCase)) {
+            return;
+        }
+        List<com.veloflow.engine.persistence.model.WorkflowPermission> grants =
+                permissionMapper.selectList(new LambdaQueryWrapper<com.veloflow.engine.persistence.model.WorkflowPermission>()
+                        .eq(com.veloflow.engine.persistence.model.WorkflowPermission::getWorkflowId, workflowId));
+        boolean hasManage = grants.stream()
+                .anyMatch(g -> "MANAGE".equalsIgnoreCase(g.getPermissionType())
+                        && myRoles.contains(g.getRoleCode()));
+        if (!hasManage && !grants.isEmpty()) {
+            throw VeloflowException.of(VeloflowErrorCode.FLOW_UNAUTHORIZED,
+                    "无该流程权限管理权（需要 admin 角色或 MANAGE 授权）");
         }
     }
 

@@ -52,6 +52,8 @@ public class WorkflowInstanceService {
     private final WorkflowNotificationMapper workflowNotificationMapper;
     private final WorkflowAuditLogMapper workflowAuditLogMapper;
     private final com.veloflow.engine.persistence.mapper.WorkflowVersionMapper workflowVersionMapper;
+    private final com.veloflow.engine.persistence.mapper.WorkflowPermissionMapper workflowPermissionMapper;
+    private final com.veloflow.engine.persistence.mapper.WorkflowPermissionMatrixMapper workflowPermissionMatrixMapper;
     private final FlowIdentityProvider identityProvider;
     private final com.veloflow.engine.runtime.WorkflowScheduler workflowScheduler;
 
@@ -125,6 +127,60 @@ public class WorkflowInstanceService {
     }
 
     /**
+     * 发起权限校验（权限体系接线）：流程未配置 START 权限=公开可发起；
+     * 配置后仅命中角色可发起。仅 MANUAL 链路校验——触发链路
+     * （webhook/定时/事件/上游）由触发机制自身授权（token 即凭证等）。
+     */
+    private void requireStartPermission(String workflowId) {
+        List<com.veloflow.engine.persistence.model.WorkflowPermission> grants =
+                workflowPermissionMapper.selectList(
+                        new LambdaQueryWrapper<com.veloflow.engine.persistence.model.WorkflowPermission>()
+                                .eq(com.veloflow.engine.persistence.model.WorkflowPermission::getWorkflowId, workflowId)
+                                .eq(com.veloflow.engine.persistence.model.WorkflowPermission::getPermissionType, "START"));
+        if (grants.isEmpty()) {
+            return; // 未配置：公开
+        }
+        List<String> myRoles = identityProvider.currentRoles();
+        boolean hit = grants.stream().anyMatch(g -> myRoles.contains(g.getRoleCode()));
+        if (!hit) {
+            throw VeloflowException.of(VeloflowErrorCode.FLOW_UNAUTHORIZED,
+                    "无该流程发起权限（需要角色: "
+                            + grants.stream().map(com.veloflow.engine.persistence.model.WorkflowPermission::getRoleCode)
+                                    .distinct().toList() + "）");
+        }
+    }
+
+    /**
+     * 办理角色矩阵兜底（权限体系接线）：节点行未指派（assigneeId/assigneeRole 均空）时，
+     * 若矩阵为该节点类型配置了 required_role（APPROVE/EXECUTE 级），当前用户须命中角色才可办理；
+     * 矩阵未配置则保持"任意登录用户可办"。
+     */
+    private void requireMatrixPermission(WorkflowNodeInstance nodeInstance) {
+        if (nodeInstance.getAssigneeId() != null || nodeInstance.getAssigneeRole() != null) {
+            return; // 行级指派优先（既有语义不变）
+        }
+        List<com.veloflow.engine.persistence.model.WorkflowPermissionMatrix> rules =
+                workflowPermissionMatrixMapper.selectList(
+                        new LambdaQueryWrapper<com.veloflow.engine.persistence.model.WorkflowPermissionMatrix>()
+                                .eq(com.veloflow.engine.persistence.model.WorkflowPermissionMatrix::getNodeType,
+                                        nodeInstance.getNodeType()));
+        List<String> required = rules.stream()
+                .filter(r -> "APPROVE".equalsIgnoreCase(r.getPermissionLevel())
+                        || "EXECUTE".equalsIgnoreCase(r.getPermissionLevel()))
+                .map(com.veloflow.engine.persistence.model.WorkflowPermissionMatrix::getRequiredRole)
+                .filter(role -> role != null && !role.isBlank())
+                .distinct()
+                .toList();
+        if (required.isEmpty()) {
+            return; // 矩阵未配置：任意登录用户可办
+        }
+        if (identityProvider.currentRoles().stream().noneMatch(required::contains)) {
+            throw VeloflowException.of(VeloflowErrorCode.FLOW_UNAUTHORIZED,
+                    "该类型节点仅角色可办理: " + required);
+        }
+    }
+
+    /**
      * 启动工作流实例（P1 内核重构，51 号 §四）：
      * 仅已发布工作流可发起；调度器完成触发器激活与推进（支持并行/循环/自动节点）。
      */
@@ -138,6 +194,7 @@ public class WorkflowInstanceService {
             throw VeloflowException.of(VeloflowErrorCode.FLOW_INVALID_STATE, "工作流未发布，不能发起实例");
         }
         String initiatorId = requireCurrentUser();
+        requireStartPermission(workflowId);
 
         WorkflowNode triggerNode = workflowNodeMapper.selectOne(
                 new LambdaQueryWrapper<WorkflowNode>()
@@ -220,6 +277,8 @@ public class WorkflowInstanceService {
             throw VeloflowException.of(VeloflowErrorCode.FLOW_UNAUTHORIZED,
                     "该任务已指派给角色 " + nodeInstance.getAssigneeRole() + "，无权办理");
         }
+        // 办理角色矩阵兜底：未指派行按节点类型矩阵校验（矩阵未配置保持全员可办）
+        requireMatrixPermission(nodeInstance);
         if (command.getRemark() != null && !command.getRemark().isBlank()) {
             nodeInstance.setRemark(command.getRemark());
             workflowNodeInstanceMapper.updateById(nodeInstance);
