@@ -153,17 +153,36 @@ export function gridPosition(index: number): { x: number; y: number } {
   };
 }
 
+/** 合法画布坐标判定：非有限数字（字符串/NaN/null）一律视为缺失（docs/design/55 P0-B） */
+function isFiniteNumber(value: unknown): value is number {
+  return typeof value === 'number' && Number.isFinite(value);
+}
+
 /** 图定义 → 画布节点/边 */
 export function definitionToFlow(definition: GraphDefinition): {
   nodes: DesignerFlowNode[];
   edges: DesignerFlowEdge[];
 } {
-  const nodes: DesignerFlowNode[] = definition.nodes.map((def, index) => ({
-    id: def.nodeId,
-    type: 'orchestration' as const,
-    position: { x: def.x ?? gridPosition(index).x, y: def.y ?? gridPosition(index).y },
-    data: { def },
-  }));
+  // 坐标兜底（与 WorkflowCanvas 加载回显同语义，docs/design/55 P0-A）：
+  // 缺失或被多节点共用的坐标铺网格，唯一合法坐标保留原值（含真实的 (0,0)）——
+  // 程序化建图/JSON 视图可能写出占位 (0,0)，?? 只认缺失会导致全部叠加在画布原点
+  const coordUsage = new Map<string, number>();
+  for (const def of definition.nodes) {
+    if (isFiniteNumber(def.x) && isFiniteNumber(def.y)) {
+      const key = `${def.x},${def.y}`;
+      coordUsage.set(key, (coordUsage.get(key) ?? 0) + 1);
+    }
+  }
+  const nodes: DesignerFlowNode[] = definition.nodes.map((def, index) => {
+    const pos = isFiniteNumber(def.x) && isFiniteNumber(def.y) ? { x: def.x, y: def.y } : null;
+    const unique = pos !== null && (coordUsage.get(`${pos.x},${pos.y}`) ?? 0) === 1;
+    return {
+      id: def.nodeId,
+      type: 'orchestration' as const,
+      position: unique && pos ? pos : gridPosition(index),
+      data: { def },
+    };
+  });
   const edges: DesignerFlowEdge[] = definition.edges.map((edge, index) => ({
     id: `e${index}-${edge.fromNode}-${edge.toNode}`,
     source: edge.fromNode,
@@ -206,7 +225,13 @@ export function parseDefinition(text: string): GraphDefinition {
     name: typeof obj.name === 'string' ? obj.name : undefined,
     mode: typeof obj.mode === 'string' ? obj.mode : undefined,
     type: typeof obj.type === 'string' ? obj.type : undefined,
-    nodes: Array.isArray(obj.nodes) ? (obj.nodes as GraphNodeDef[]) : [],
+    // 坐标类型收敛（docs/design/55 P0-B）：非有限数字的 x/y 一律置为缺失，
+    // 防止字符串/越界坐标流入 React Flow 造成渲染错乱；其余字段原样透传
+    nodes: Array.isArray(obj.nodes)
+      ? obj.nodes.map((n: GraphNodeDef) => (typeof n === 'object' && n !== null
+          ? { ...n, x: isFiniteNumber(n.x) ? n.x : undefined, y: isFiniteNumber(n.y) ? n.y : undefined }
+          : n)) as GraphNodeDef[]
+      : [],
     edges: Array.isArray(obj.edges) ? (obj.edges as GraphEdgeDef[]) : [],
     variables: (obj.variables && typeof obj.variables === 'object' && !Array.isArray(obj.variables))
       ? (obj.variables as Record<string, unknown>) : undefined,

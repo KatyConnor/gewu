@@ -1036,12 +1036,46 @@ public class OrchestrationService {
             if (!tree.isObject()) {
                 throw BusinessException.of(ResultCode.PARAM_INVALID, "编排图定义必须是 JSON 对象");
             }
+            sanitizeDefinitionCoordinates(tree);
             ((ObjectNode) tree).put("mode", mode);
             return objectMapper.writeValueAsString(tree);
         } catch (JsonProcessingException e) {
             throw BusinessException.of(ResultCode.PARAM_INVALID,
                     "编排图定义不是合法 JSON: " + e.getOriginalMessage());
         }
+    }
+
+    /**
+     * 坐标规范化（docs/design/55 P1-C）：x/y 是设计器展示层字段（引擎不消费），
+     * 存在但非法（非数字）时剔除字段，交给设计器网格兜底；合法数字与缺失坐标原样保留，
+     * 后端不做坐标注入或布局纠偏的最小干预，保证版本快照不落坏坐标。
+     */
+    private void sanitizeDefinitionCoordinates(JsonNode tree) {
+        JsonNode nodes = tree.get("nodes");
+        if (nodes == null || !nodes.isArray()) {
+            return;
+        }
+        int removed = 0;
+        for (JsonNode node : nodes) {
+            if (node == null || !node.isObject()) {
+                continue;
+            }
+            ObjectNode nodeObj = (ObjectNode) node;
+            removed += removeInvalidCoordinate(nodeObj, "x");
+            removed += removeInvalidCoordinate(nodeObj, "y");
+        }
+        if (removed > 0) {
+            log.debug("编排图定义坐标规范化：剔除 {} 个非法 x/y 字段", removed);
+        }
+    }
+
+    private int removeInvalidCoordinate(ObjectNode node, String field) {
+        JsonNode value = node.get(field);
+        if (value == null || value.isNumber()) {
+            return 0;
+        }
+        node.remove(field);
+        return 1;
     }
 
     /** 解析规范化后的定义文本为图模型（枚举非法值在此暴露为可读业务错误）。 */
