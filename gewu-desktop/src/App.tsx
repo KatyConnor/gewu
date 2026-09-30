@@ -268,6 +268,56 @@ export default function App() {
   const lastMsg = messages[messages.length - 1];
   const streamingLast = streaming && lastMsg?.role === 'assistant';
 
+  // 主页空态（对标 web ChatHomeView；无选中会话且无流中消息时呈现）
+  if (!activeSession && messages.length === 0) {
+    return (
+      <div className="layout">
+        {pendingApproval && (
+          <ApprovalDialog req={pendingApproval} onDecide={(a, al) => decideApproval(pendingApproval.approvalId, a, al)} />
+        )}
+        <aside className="sidebar">
+          <SessionSidebar
+            sessions={sessions}
+            archivedSessions={archived}
+            projects={[]}
+            activeSessionId={null}
+            currentProjectId={null}
+            showArchived={showArchived}
+            onToggleArchived={() => setShowArchived((v) => !v)}
+            onSelectSession={(s) => openSession(s.sessionId)}
+            onCreateSession={() => newSession()}
+            onArchive={(id) => archiveSession(id)}
+            onUnarchive={(id) => unarchiveSession(id)}
+            onPin={(id, p2) => pinSession(id, p2)}
+            loading={false}
+            user={{ name: '本地用户' }}
+            onBackHome={() => { /* 桌面端无首页概念 */ }}
+            streamingSessionId={streaming ? activeSession : null}
+          />
+          <div className="home-actions">
+            <button className="btn" onClick={() => setShowSettings((v) => !v)}>设置</button>
+          </div>
+        </aside>
+        <main className="home">
+          <div className="home-logo">格物</div>
+          <h1 className="home-title">格物<span className="dot">·</span>致虚</h1>
+          <p className="home-sub">本地智能体工作台</p>
+          <p className="home-slogan">致知在格物，物格而后知至。<br />选择左侧会话开始对话，或创建新的会话。</p>
+          <div className="home-cards">
+            <button className="home-card" onClick={newSession}>
+              <span className="card-icon plus">＋</span>
+              <span>新建会话</span>
+            </button>
+            <button className="home-card" onClick={() => setShowSettings(true)}>
+              <span className="card-icon doc">⚙</span>
+              <span>模型设置</span>
+            </button>
+          </div>
+        </main>
+      </div>
+    );
+  }
+
   return (
     <div className="layout">
       {pendingApproval && (
