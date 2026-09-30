@@ -30,6 +30,7 @@
         <module>gewu-agent-engine</module>
         <module>gewu-admin-server</module>
         <module>veloflow-engine</module>
+        <module>gewu-desktop-runtime</module>
     </modules>
 
     <properties>

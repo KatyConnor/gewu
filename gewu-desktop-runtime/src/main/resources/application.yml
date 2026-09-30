@@ -1,0 +1,58 @@
+server:
+  port: 18081
+
+spring:
+  application:
+    name: gewu-desktop-runtime
+  mvc:
+    async:
+      request-timeout: 300000
+  datasource:
+    # H2 文件库（ADR-006：纯 Java 零原生依赖；MODE=MySQL 对齐平台方言）
+    url: jdbc:h2:file:${gewu.desktop.data-dir:./data}/desktop-runtime;MODE=MySQL
+    driver-class-name: org.h2.Driver
+    username: sa
+    password: ""
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+  jackson:
+    # 对齐平台 ChatStreamEvent 契约：null 字段不输出（Spike 遗留项修复）
+    default-property-inclusion: non_null
+
+gewu:
+  desktop:
+    history-limit: 50
+    data-dir: ./data
+    workspace-root: ./workspace
+    permission-mode: WORKSPACE_WRITE
+    # 开发态模型 Key（生产经 Electron stdin 注入 KeyVault，优先级更高）
+    model-keys: {}
+
+agent:
+  engine:
+    engine:
+      max-tool-rounds: 10
+      default-history-limit: 50
+      loop-detection-enabled: true
+      rounds-renew-enabled: true
+      rounds-renew-max: 2
+    llm:
+      connect-timeout: 30s
+      request-timeout: 120s
+      stream-idle-timeout-ms: 180000
+    budget:
+      # 桌面单用户放宽（方案 A 后 Token 真实记账，默认 81920 会熔断长对话）
+      token-budget: 262144
+      cost-budget-yuan: 0
+      alert-threshold: 0.70
+      degrade-threshold: 0.90
+    subagents:
+      enabled: true
+      max-per-spawn: 5
+      max-depth: 2
+
+logging:
+  level:
+    com.gewu: INFO
+    com.gewu.desktop: INFO
