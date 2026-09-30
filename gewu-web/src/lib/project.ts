@@ -31,31 +31,8 @@ async function handleResponse<T>(res: Response): Promise<T> {
 
 // ==================== 类型定义 ====================
 
-export interface ProjectDTO {
-  projectId: string;
-  projectName: string;
-  projectCode: string;
-  description: string;
-  visibility: number;
-  status: number;
-  ownerId: string;
-  ownerName: string;
-  memberCount: number;
-  createdAt: number;
-  techStack: string;
-  worktree: string;
-  iconUrl: string;
-  iconColor: string;
-  currentPhase: string;
-  initiatedAt: number;
-  closedAt: number;
-  repoUrl?: string;
-  /** 当前 Git 分支名（会话顶栏展示，S9 F2） */
-  repoBranch?: string;
-  cloneStatus?: string;
-  headCommit?: string;
-  repoLocalPath?: string;
-}
+import type { ProjectDTO } from '@gewu/agent-ui/protocol';
+export type { ProjectDTO };
 
 export interface ProjectPhaseDTO {
   id: string;

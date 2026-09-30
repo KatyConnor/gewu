@@ -6,26 +6,8 @@ import { request } from './request';
 // ==================== 类型定义 ====================
 
 /** 会话 DTO */
-export interface SessionDTO {
-  sessionId: string;
-  title: string;
-  type: number;
-  typeDesc: string;
-  projectId?: string;
-  status: number;
-  statusDesc: string;
-  isPublic: number;
-  pinned?: number;
-  slug?: string;
-  shareUrl?: string;
-  messageCount: number;
-  lastMessageAt: number | null;
-  agent?: string;
-  directory?: string;
-  workspaceId?: string;
-  createdAt: number;
-  createdBy?: string;
-}
+import type { SessionDTO } from '@gewu/agent-ui/protocol';
+export type { SessionDTO };
 
 /** 创建会话请求 */
 export interface CreateSessionRequest {

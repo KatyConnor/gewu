@@ -3,16 +3,8 @@
 // 后端会把所有上游非 2xx 统一包装为「xxx API 认证失败或请求错误 (HTTP xxx)」，
 // 因此 HTTP 状态码比错误文案更可靠，优先按状态码分类，网络层错误按关键词兜底。
 
-export interface ChatErrorInfo {
-  raw: string; // 完整原始错误信息
-  title: string; // 第一行摘要（折叠态展示）
-  category: string; // 错误分类
-  cause: string; // 可能原因
-  suggestion: string; // 建议处理
-  time: number; // 发生时间（毫秒时间戳）
-  /** warning 级：非错误但需用户知晓（如回复截断），提示框用琥珀色系 */
-  level?: 'error' | 'warning';
-}
+import type { ChatErrorInfo } from '@gewu/agent-ui/protocol';
+export type { ChatErrorInfo };
 
 interface CategoryTemplate {
   category: string;
