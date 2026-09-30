@@ -1,0 +1,5 @@
+{
+  "name": "gewu-platform-workspace",
+  "private": true,
+  "description": "格物平台前端 workspace 根（gewu-web / packages/*，docs/design/42 ADR-003）。pnpm 配置见 pnpm-workspace.yaml（pnpm 11 配置即代码）。"
+}

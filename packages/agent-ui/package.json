@@ -1,0 +1,43 @@
+{
+  "name": "@gewu/agent-ui",
+  "version": "0.1.0",
+  "private": true,
+  "description": "格物智能体 UI 共享包：事件协议 / API 客户端 / 过程时间线 / chat-ui 组件族。gewu-web 与 gewu-desktop 的单一实现源（docs/design/42 ADR-003/004）。源码分发（消费者转译：Next transpilePackages / Vite）。",
+  "main": "./src/index.ts",
+  "types": "./src/index.ts",
+  "exports": {
+    ".": "./src/index.ts",
+    "./protocol": "./src/protocol/index.ts",
+    "./api-client": "./src/api-client/index.ts",
+    "./process": "./src/process/index.ts",
+    "./chat-ui/timeline": "./src/chat-ui/timeline/index.ts",
+    "./chat-ui/plan": "./src/chat-ui/plan/index.ts",
+    "./chat-ui/sidebar": "./src/chat-ui/sidebar/index.ts",
+    "./chat-ui/page": "./src/chat-ui/page/index.ts",
+    "./chat-ui/filepanel": "./src/chat-ui/filepanel/index.ts",
+    "./ui": "./src/ui/index.ts",
+    "./ui/monaco": "./src/ui/monaco/index.ts"
+  },
+  "sideEffects": false,
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "peerDependencies": {
+    "lucide-react": ">=1.20.0",
+    "prismjs": ">=1.29.0",
+    "react": ">=18.0.0",
+    "react-dom": ">=18.0.0",
+    "react-markdown": ">=9.0.0",
+    "react-syntax-highlighter": ">=15.5.0",
+    "remark-gfm": ">=4.0.0",
+    "@monaco-editor/react": ">=4.6.0"
+  },
+  "devDependencies": {
+    "@types/prismjs": "^1.26.6",
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@types/react-syntax-highlighter": "^15.5.13",
+    "typescript": "^5.5.0",
+    "@types/node": "^20"
+  }
+}

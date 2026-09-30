@@ -92,3 +92,8 @@ temp/
 
 # 私服备份（S4 旧表退役备份等，不入库）
 deploy/backup/
+
+# gewu-desktop 运行时数据与产物（Phase 1）
+gewu-desktop-runtime/data/
+gewu-desktop-runtime/workspace/
+gewu-desktop/release/
