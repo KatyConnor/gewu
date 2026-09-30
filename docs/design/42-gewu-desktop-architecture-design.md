@@ -1,6 +1,6 @@
 # gewu-desktop 桌面端模块架构设计
 
-> **文档编号**：42 | **版本**：V3.0 | **日期**：2026-09-09
+> **文档编号**：42 | **版本**：V3.1 | **日期**：2026-09-29
 > **设计角色**：资深技术架构师（角色03）
 > **状态**：评审中
 > **前置阅读**：`docs/design/01-technical-architecture.md`、`docs/design/21-unified-architecture.md`、`docs/design/25-unified-deployment.md`、`docs/architecture/PROJECT-FULL-ANALYSIS-REPORT-2026-08.md`
@@ -15,6 +15,7 @@
 > | V2.1 | 2026-08-20 | ADR-001 复决：六候选壳层技术评估矩阵，维持 Electron，写死复决触发条件 |
 > | V2.2 | 2026-08-20 | §12 细化：变更传播矩阵、三层升级机制、分发渠道与版本协商 |
 > | **V3.0** | **2026-09-09** | **平台演进再基线**（基于 S9"会话工作台 zcode 化"及预算/超时/编排/MCP 重构后的平台实况）：① 新增 ADR-009 文件工具对齐策略（复用引擎内置文件工具 + LocalFileWorkspaceSpi）；② 新增 §7.5 本地变更追踪与会话工作台对齐；③ 事件协议扩容（content_reset/plan_*/subagent_status/finishReason/ping 等）；④ 预算行为适配（Token 记账真实化）；⑤ 平台侧任务清单重写（E1/E2/E3 已完成出清单，N4 已实施待验证）；⑥ 共享包与页面复用清单更新（SessionSidebar/PlanCard/FileEditorPanel 族）；⑦ 风险登记册重写 |
+> | **V3.1** | **2026-09-29** | **Veloflow 工作流轨归位**（平台引入 veloflow-engine 独立流程引擎、退役旧 workflow 模块，52~55 号设计）：① 新增 ADR-010——工作流判定为平台固有能力，单机不集成、协同形态作为消费端；② §6.2 复用映射补 Veloflow 设计器页（协同形态）；③ §7.4 补 run_workflow 工具归属标注（gewu-application 层，仅协同）；④ ADR-008 对齐清单补待收敛项（code_execute 工作区卷持久化）；⑤ **事实更正：gewu-desktop 已有 Electron 壳原型**（远程 webview 模式 + build.sh/ps1 + Linux 打包产物验证）——定位为 Phase 1 起点资产 |
 
 ---
 
@@ -111,6 +112,7 @@
 | **任务计划（todo list）** | **引擎 plan_task 内置工具 + PlanCard 组件复用**（S9-M3 同款） | — |
 | **子代理（subagent）** | **引擎 spawn_subagents 内置**（maxPerSpawn=5 / maxDepth=2 / 独立线程池防嵌套）+ subagent_status 事件 | — |
 | 多 Agent 编排 | 引擎编排四模式 + 自主目标 + **pause/resume/cancel（已真实现）** | 云端编排实例 |
+| **工作流（Veloflow）** | ❌ 不集成（ADR-010：持久化等待驱动内核，单机无语义） | Veloflow 设计器页复用 + `run_workflow` Agent 工具云端执行 |
 
 ### 2.3 建设目标
 
@@ -232,7 +234,7 @@
 
 ### ADR-007：平台 LLM 代理（维持，不变）
 
-### ADR-008：本地沙箱执行器（V3.0 参数对齐）
+### ADR-008：本地沙箱执行器（V3.0 参数对齐，V3.1 增补待收敛项）
 
 维持 docker CLI 封装决策，V3.0 增补**与平台 DockerSandboxProvider 的行为对齐清单**（源码核实）：
 
@@ -244,6 +246,7 @@
 | 资源与安全 | cpu 1 / mem 512MB / disk 1GB / timeout 300s / network=none；no-new-privileges、CapDrop ALL、readonly rootfs（挂卷时关闭）、tmpfs /tmp 64m |
 | 卷挂载 | `gewu-ws-{workspaceId前12位}` → 容器 `/workspace`（rw） |
 | 自愈 | 探活自愈（记录 running ≠ 容器存活 → 重启；容器被删 → 新建并重绑），对齐 `ensureDevSandboxForUser` 三级自愈语义 |
+| **工作区卷持久化（待收敛项）** | 平台未提交专题为 code_execute 增 `workspaceId`（执行容器挂 `gewu-ws-*` 卷持久化 /workspace）——合入后桌面 LocalDockerSandboxExecutor 的 code_execute 路径同步对齐（Phase 2 D2-1 复核） |
 
 ### ADR-009（V3.0 新增）：文件工具对齐策略 —— 复用引擎内置工具 + LocalFileWorkspaceSpi 自加固
 
@@ -255,6 +258,16 @@
 | 决策 | **方案 a 为主 + SPI 内自加固 + 扩展工具走管线**的混合：① `LocalFileWorkspaceSpi.available()=true`，实现本地文件系统读写（相对工作区根），**SPI 实现内部强制执行**：PathGuard（realpath + 符号链接逃逸检测 + 工作区根约束，强于平台 sanitizeRelative）、写操作写前授权（经 DesktopPermissionService/HitlGateway 弹窗 + diff 预览）、调用级审计记录；② 工具命名/参数/结果文案与平台完全一致（含 `edit_file` 唯一匹配、`+N/-N` 行统计口径），使 AIProcessTimeline 编辑行渲染、ProcessEditDiff 红绿差异块、FileEditorPanel 面板**零适配复用**；③ glob/grep/shell/git/web.search 等引擎未内置的能力以 @ToolProvider 实现，走五段管线全量安全链 |
 | 理由 | ① UI/协议/变更追踪三重复用：平台前端正则解析内置工具结果文案（AIProcessTimeline L216），改名即断链；② 变更追踪体系（session_file_change 表 + file-changes API + 回合撤销）以"内置工具写路径"为埋点，绕开即失去 S9 闭环；③ 管线绕过的安全缺口由 SPI 内自加固补齐（桌面恰是唯一有本地文件系统风险的形态，加固必要性强于平台侧）；④ 方案 b 使桌面与平台文件交互体验分叉，违背 G6 |
 | 后果 | + 与 web 端 zcode 文件工作流完全同构、组件直用；− SPI 实现承担安全职责（必须以测试钉死：逃逸用例/授权用例/审计用例，见 §10.2 清单）；− glob/grep 仍需自建（引擎未内置，属增量非冲突） |
+
+### ADR-010（V3.1 新增）：Veloflow 工作流轨 —— 平台固有能力，单机不集成、协同形态消费
+
+| 属性 | 内容 |
+|------|------|
+| 状态 | 已批准 |
+| 背景 | 平台已引入 `veloflow-engine`（独立可商用流程引擎产品，对标 Camunda/Flowable 治理深度 × n8n 节点广度；gewu 为第一个宿主，内嵌库形态随主服务 :8081 同进程；13 张 VLF_ 表，手工 init/upgrade SQL 不走 Flyway）并**退役旧 workflow 模块**（Controller 删除、9 张旧表 DROP、API 同路径 `/api/v1/workflows/**` 由 veloflow REST 无感承接）。能力：34 节点/7 大类（触发器 manual/schedule/webhook/event/upstream、人工 task/approval 或签会签、逻辑控制、AI 节点经 FlowAiBridge、集成 http/database/email/im、sub-workflow/counter 等）+ 版本快照回滚 + 流程权限矩阵。另有 `run_workflow` Agent 工具（**gewu-application 层 @ToolProvider**，非引擎内置）。 |
+| 判定（套用 §9 既有标准："是否本质依赖服务端状态或多方参与"） | Veloflow 内核是**持久化等待驱动**（定时调度扫描、Webhook 接收、事件交付唤醒、人工任务跨时间持久等待、审批多实例、版本/审计表）——依赖共享 DB + 常驻进程 + 多方参与，属服务端固有；纯计算节点虽无外部依赖，但脱离持久化等待内核无意义。**单机形态不应集成**：嵌入 veloflow-engine + 本地建 VLF 表 + 常驻等待进程，将使 desktop-runtime 显著膨胀，且定时/Webhook/人工治理在单机语义缺失。 |
+| 决策 | ① 单机形态不集成 Veloflow（desktop-runtime 不嵌 veloflow-engine，Profile 不加 /workflows 端点族）；② 协同形态作为**消费端**：(a) Veloflow 设计器页复用（WorkflowPage/Canvas + 34 节点库，数据源绑定网关，本地形态隐藏）；(b) `run_workflow` Agent 工具经**云端执行路由**生效（工具 Bean 在平台侧，桌面按 Agent 粒度路由）；(c) 平台侧由 trigger 体系自主运行，桌面仅查看实例状态。③ 单机多 Agent 协作需求由**编排引擎**（引擎内置、单机可用）承接——两轨定位：编排=Agent 间协作（本地可用），工作流=业务流程治理（平台固有）。 |
+| 后果 | + desktop-runtime 保持轻量（不加 VLF 表族与等待内核）；+ 与平台"Veloflow 独立产品"定位一致（桌面不是 Veloflow 宿主）；− 单机用户无工作流能力（产品边界明示于 §9.2/附录 C）；− 协同形态的 WorkflowPage 复用依赖 web 端补齐 versions/rollback/permissions 前端封装（当前 lib/workflow.ts 未接）——纳入 Phase 3 复核 |
 
 ---
 
@@ -300,6 +313,7 @@ packages/agent-ui/
 | Agent 管理（本地）/ 市场 | AgentManagePage / AgentMarketPage | 本地 / 平台 | 不变 |
 | 技能库 / MCP 管理 | SkillLibraryPage / McpServerPage | 本地+平台 | MCP 管理增 streamable_http 类型 |
 | 编排工作台 | OrchestrationPage / Canvas | 本地/平台 | **生命周期真实可用**（pause/resume/cancel 已实现） |
+| **Veloflow 设计器页** ★ | WorkflowPage / Canvas + workflowTypes（34 节点库） | **平台网关（协同形态专属）** | ADR-010：单机隐藏；依赖 web 补齐 versions/permissions 封装（当前 lib/workflow.ts 未接，Phase 3 复核） |
 | 终端 / 文件树 / 权限弹窗 / 审批中心 / 设置 / 仪表盘 | 同 V2.2 | — | 审批中心增配额提示（协同）；设置增配额开关（协同） |
 | 工作区选择器 / 登录连接向导 | 新建 | 本地/平台 | 不变 |
 
@@ -362,6 +376,7 @@ agent.engine:
 | @ToolProvider | `shell.exec`（ProcessBuilder，超时/进程组清理） | 五段管线 | CommandValidator（16 条黑名单共享规则）+ 授权 |
 | @ToolProvider | `git.status/diff/log`、`web.search`（SearXNG URL / DDG 可插拔）、`project.context`（AGENTS.md/rules/skills 装载） | 五段管线 | 只读自动放行（PathGuard 内） |
 | DB 配置型 | http 工具（协同模式平台配置） | 五段管线 | SsrfValidator 主机白名单 |
+| 平台应用层工具（协同专属） | `run_workflow`（Veloflow 发起）、`run_orchestration_graph` 等宿主侧 @ToolProvider | **不在 desktop-runtime classpath**——仅经云端执行路由生效；Agent 导入本地时检测标注"仅云端" | ADR-010；`run_orchestration_graph` 桌面可后期实现本地等价（编排引擎已内嵌，P4 可选） |
 | MCP | stdio / streamable_http | 引擎 McpServerManager | MCP 工具首用授权 |
 
 **命名纪律**：文件四工具名与平台逐字一致（UI 正则解析依赖）；扩展工具命名空间 `fs.* / shell.* / git.* / web.*` 不与内置名冲突。
@@ -414,7 +429,7 @@ agent.engine:
 交错时间线（单行流式形态）、任务计划卡片、**子代理派生**、**内置文件工具 + 本地变更追踪/回合撤销**、截断自愈、死循环检测、编排生命周期（pause/resume/cancel）、MCP Streamable HTTP、上下文压缩钩子。
 
 ### 9.2 仅协同形态提供（平台固有）
-多用户协作会话、市场发布审核、云端沙箱池、集中审计存证、共享模型配置中心、**配额/套餐治理**（单机仅本地预算）、Wenshi 认知推理引擎（依赖 pgvector+SearXNG，桌面以 web.search 近似）、多副本 HA、**管理后台域**（已拆分至 admin-server/admin-web，桌面明确不承载）。
+多用户协作会话、市场发布审核、云端沙箱池、集中审计存证、共享模型配置中心、**配额/套餐治理**（单机仅本地预算）、Wenshi 认知推理引擎（依赖 pgvector+SearXNG，桌面以 web.search 近似）、**Veloflow 工作流引擎**（ADR-010：持久化等待驱动内核 + 独立可商用产品定位——设计器页/run_workflow 云端执行/实例查看为协同消费面）、多副本 HA、**管理后台域**（已拆分至 admin-server/admin-web，桌面明确不承载）。
 
 ### 9.3 明确不做
 同 V2.2（不内置平台管理后台；项目文档/需求域编辑跳转 Web；无移动端）。
@@ -547,6 +562,7 @@ agent.engine:
 | D-19 API 双轨 | 🟡 A 组 11 模块收敛，B 组 5 模块待收敛（桌面共享包不依赖 B 组收敛） |
 | R5 编排节点/生命周期 | ✅ 基本补齐（SUBGRAPH 除外），pause/resume/cancel 真实现 |
 | S9 会话工作台升级 | ✅ M0~M4 交付；**本设计 §6/§7.4/§7.5 的再基线来源** |
+| **Veloflow 工作流产品化** | ✅ 52 号（产品化方案）/53 号（34 节点体系 v2）/54 号（集成指南）/55 号（编排坐标）；旧 workflow 模块退役、API 同路径承接；**V3.1 ADR-010 归位来源** |
 | SSE 多副本（原 N4） | 🟡 T5.1 SseBroadcastService 已实施，桌面联调验证 |
 | 回合撤销（V47/TurnChangesBar） | ⏳ 平台未提交，桌面标"待收敛" |
 | Vite 时代组件（git 6def6aa） | PermissionDialog/TerminalPanel 参考蓝本（不变） |
@@ -564,7 +580,8 @@ agent.engine:
 | 预算四维（方案 A 语义） | ✅（桌面 profile） | ✅ + 平台配额/套餐 |
 | 记忆 / HITL / 审计 / 多厂商模型 | ✅ | ✅ + 平台增强 |
 | Wenshi 推理 / 协作会话 / 多端同步 / 集中治理 | ❌（web.search 近似） | ✅ |
+| Veloflow 工作流（流程治理/触发/人工任务） | ❌（ADR-010） | ✅（设计器页 + run_workflow 云端执行） |
 
 ---
 
-*文档完 | V3.0 要点：平台演进再基线——三项引擎前置已解除、文件工具与 zcode 工作台对齐（ADR-009/§7.5）、事件协议扩容、平台任务清单瘦身（15→6 人日）、里程碑顺延 1 周 | 下一步：① 实施计划 V1.1 同步（已完成，见 exe_plan）② Phase 0 启动（W37：2026-09-14）③ 平台侧确认 E5/N1/N2 排期与 V47 收敛时间*
+*文档完 | V3.1 要点：Veloflow 工作流轨归位（ADR-010，平台固有能力清单化）、run_workflow 工具归属标注、桌面壳原型定位为起点资产；V3.0 要点：平台演进再基线——三项引擎前置已解除、文件工具与 zcode 工作台对齐（ADR-009/§7.5）、事件协议扩容 | 下一步：① 实施计划 V1.2 同步（见 exe_plan）② Phase 0 启动（W37：2026-09-14，可按日历顺延至 09-28 周）③ 平台侧确认 E5/N1/N2 排期与 V47/沙箱专题收敛时间*

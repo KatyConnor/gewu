@@ -1,6 +1,6 @@
 # gewu-desktop 详细实施计划
 
-> **文档编号**：EXE-DESKTOP-2026-Q4 | **版本**：V1.1 | **编制日期**：2026-09-09
+> **文档编号**：EXE-DESKTOP-2026-Q4 | **版本**：V1.2 | **编制日期**：2026-09-09（V1.2：2026-09-30）
 > **状态**：🚀 待启动（V1.1：平台演进后再基线）
 > **架构基线**：`docs/design/42-gewu-desktop-architecture-design.md`（**V3.0**，ADR-001~009 定稿）
 > **角色**：项目管理与敏捷教练（角色10）+ 资深技术架构师（角色03，技术任务核定）
@@ -13,6 +13,7 @@
 > |------|------|----------|
 > | V1.0 | 2026-09-09 | 初版：Phase 0~3 全量 WBS、四里程碑门禁、依赖拓扑、风险登记册 |
 > | V1.1 | 2026-09-09 | **平台演进再基线**（对齐架构 V3.0）：① 里程碑顺延 1 周（M0 09-23 / M1 11-06 / M2 12-04 / M3 12-31），桌面总量 70→74 人日；② 平台侧任务清单 15→6.25 人日（E1/E2/E3 已由平台完成出清单，N4 转为验证项，新增 V47 收敛依赖项）；③ Phase 0 共享包抽离范围按 S9 后现协议与组件族重勘（D0-8/9/11 扩容）；④ Phase 1 新增 LocalFileWorkspaceSpi（ADR-009 自加固）与本地变更追踪任务，FileEditorPanel 改为复用；⑤ Phase 2 新增桌面预算 profile/配额预检/编排生命周期任务；⑥ 风险登记册更新（RK-1 消除，新增 RK-10~12） |
+> | V1.2 | 2026-09-30 | **Veloflow 轨与桌面壳原型再同步**（对齐架构 V3.1）：① D1-1/D1-2 改为"基于现有壳原型改造"（gewu-desktop 已有 main.js 远程 webview 壳 + build.sh/ps1 + Linux 打包产物，验证过 ADR-001 打包链路；净省 ~0.75d，缓冲吸收，里程碑不变）；② D3-5 补 Veloflow 设计器页复用（协同形态专属，ADR-010）；③ D3-6 导入检测补 run_workflow/run_orchestration_graph"仅云端可用"标注；④ D2-1 增补沙箱工作区卷持久化待收敛项；⑤ V-4 核实项扩充（Veloflow 收敛状态已核实 ✅；新增沙箱 workspaceId 专题跟踪） |
 
 ---
 
@@ -60,7 +61,8 @@
 | ~~V-1 引擎测试现状~~ | ✅ 已核实 | JaCoCo 棘轮门禁已建（BUNDLE ≥0.45 / core·budget·llm·tool·security ≥0.70 / orchestration ≥0.40），转化为持续基线而非核实项 |
 | ~~V-2 D-2 修复状态~~ | ✅ 已完成 | `Message.toolCalls` + 序列化已合入；桌面侧仅余三厂商回归（M1 门禁） |
 | ~~V-3 双引擎收敛链路~~ | ✅ 已完成 | legacy 委托 ReactAgentExecutor |
-| **V-4（新）** | **平台工作区未提交变更清单冻结**：确认 V47（回合撤销）、admin 拆分、预算增量、B 组 API 收敛的收敛计划与时间点 | ⏳ W37 | 桌面以已提交 HEAD（`d5e72c7`）为基线；依赖未提交能力的任务（TurnChangesBar/undo、配额 UI 细节）标"待收敛"（RK-10） |
+| **V-4（新）** | **平台工作区未提交变更清单冻结**：已核实（2026-09-29）——14 个已跟踪未提交文件 = 沙箱工作区持久化专题（`ExecuteCodeRequest.workspaceId` 容器卷挂载，连带 SandboxClient/ToolExecutor 链）+ Wenshi 重构 + web 小改（Header 删除并入 Sidebar/SettingsPage）；确认其收敛时间点 | ⏳ W37 | 桌面以已提交 HEAD（`beee59a`）为基线；依赖未提交能力的任务标"待收敛"（RK-10）；**沙箱卷持久化影响 ADR-008 对齐清单（D2-1 复核项）** |
+| **V-4a（新）** | **Veloflow 收敛状态核实** | ✅ 已核实（2026-09-29） | veloflow-engine 已提交（独立 Maven 模块，内嵌库形态）；旧 workflow 模块已退役、API 同路径承接；run_workflow 为应用层工具（ADR-010：协同云端执行）——桌面 Profile 无需 /workflows 端点族 |
 | **V-5（新）** | **T5.1 SSE 分布式广播（SseBroadcastService）实况验证**：多副本下 approval_required/message 事件可达性 | ⏳ W37~W39 | 决定 D3-1 是否需要额外适配 |
 | **V-6（新）** | **S9 文件工具行为基线快照**：内置工具结果文案、`+N/-N` 口径、V39 变更表语义、diff 算法——提取为共享 fixture（ADR-009 对齐依据） | ⏳ W37 | D1-15/D1-23 的契约输入 |
 
@@ -134,8 +136,8 @@ Phase 4 Backlog（§十二）、平台业务域迭代、管理后台域（已拆
 
 | 任务ID | 任务 | 内容与产出 | 估时 | 依赖 |
 |--------|------|-----------|------|------|
-| D1-1 | Electron 工程初始化 | electron-vite 三目标；严格 TS；lint 对齐 zcode-rules | 0.5d | D0-13 |
-| D1-2 | 主进程骨架 | 窗口/生命周期/单实例/托盘/菜单；CSP（connect-src 白名单） | 1d | D1-1 |
+| D1-1 | Electron 工程初始化 | **基于现有壳原型改造**（gewu-desktop 已有 main.js：远程 webview 模式 + 错误页重试 + contextIsolation/sandbox 配置 + build.sh/ps1）：改为本地渲染层加载（Vite 构建产物）+ 准备 utilityProcess/JVM 子进程接入位；electron-vite 三目标迁移；严格 TS | 0.5d | D0-13 |
+| D1-2 | 主进程骨架 | 在现有 main.js 基础上扩展：窗口/生命周期/单实例/托盘/菜单；CSP（connect-src 白名单，含 127.0.0.1 引擎端口） | 1d | D1-1 |
 | D1-3 | EngineSupervisor MVP | spawn jlink+jar；stdin 引导（port/token/secrets）；健康心跳；退出码分类+重启 ≤3 | 1d | D0-4 |
 | D1-4 | SecretVault | safeStorage + SM4 双层；`secret:*` IPC | 0.75d | D1-2 |
 | D1-5 | preload + IPC 注册中心 | contextBridge 类型化 API；通道 handler 骨架；zod 校验 | 0.75d | D1-2 |
@@ -254,13 +256,13 @@ Phase 4 Backlog（§十二）、平台业务域迭代、管理后台域（已拆
 | D3-2 | 统一审批中心 | 本地工具授权/本地编排 HITL/远程审批三类收口 + **配额提示** | 1.5d | D3-1, D1-22 |
 | D3-3 | 云端执行路由 | 显式选择云端 Agent → 网关 chat/stream（渲染层透明） | 1d | D2-16 |
 | D3-4 | 云端沙箱回退 | 本地缺失 → /sandboxes | 0.75d | D2-5 |
-| D3-5 | Agent 市场页 | 平台浏览/安装引导；**归档/置顶/分享/重新生成协同复用** | 1.5d | D2-15 |
+| D3-5 | Agent 市场页 + Veloflow 设计器页 | AgentMarketPage 平台浏览/安装引导；**WorkflowPage/Canvas（Veloflow 设计器 + 34 节点库）复用——协同形态专属（ADR-010），本地形态隐藏**；归档/置顶/分享/重新生成协同复用；**依赖 web 补齐 versions/permissions 前端封装（复核项）** | 1.5d | D2-15 |
 
 ### 平台资源导入（4d）
 
 | 任务ID | 任务 | 内容与产出 | 估时 | 依赖 |
 |--------|------|-----------|------|------|
-| D3-6 | 平台 Agent 导入本地 | 导入向导 + 工具本地可用性检测标注 | 1.5d | D2-15 |
+| D3-6 | 平台 Agent 导入本地 | 导入向导 + 工具本地可用性检测标注（http 可直连/mcp 需本地化/code_execute 依赖沙箱/**run_workflow、run_orchestration_graph 等应用层工具=仅云端可用（ADR-010）**） | 1.5d | D2-15 |
 | D3-7 | 平台技能安装 | 到本地库/.gewu/skills | 0.75d | D2-9 |
 | D3-8 | 平台 MCP 本地化 | stdio 一键本地拉起；streamable_http 标注 | 1.25d | D2-4 |
 | D3-9 | 中期回归 | 协同场景冒烟 | 0.5d | D3-6~8 |
@@ -269,7 +271,7 @@ Phase 4 Backlog（§十二）、平台业务域迭代、管理后台域（已拆
 
 | 任务ID | 任务 | 内容与产出 | 估时 | 依赖 |
 |--------|------|-----------|------|------|
-| D3-10 | 打包配置完善 | electron-builder 正式配置；jlink JRE + jar + **monaco 资源**打入；manifest 模式对齐 scripts/package.sh | 1d | P-2 |
+| D3-10 | 打包配置完善 | **以现有 build.sh/build.ps1 与 Linux 打包产物为起点**（builder 配置已跑通）完善三平台正式配置；jlink JRE + jar + **monaco 资源**打入；manifest 模式对齐 scripts/package.sh | 1d | P-2 |
 | D3-11 | 签名链路 | Windows Authenticode / macOS 公证 / Linux + jar sha512 清单；spawn 前校验 | 1d | P-1 |
 | D3-12 | 自动更新接入 | 双通道 + L2 引擎 jar 独立替换（校验+回退）+ 强制升级引导 | 1d | D3-10 |
 | D3-13 | Jenkins desktop stage | pnpm → mvn -pl runtime → electron-builder → 签名 → MinIO + latest.yml | 1.5d | D3-10 |
@@ -343,7 +345,7 @@ V-4~V-6 核实/快照 ─► D0-1~5 Spike ─► M0(09-23) ─┬► D1-1~7 壳�
 | RK-7 Electron CVE | 🟡 维持 | 安全通告 | 季度评估 + Dependabot | — |
 | RK-8 信创 arm64 | 🟡 维持 | D3-15 冒烟失败 | 毕昇 JDK + Electron arm64 先行 | 后移 Phase 4 |
 | RK-9 引擎简化项感知 | 🟡 收窄 | 内测反馈 | 仅剩 SUBGRAPH/LlmGoalPlanner 默认关；发布说明对齐 | — |
-| **RK-10 平台未提交变更悬空** | 🟠 新增 | W48 时 V47/admin 拆分仍未收敛 | HEAD 基线开发（D0-6）；依赖项标"待收敛"（D2-21 预留）；双周对齐收敛计划 | 回合撤销移 Phase 4 |
+| **RK-10 平台未提交变更悬空** | 🟠 维持 | W48 时 V47/admin 拆分/沙箱 workspaceId 专题仍未收敛 | HEAD 基线开发（D0-6，基线已更新至 `beee59a`）；依赖项标"待收敛"（D2-21/D2-1 复核）；双周对齐收敛计划 | 回合撤销移 Phase 4；沙箱卷持久化不阻塞（桌面默认本地 fs 执行） |
 | **RK-11 内置工具管线绕过安全实现** | 🟠 新增 | D1-15 安全用例失败 | SPI 自加固三件套 + 专项测试（M1 门禁②）+ 双人 review | 兜底：available()=false 回退全 @ToolProvider 方案（UX 降级可接受） |
 | **RK-12 ChatPage 抽离复杂度** | 🟠 新增 | D0-11 超期 >50% | 两步抽离（组件族先行——已验证解耦；状态机 hook 化渐进）；桌面 Phase 1 仅依赖第一步 | 组件族直用 + ChatPage 壳桌面自写轻量版 |
 
@@ -387,4 +389,4 @@ V-4~V-6 核实/快照 ─► D0-1~5 Spike ─► M0(09-23) ─┬► D1-1~7 壳�
 
 ---
 
-*执行入口：W37（2026-09-14）启动日检查单——① V-4~V-6 新核实项 ② P-1 证书采购下单 ③ P-2/P-3 就绪 ④ 本计划 V1.1 基线确认*
+*执行入口：W37（2026-09-14）启动日检查单——① V-4a/V-5/V-6 核实项（V-4 部分已核实）② P-1 证书采购下单 ③ P-2/P-3 就绪 ④ 本计划 V1.2 基线确认。里程碑与总量较 V1.1 不变（壳原型改造净省 ~0.75d 由缓冲吸收）*
