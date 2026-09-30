@@ -6,19 +6,23 @@
   "private": true,
   "author": "gewu-platform",
   "scripts": {
+    "dev": "vite",
+    "build:ui": "vite build",
+    "typecheck": "tsc --noEmit",
     "start": "electron .",
-    "dist": "electron-builder --publish never",
-    "dist:dir": "electron-builder --dir --publish never",
-    "dist:mac": "electron-builder --mac --publish never",
-    "dist:win": "electron-builder --win --publish never",
-    "dist:linux": "electron-builder --linux --publish never"
+    "dist": "pnpm build:ui && electron-builder --publish never"
   },
   "engines": {
     "node": ">=18"
   },
   "devDependencies": {
+    "@types/react": "^18",
+    "@types/react-dom": "^18",
+    "@vitejs/plugin-react": "^4.3.0",
     "electron": "^31.7.7",
-    "electron-builder": "^24.13.3"
+    "electron-builder": "^24.13.3",
+    "typescript": "^5.5.0",
+    "vite": "^5.4.0"
   },
   "build": {
     "appId": "com.gewu.platform.desktop",
@@ -107,5 +111,10 @@
   },
   "allowScripts": {
     "electron@31.7.7": true
+  },
+  "dependencies": {
+    "@gewu/agent-ui": "workspace:*",
+    "react": "^18",
+    "react-dom": "^18"
   }
 }

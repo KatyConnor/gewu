@@ -1,79 +1,22 @@
 /**
- * 格物平台桌面客户端 - Electron 主进程
- *
- * 渲染层直接加载格物平台 Web 端（Next.js）：
- *   - 生产模式加载 GEWU_WEB_URL（默认 http://127.0.0.1:5001）
- *   - 开发模式（electron . --dev）加载 GEWU_DEV_URL（默认 http://localhost:5001）
- * Web 端未启动时会展示带重试按钮的错误页。
+ * 格物桌面端主进程（D1-1/D1-2）：
+ *   窗口/单实例锁/生命周期 + EngineSupervisor（JVM 引擎守护）+ SecretVault（密钥托管）+ IPC 注册。
+ * 渲染层：dev 加载 Vite dev server；prod 加载 dist/index.html（file://）并注入 CSP。
  */
-const { app, BrowserWindow, shell, Menu } = require('electron');
+const { app, BrowserWindow, ipcMain, shell } = require('electron');
 const path = require('path');
+const fs = require('fs');
+const { EngineSupervisor } = require('./engine-supervisor');
+const { SecretVault } = require('./secret-vault');
 
 const isDev = process.argv.includes('--dev');
-const WEB_URL = process.env.GEWU_WEB_URL || 'http://127.0.0.1:5001';
-const DEV_URL = process.env.GEWU_DEV_URL || 'http://localhost:5001';
-const TARGET_URL = isDev ? DEV_URL : WEB_URL;
+const DEV_URL = process.env.GEWU_DEV_URL || 'http://127.0.0.1:5173';
 
 let mainWindow = null;
+let supervisor = null;
+let vault = null;
 
-const ERROR_PAGE_HTML = (target) =>
-  'data:text/html;charset=utf-8,' +
-  encodeURIComponent(`<!DOCTYPE html>
-<html lang="zh-CN"><head><meta charset="utf-8">
-<style>
-  body { font-family: system-ui, sans-serif; display: flex; align-items: center;
-         justify-content: center; height: 100vh; margin: 0; background: #f5f6f8; }
-  .box { text-align: center; color: #333; }
-  h1 { font-size: 20px; margin-bottom: 8px; }
-  p { color: #888; margin-bottom: 24px; }
-  button { padding: 8px 32px; font-size: 14px; border: 1px solid #4a6cf7;
-           background: #4a6cf7; color: #fff; border-radius: 6px; cursor: pointer; }
-  button:hover { background: #3a5ce5; }
-</style></head>
-<body><div class="box">
-  <h1>无法连接格物平台服务</h1>
-  <p>目标地址 ${target} 不可达，请确认平台服务已启动后重试</p>
-  <button onclick="location.replace('${target}')">重新连接</button>
-</div></body></html>`);
-
-function createWindow() {
-  mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 900,
-    minWidth: 1024,
-    minHeight: 680,
-    title: '格物平台',
-    autoHideMenuBar: true,
-    webPreferences: {
-      contextIsolation: true,
-      nodeIntegration: false,
-      sandbox: true,
-    },
-  });
-
-  // 非 macOS 下隐藏菜单栏（保留 macOS 系统菜单以维持快捷键惯例）
-  if (process.platform !== 'darwin') {
-    Menu.setApplicationMenu(null);
-  }
-
-  mainWindow.loadURL(TARGET_URL);
-
-  mainWindow.webContents.on('did-fail-load', (_e, code, desc, url, isMainFrame) => {
-    // 仅拦截主框架加载失败；忽略用户主动取消（-3）
-    if (isMainFrame && code !== -3) {
-      mainWindow.loadURL(ERROR_PAGE_HTML(`${url} (${code}: ${desc})`));
-    }
-  });
-
-  // 外部链接交给系统浏览器，避免客户端内跳转丢失会话
-  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
-    if (/^https?:/i.test(url)) shell.openExternal(url);
-    return { action: 'deny' };
-  });
-
-  mainWindow.on('closed', () => { mainWindow = null; });
-}
-
+// ============ 单实例锁 ============
 const gotLock = app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
@@ -85,13 +28,124 @@ if (!gotLock) {
     }
   });
 
-  app.whenReady().then(createWindow);
+  app.whenReady().then(() => {
+    vault = new SecretVault(app.getPath('userData'));
+    supervisor = createSupervisor();
 
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    createWindow();
+    supervisor.start().catch((e) => console.error('[main] 引擎启动失败:', e));
+
+    app.on('activate', () => {
+      if (BrowserWindow.getAllWindows().length === 0) createWindow();
+    });
   });
 
   app.on('window-all-closed', () => {
     if (process.platform !== 'darwin') app.quit();
   });
+
+  app.on('before-quit', () => {
+    if (supervisor) supervisor.stop();
+  });
 }
+
+// ============ 引擎守护 ============
+function engineJarPath() {
+  // 打包态：resources/runtime/desktop-runtime.jar（build 流程拷入）；开发态：相邻模块 target
+  const bundled = path.join(process.resourcesPath || '', 'runtime', 'desktop-runtime.jar');
+  if (fs.existsSync(bundled)) return bundled;
+  const devJar = path.join(app.getAppPath(), '..', 'gewu-desktop-runtime', 'target',
+    'gewu-desktop-runtime-1.0.0-SNAPSHOT.jar');
+  if (fs.existsSync(devJar)) return devJar;
+  throw new Error('未找到引擎 jar（打包 resources/runtime 或开发态 gewu-desktop-runtime/target）');
+}
+
+function createSupervisor() {
+  const supervisor = new EngineSupervisor({
+    jarPath: engineJarPath(),
+    dataDir: path.join(app.getPath('userData'), 'engine-data'),
+    modelKeys: vault.getModelKeys(),
+    profiles: process.env.GEWU_ENGINE_PROFILE || undefined,
+    logFile: path.join(app.getPath('userData'), 'engine.log'),
+  });
+  supervisor.on('status', (s) => {
+    console.log('[engine]', s.state, s.detail || '');
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('engine:status', { ...s, info: supervisor.getInfo() });
+    }
+  });
+  return supervisor;
+}
+
+// ============ 窗口 ============
+function createWindow() {
+  mainWindow = new BrowserWindow({
+    width: 1440,
+    height: 900,
+    minWidth: 1024,
+    minHeight: 680,
+    title: '格物桌面',
+    autoHideMenuBar: true,
+    webPreferences: {
+      preload: path.join(__dirname, 'preload.js'),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      webSecurity: true,
+    },
+  });
+
+  // 生产态 CSP（file:// 无响应头，经 onHeadersReceived 注入；127.0.0.1 为本地引擎数据面）
+  mainWindow.webContents.session.webRequest.onHeadersReceived((details, callback) => {
+    if (details.url.startsWith('file://')) {
+      callback({
+        responseHeaders: {
+          ...details.responseHeaders,
+          'Content-Security-Policy': [
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; "
+            + "connect-src 'self' http://127.0.0.1:* http://localhost:*; img-src 'self' data:; font-src 'self' data:",
+          ],
+        },
+      });
+    } else {
+      callback({ responseHeaders: details.responseHeaders });
+    }
+  });
+
+  // 外链走系统浏览器
+  mainWindow.webContents.setWindowOpenHandler(({ url }) => {
+    if (url.startsWith('http')) shell.openExternal(url);
+    return { action: 'deny' };
+  });
+
+  if (isDev) {
+    mainWindow.loadURL(DEV_URL);
+  } else {
+    mainWindow.loadFile(path.join(__dirname, '..', 'dist', 'index.html'));
+  }
+
+  mainWindow.on('closed', () => {
+    mainWindow = null;
+  });
+}
+
+// ============ IPC（§5.3 控制面通道） ============
+ipcMain.handle('engine:getInfo', () => (supervisor ? supervisor.getInfo() : { state: 'stopped' }));
+ipcMain.handle('engine:restart', async () => {
+  if (!supervisor) return { state: 'stopped' };
+  supervisor.restarts = 0;
+  await supervisor.restart();
+  return supervisor.getInfo();
+});
+ipcMain.handle('secret:saveModelKey', (_e, payload) => {
+  // payload: {providerCode, apiKey, displayName, baseUrl, modelsJson}
+  if (!payload || !payload.providerCode) throw new Error('providerCode 必填');
+  vault.saveModelKey(payload.providerCode, payload.apiKey || '', {
+    displayName: payload.displayName,
+    baseUrl: payload.baseUrl,
+    modelsJson: payload.modelsJson,
+  });
+  // Key 随下次引擎启动注入 KeyVault；运行期立即生效由渲染层直调 /engine/providers
+  return { ok: true };
+});
+ipcMain.handle('secret:listProviders', () => (vault ? vault.listProviders() : []));
