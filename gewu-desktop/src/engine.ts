@@ -26,7 +26,7 @@ declare global {
   }
 }
 
-export function waitEngineReady(timeoutMs = 60_000): Promise<EngineInfo> {
+export function waitEngineReady(timeoutMs = 150_000): Promise<EngineInfo> {
   return new Promise((resolve, reject) => {
     const deadline = Date.now() + timeoutMs;
     const timer = setInterval(async () => {

@@ -13,7 +13,8 @@ const path = require('path');
 const { EventEmitter } = require('events');
 
 const MAX_RESTARTS = 3;
-const HEALTH_TIMEOUT_MS = 30_000;
+const HEALTH_SOFT_TIMEOUT_MS = 45_000;
+const HEALTH_TIMEOUT_MS = 120_000;
 const HEALTH_POLL_MS = 500;
 
 function pickFreePort() {
@@ -98,7 +99,7 @@ class EngineSupervisor extends EventEmitter {
     this.token = crypto.randomUUID().replace(/-/g, '');
 
     const java = this.resolveJava();
-    const args = ['-Xmx256m', '-jar', this.opts.jarPath, `--server.port=${this.port}`];
+    const args = ['-XX:TieredStopAtLevel=1', '-Xmx256m', '-jar', this.opts.jarPath, `--server.port=${this.port}`];
     if (this.opts.profiles) {
       args.push(`--spring.profiles.active=${this.opts.profiles}`);
     }
@@ -140,23 +141,34 @@ class EngineSupervisor extends EventEmitter {
       handleExit(-1);
     });
 
-    // 健康轮询（令牌豁免端点）
-    const deadline = Date.now() + HEALTH_TIMEOUT_MS;
-    const poll = async () => {
-      while (Date.now() < deadline && this.child) {
-        if (await healthOnce(this.port)) {
-          this.emitState('ready', { port: this.port, token: this.token });
-          return true;
-        }
-        await new Promise((r) => setTimeout(r, HEALTH_POLL_MS));
+    // 健康轮询（令牌豁免端点）。分层超时（V1.2 实测教训）：
+    //   软超时 45s：仅提示"仍在启动"（高负载机器实测 22~32s，不得误判 degraded）；
+    //   硬超时 120s：杀进程 → exit 处理器走重启路径（≤3 次），而非静默挂起。
+    const started = Date.now();
+    let softWarned = false;
+    while (this.child && Date.now() - started < HEALTH_TIMEOUT_MS) {
+      if (await healthOnce(this.port)) {
+        this.emitState('ready', { port: this.port, token: this.token });
+        return true;
       }
-      return false;
-    };
-    const ok = await poll();
-    if (!ok && this.child) {
-      this.emitState('degraded', '引擎启动超时（30s），请查看引擎日志');
+      const elapsed = Date.now() - started;
+      if (!softWarned && elapsed > HEALTH_SOFT_TIMEOUT_MS) {
+        this.emitState('booting', `仍在启动（${Math.round(elapsed / 1000)}s，负载高时会到 30s+）`);
+        softWarned = true;
+      }
+      await new Promise((r) => setTimeout(r, HEALTH_POLL_MS));
     }
-    return ok;
+    if (!this.child) {
+      return false; // 进程已退出：exit 处理器负责重启计数
+    }
+    // 硬超时：杀进程触发重启路径
+    this.emitState('crashed', `引擎启动超时（${HEALTH_TIMEOUT_MS / 1000}s），自动重启`);
+    try {
+      this.child.kill('SIGKILL');
+    } catch {
+      /* 已退出 */
+    }
+    return false;
   }
 
   /** 就绪后的连接信息（渲染层直连数据面） */
