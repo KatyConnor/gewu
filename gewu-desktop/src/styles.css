@@ -125,3 +125,12 @@ body {
 .card-icon.doc { background: rgba(212,168,83,0.12); color: var(--gold); }
 .home-actions { padding: 0 12px 12px; }
 .home-actions .btn { width: 100%; margin-bottom: 8px; }
+
+/* ===== D1-24 布局：聊天列 + 右侧文件面板横向并列（对齐 web） ===== */
+.main-area { flex: 1; display: flex; min-width: 0; }
+.chat-head {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 10px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+.chat-title { font-size: 13px; color: var(--text-secondary); truncate: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chip { background: var(--accent-soft); border-color: rgba(0,184,148,0.3); color: var(--accent); }

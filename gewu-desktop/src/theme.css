@@ -50,3 +50,6 @@ body {
 .scrollbar-thin::-webkit-scrollbar { width: 4px; }
 .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
 .scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(0, 184, 148, 0.15); border-radius: 2px; }
+
+/* 裸 border-r/border-l 的默认色覆盖（Tailwind preflight 默认 gray-200 呈白线，V1.2 用户实测） */
+*, ::before, ::after { border-color: rgba(0, 184, 148, 0.12); }

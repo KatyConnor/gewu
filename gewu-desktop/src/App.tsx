@@ -129,6 +129,10 @@ export default function App() {
     refreshSessions();
   }, [refreshSessions]);
 
+  const activeTitle = activeSession
+    ? (sessions.find((s) => s.sessionId === activeSession)?.title ?? '会话')
+    : '新对话';
+
   // ============ 发送（过程时间线 + 任务计划 + 变更追踪） ============
   const send = useCallback(async () => {
     if (!input.trim() || streaming) return;
@@ -382,7 +386,16 @@ export default function App() {
           </div>
         )}
       </aside>
+      <div className="main-area">
       <main className="chat">
+        <div className="chat-head">
+          <span className="chat-title">{activeTitle}</span>
+          {fileChanges.length > 0 && (
+            <button className="btn small chip" onClick={() => setFilePanelOpen((v) => !v)}>
+              {fileChanges.length} 个文件已更改
+            </button>
+          )}
+        </div>
         {plan && plan.steps.length > 0 && (
           <div className="plan-wrap">
             <PlanCard title={plan.title} steps={plan.steps} streaming={streaming} planPath={plan.planPath} />
@@ -416,38 +429,32 @@ export default function App() {
               </div>
             );
           })}
-          {fileChanges.length > 0 && (
-            <div className="chip-row">
-              <button className="btn small" onClick={() => setFilePanelOpen((v) => !v)}>
-                {filePanelOpen ? '收起文件面板' : `${fileChanges.length} 个文件已更改`}
-              </button>
-            </div>
-          )}
           <div ref={bottomRef} />
         </div>
-        {filePanelOpen && activeSession && (
-          <FileEditorPanel
-            sessionId={activeSession}
-            changes={fileChanges}
-            onClose={() => setFilePanelOpen(false)}
-            onChangesRefresh={() => refreshFileChanges(activeSession)}
-            width={FILE_PANEL_MIN_WIDTH + 120}
-            api={createSessionFileChangesApi(connRef.current.transportFor()!)}
-          />
-        )}
-        <div className="composer">
-          <textarea
-            value={input}
-            placeholder="输入消息，Enter 发送（Shift+Enter 换行）"
-            onChange={(e) => setInput(e.target.value)}
-            onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
-            disabled={streaming}
-          />
-          <button className="btn primary" onClick={send} disabled={streaming || !input.trim()}>
-            {streaming ? '生成中…' : '发送'}
-          </button>
-        </div>
       </main>
+      {filePanelOpen && activeSession && (
+        <FileEditorPanel
+          sessionId={activeSession}
+          changes={fileChanges}
+          onClose={() => setFilePanelOpen(false)}
+          onChangesRefresh={() => refreshFileChanges(activeSession)}
+          width={FILE_PANEL_MIN_WIDTH + 120}
+          api={createSessionFileChangesApi(connRef.current.transportFor()!)}
+        />
+      )}
+      </div>
+      <div className="composer">
+        <textarea
+          value={input}
+          placeholder="输入消息，Enter 发送（Shift+Enter 换行）"
+          onChange={(e) => setInput(e.target.value)}
+          onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
+          disabled={streaming}
+        />
+        <button className="btn primary" onClick={send} disabled={streaming || !input.trim()}>
+          {streaming ? '生成中…' : '发送'}
+        </button>
+      </div>
     </div>
   );
 }
