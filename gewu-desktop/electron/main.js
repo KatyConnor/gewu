@@ -12,6 +12,12 @@ const { SecretVault } = require('./secret-vault');
 const isDev = process.argv.includes('--dev');
 const DEV_URL = process.env.GEWU_DEV_URL || 'http://127.0.0.1:5173';
 
+// 视觉回归模式：软件渲染（无 GPU/显示器依赖）
+if (process.env.GEWU_VISUAL_TEST) {
+  app.commandLine.appendSwitch('disable-gpu');
+  app.commandLine.appendSwitch('disable-software-rasterizer-vsync');
+}
+
 let mainWindow = null;
 let supervisor = null;
 let vault = null;
@@ -35,6 +41,13 @@ if (!gotLock) {
     createWindow();
     supervisor.start().catch((e) => console.error('[main] 引擎启动失败:', e));
 
+    if (process.env.GEWU_VISUAL_TEST) {
+      runVisualTest(process.env.GEWU_VISUAL_TEST).catch((e) => {
+        console.error('[visual] 失败:', e);
+        setTimeout(() => app.quit(), 500);
+      });
+    }
+
     app.on('activate', () => {
       if (BrowserWindow.getAllWindows().length === 0) createWindow();
     });
@@ -47,6 +60,68 @@ if (!gotLock) {
   app.on('before-quit', () => {
     if (supervisor) supervisor.stop();
   });
+
+// ============ 视觉回归自捕获（GEWU_VISUAL_TEST=<outdir>，Phase 1 验收） ============
+// 无头渲染（--ozone-platform=headless --disable-gpu）下自动截取关键状态页：
+// 主页 → 工作台 → 会话(变更 chip) → 文件面板。产出 PNG 供审查比对。
+async function runVisualTest(outDir) {
+  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+  fs.mkdirSync(outDir, { recursive: true });
+  const capture = async (name) => {
+    if (!mainWindow || mainWindow.isDestroyed()) return;
+    const img = await mainWindow.webContents.capturePage();
+    fs.writeFileSync(path.join(outDir, name), img.toPNG());
+    console.log('[visual] captured', name);
+  };
+
+  // 等引擎 ready（上限 120s，与 Supervisor 硬超时对齐）
+  for (let i = 0; i < 240; i++) {
+    if (supervisor && supervisor.getInfo().state === 'ready') break;
+    await sleep(500);
+  }
+  await sleep(3000); // 渲染层 waitEngineReady + 主页首屏数据
+  await capture('01-home.png');
+
+  // 进工作台（测试钩子驱动，确定性高于 DOM click）
+  await mainWindow.webContents.executeJavaScript("window.__gewu_test.newSession(); 'ok'");
+  await sleep(1500);
+  await capture('02-workbench.png');
+
+  // 种一个文件变更（引擎 REST：建会话 + 写文件），驱动 chip 与面板
+  try {
+    const info = supervisor.getInfo();
+    const base = `http://127.0.0.1:${info.port}/api/v1`;
+    const headers = { 'Content-Type': 'application/json', 'X-Engine-Token': info.token };
+    const sessRes = await fetch(`${base}/ai/sessions`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ title: '视觉回归会话' }),
+    });
+    const sess = await sessRes.json();
+    global.__visLastSessionId = sess.sessionId;
+    await fetch(`${base}/sessions/${sess.sessionId}/file-changes/content?path=visual-test.md`, {
+      method: 'PUT', headers,
+      body: JSON.stringify({ content: '# 视觉回归\n第一行内容\n第二行内容' }),
+    });
+  } catch (e) {
+    console.log('[visual] 种子失败:', e.message);
+  }
+
+  // 打开种子会话（测试钩子）→ 渲染层 refreshFileChanges → chip 出现
+  const lastSessionId = global.__visLastSessionId;
+  if (lastSessionId) await mainWindow.webContents.executeJavaScript(
+    `window.__gewu_test.openSession(${JSON.stringify(lastSessionId)}); 'ok'`);
+  await sleep(2500);
+  await capture('03-session-chip.png');
+
+  // 打开文件面板
+  await mainWindow.webContents.executeJavaScript(
+    "const c = document.querySelector('.chat-head .chip'); c && c.click(); 'ok'");
+  await sleep(2500);
+  await capture('04-filepanel.png');
+
+  console.log('[visual] done');
+  setTimeout(() => app.quit(), 800);
+}
 }
 
 // ============ 引擎守护 ============

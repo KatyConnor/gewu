@@ -49,6 +49,8 @@ export default function App() {
   const [fileChanges, setFileChanges] = useState<FileChangeDTO[]>([]);
   const [filePanelOpen, setFilePanelOpen] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequestPayload | null>(null);
+  // 视图状态：home（主页空态）/ workbench（工作台）——修复"新建会话后仍停留主页"
+  const [view, setView] = useState<'home' | 'workbench'>('home');
   const bottomRef = useRef<HTMLDivElement>(null);
   // 时间线展开态（按消息索引）：流中最后一条默认展开（实时可见），完成后折叠可点击
   const [expandedMsgs, setExpandedMsgs] = useState<Record<number, boolean>>({});
@@ -99,8 +101,24 @@ export default function App() {
 
   useEffect(() => { bottomRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
+  // 视觉回归测试钩子（GEWU_VISUAL_TEST 模式驱动；恒更新闭包）
+  useEffect(() => {
+    (window as unknown as Record<string, unknown>).__gewu_test = {
+      newSession,
+      openSession: (id: string) => openSession(id),
+      seedAndOpen: async () => {
+        // 由主进程完成种子写入；此处仅刷新并打开首个会话
+        await refreshSessions(false);
+        await refreshFileChanges(activeSession ?? sessions[0]?.sessionId ?? '');
+      },
+      view,
+      sessionCount: sessions.length,
+    };
+  });
+
   // ============ 会话操作 ============
   const openSession = useCallback(async (sessionId: string) => {
+    setView('workbench');
     setActiveSession(sessionId); setMessages([]); setPlan(null);
     const res = await connRef.current.fetch(`/v1/ai/sessions/${sessionId}/messages`);
     if (res.ok) {
@@ -111,6 +129,7 @@ export default function App() {
   }, [refreshFileChanges]);
 
   const newSession = useCallback(() => {
+    setView('workbench');
     setActiveSession(null); setMessages([]); setPlan(null); setFileChanges([]); setFilePanelOpen(false);
   }, []);
 
@@ -287,8 +306,8 @@ export default function App() {
   const lastMsg = messages[messages.length - 1];
   const streamingLast = streaming && lastMsg?.role === 'assistant';
 
-  // 主页空态（对标 web ChatHomeView；无选中会话且无流中消息时呈现）
-  if (!activeSession && messages.length === 0) {
+  // 主页空态（对标 web ChatHomeView）
+  if (view === 'home') {
     return (
       <div className="layout">
         {pendingApproval && (
@@ -310,7 +329,7 @@ export default function App() {
             onPin={(id, p2) => pinSession(id, p2)}
             loading={false}
             user={{ name: '本地用户' }}
-            onBackHome={() => { /* 桌面端无首页概念 */ }}
+            onBackHome={() => setView('home')}
             streamingSessionId={streaming ? activeSession : null}
           />
           <div className="home-actions">
@@ -358,7 +377,7 @@ export default function App() {
           onPin={(id, p) => pinSession(id, p)}
           loading={false}
           user={{ name: '本地用户' }}
-          onBackHome={() => { /* 桌面端无首页概念 */ }}
+          onBackHome={() => setView('home')}
           streamingSessionId={streaming ? activeSession : null}
         />
         {showSettings && (
