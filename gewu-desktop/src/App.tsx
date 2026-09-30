@@ -50,6 +50,8 @@ export default function App() {
   const [filePanelOpen, setFilePanelOpen] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequestPayload | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
+  // 时间线展开态（按消息索引）：流中最后一条默认展开（实时可见），完成后折叠可点击
+  const [expandedMsgs, setExpandedMsgs] = useState<Record<number, boolean>>({});
 
   const ready = engineState === 'ready';
 
@@ -391,17 +393,19 @@ export default function App() {
           {messages.map((m, i) => {
             const isLast = i === messages.length - 1;
             const timelineItems = m.process ?? [];
+            const isStreamingMsg = streamingLast && isLast;
+            const expanded = expandedMsgs[i] ?? isStreamingMsg;
             return (
               <div key={i} className={`msg ${m.role}`}>
                 {m.role === 'assistant' && hasProcessActivity(timelineItems) && (
                   <AIProcessTimeline
                     items={timelineItems}
-                    streaming={streamingLast && isLast}
-                    status={streamingLast && isLast ? '生成中…' : undefined}
+                    streaming={isStreamingMsg}
+                    status={isStreamingMsg ? '生成中…' : undefined}
                     totalMs={m.processMs}
                     startAt={m.startAt}
-                    expanded={false}
-                    onToggle={() => { /* 兼容入口 */ }}
+                    expanded={expanded}
+                    onToggle={() => setExpandedMsgs((prev) => ({ ...prev, [i]: !expanded }))}
                   />
                 )}
                 {m.role === 'user' || m.content ? (
