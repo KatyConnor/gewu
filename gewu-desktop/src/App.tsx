@@ -149,16 +149,29 @@ export default function App() {
       });
     });
 
+    let contentStartedFlag = false;
     const callbacks: ChatStreamCallbacks = {
       ...handlers,
-      onContent: (t: string) => setMessages((prev) => {
-        const next = [...prev];
-        const last = next[next.length - 1];
-        if (last?.role === 'assistant') {
-          next[next.length - 1] = { ...last, content: last.content + t };
+      // 内容片段喂给过程时间线（对齐 web：图文交错；首块前触发 contentStarted）
+      onContent: (t: string) => {
+        if (!contentStartedFlag) {
+          handlers.onContentStarted();
+          contentStartedFlag = true;
         }
-        return next;
-      }),
+        tracker.addContent(t);
+        setMessages((prev) => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last?.role === 'assistant') {
+            next[next.length - 1] = { ...last, content: last.content + t };
+          }
+          return next;
+        });
+      },
+      // 截断重试：清空正文段（过程行保留，S9-M0 语义）
+      onContentReset: () => {
+        try { tracker.resetContent(); } catch { /* 忽略 */ }
+      },
       onPlan: (title: string, steps: PlanStepInfo[], planPath?: string) => setPlan({ title, steps, planPath }),
       onApprovalRequired: (req: ApprovalRequestPayload) => setPendingApproval(req),
       onError: (msg: string) => setMessages((prev) => {
