@@ -431,18 +431,6 @@ export default function App() {
           })}
           <div ref={bottomRef} />
         </div>
-      </main>
-      {filePanelOpen && activeSession && (
-        <FileEditorPanel
-          sessionId={activeSession}
-          changes={fileChanges}
-          onClose={() => setFilePanelOpen(false)}
-          onChangesRefresh={() => refreshFileChanges(activeSession)}
-          width={FILE_PANEL_MIN_WIDTH + 120}
-          api={createSessionFileChangesApi(connRef.current.transportFor()!)}
-        />
-      )}
-      </div>
       <div className="composer">
         <textarea
           value={input}
@@ -454,6 +442,18 @@ export default function App() {
         <button className="btn primary" onClick={send} disabled={streaming || !input.trim()}>
           {streaming ? '生成中…' : '发送'}
         </button>
+      </div>
+      </main>
+      {filePanelOpen && activeSession && (
+        <FileEditorPanel
+          sessionId={activeSession}
+          changes={fileChanges}
+          onClose={() => setFilePanelOpen(false)}
+          onChangesRefresh={() => refreshFileChanges(activeSession)}
+          width={FILE_PANEL_MIN_WIDTH + 120}
+          api={createSessionFileChangesApi(connRef.current.transportFor()!)}
+        />
+      )}
       </div>
     </div>
   );
