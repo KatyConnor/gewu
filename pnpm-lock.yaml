@@ -32,12 +32,21 @@ importers:
       '@vitejs/plugin-react':
         specifier: ^4.3.0
         version: 4.3.0(vite@5.4.0(@types/node@20.19.43))
+      autoprefixer:
+        specifier: ^10.6.1
+        version: 10.6.1(postcss@8.5.28)
       electron:
         specifier: ^31.7.7
         version: 31.7.7
       electron-builder:
         specifier: ^24.13.3
         version: 24.13.3(electron-builder-squirrel-windows@24.13.3)
+      postcss:
+        specifier: ^8.5.28
+        version: 8.5.28
+      tailwindcss:
+        specifier: ^3.4.19
+        version: 3.4.19
       typescript:
         specifier: ^5.5.0
         version: 5.5.2
@@ -1157,6 +1166,13 @@ packages:
     resolution: {integrity: sha512-+q/t7Ekv1EDY2l6Gda6LLiX14rU9TV20Wa3ofeQmwPFZbOMo9DXrLbOjFaaclkXKWidIaopwAObQDqwWtGUjqg==}
     engines: {node: '>= 4.0.0'}
 
+  autoprefixer@10.6.1:
+    resolution: {integrity: sha512-cL1Qz6ADZhcEbny/8HPfe99J6HhNoYtpX2LFLIbhgGE7Q1hlQVkYFdetDN7Id3KiQxhDrHwzlHr/YQCnZ8+xSA==}
+    engines: {node: ^10 || ^12 || >=14}
+    hasBin: true
+    peerDependencies:
+      postcss: ^8.1.0
+
   available-typed-arrays@1.0.7:
     resolution: {integrity: sha512-wvUjBtSGN7+7SjNpq/9M2Tg350UZD3q62IFZLbRAR1bSMlCo1ZaeW+BJ+D090e4hIIZLBcTDWe4Mh4jvUDajzQ==}
     engines: {node: '>= 0.4'}
@@ -1886,6 +1902,9 @@ packages:
   format@0.2.2:
     resolution: {integrity: sha512-wzsgA6WOq+09wrU1tsJ09udeR/YZRaeArL9e1wPbFg3GG2yDnC2ldKpxs4xunpFF9DgqCqOIra3bc1HWrJ37Ww==}
     engines: {node: '>=0.4.x'}
+
+  fraction.js@5.3.4:
+    resolution: {integrity: sha512-1X1NTtiJphryn/uLQz3whtY6jK3fTqoE3ohKs0tT+Ujr1W59oopxmoEh7Lu5p6vBaPbgoM0bzveAW4Qi5RyWDQ==}
 
   fs-constants@1.0.0:
     resolution: {integrity: sha512-y6OAwoSIf7FyjMIv94u+b5rdheZEjzR63GTyZJm5qh4Bi+2YgwLCcI/fPFZkL5PSixOt6ZNKm+w+Hfp/Bciwow==}
@@ -4288,7 +4307,7 @@ snapshots:
 
   '@types/minimatch@6.0.0':
     dependencies:
-      minimatch: 5.1.9
+      minimatch: 10.2.6
     optional: true
 
   '@types/ms@2.1.0': {}
@@ -4678,6 +4697,15 @@ snapshots:
   asynckit@0.4.0: {}
 
   at-least-node@1.0.0: {}
+
+  autoprefixer@10.6.1(postcss@8.5.28):
+    dependencies:
+      browserslist: 4.29.2
+      caniuse-lite: 1.0.30001813
+      fraction.js: 5.3.4
+      picocolors: 1.1.1
+      postcss: 8.5.28
+      postcss-value-parser: 4.2.0
 
   available-typed-arrays@1.0.7:
     dependencies:
@@ -5636,6 +5664,8 @@ snapshots:
       mime-types: 2.1.35
 
   format@0.2.2: {}
+
+  fraction.js@5.3.4: {}
 
   fs-constants@1.0.0: {}
 
@@ -7379,7 +7409,7 @@ snapshots:
     dependencies:
       emoji-regex: 8.0.0
       is-fullwidth-code-point: 3.0.0
-      strip-ansi: 6.0.1
+      strip-ansi: 6.0.0
 
   string-width@4.2.3:
     dependencies:

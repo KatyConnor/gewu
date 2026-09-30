@@ -1,0 +1,52 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ===== 主题层（自 gewu-web globals.css 移植，D1-24 收尾：共享组件的主题基座） ===== */
+/* 主题1: 墨韵·深色东方（默认） */
+:root,
+[data-theme='ink'] {
+  --bg-base: #081211;
+  --bg-surface: #0e1c1b;
+  --bg-card: rgba(14, 28, 27, 0.75);
+  --border: rgba(0, 184, 148, 0.08);
+  --text-primary: #f5f7f6;
+  --text-secondary: #8ba89d;
+  --text-muted: #5d8076;
+  --accent: #00b894;
+  --accent-hover: #00d4aa;
+  --gold: #d4a853;
+  --danger: #c9483d;
+  --cyber: #06b6d4;
+}
+
+/* 主题2: 深海 · Logo原色（data-theme 切换预留，与 web 主题系统同源） */
+[data-theme='deepsea'] {
+  --bg-base: #0a1520;
+  --bg-surface: #0e1c30;
+  --bg-card: rgba(14, 28, 45, 0.8);
+  --border: rgba(56, 189, 248, 0.1);
+  --text-primary: #f0f7ff;
+  --text-secondary: #7ba8cc;
+  --text-muted: #4d88b0;
+  --accent: #0ea5e9;
+  --accent-hover: #38bdf8;
+}
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: 'Noto Sans SC', 'Source Han Sans SC', sans-serif;
+}
+
+/* 全局滚动条 — 与 web 一致的青绿细滚动条 */
+*::-webkit-scrollbar { width: 4px; height: 4px; }
+*::-webkit-scrollbar-track { background: transparent; }
+*::-webkit-scrollbar-thumb { background: rgba(0, 184, 148, 0.15); border-radius: 2px; }
+*::-webkit-scrollbar-thumb:hover { background: rgba(0, 184, 148, 0.3); }
+* { scrollbar-width: thin; scrollbar-color: rgba(0, 184, 148, 0.15) transparent; }
+
+/* scrollbar-thin 类（共享组件引用，与 web 同名兼容） */
+.scrollbar-thin::-webkit-scrollbar { width: 4px; }
+.scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+.scrollbar-thin::-webkit-scrollbar-thumb { background: rgba(0, 184, 148, 0.15); border-radius: 2px; }
