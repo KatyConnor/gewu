@@ -98,7 +98,7 @@ async function runVisualTest(outDir) {
     });
     const sessEnv = await sessRes.json();
     global.__visLastSessionId = (sessEnv.data || sessEnv).sessionId;
-    await fetch(`${base}/sessions/${sess.sessionId}/file-changes/content?path=visual-test.md`, {
+    await fetch(`${base}/sessions/${(sessEnv.data || sessEnv).sessionId}/file-changes/content?path=visual-test.md`, {
       method: 'PUT', headers,
       body: JSON.stringify({ content: '# 视觉回归\n第一行内容\n第二行内容' }),
     });
@@ -118,6 +118,18 @@ async function runVisualTest(outDir) {
     "const c = document.querySelector('.chat-head .chip'); c && c.click(); 'ok'");
   await sleep(2500);
   await capture('04-filepanel.png');
+
+  // 发送消息驱动工具调用循环（时间线交错 + 授权[视觉模式自动] + 文件落地）
+  await mainWindow.webContents.executeJavaScript(
+    "window.__gewu_test.send('在当前工作区创建 visual-sort.txt，内容写：冒泡排序验证'); 'ok'");
+  await sleep(2000);
+  await capture('05-timeline-streaming.png'); // 流中：展开态实时交错行
+  await sleep(9000); // 等待完成
+  // 完成后默认折叠：点击时间线头部展开（验证交错条目与正文段）
+  await mainWindow.webContents.executeJavaScript(
+    "const b = document.querySelector('.msg.assistant .mb-1 > button'); b && b.click(); 'ok'");
+  await sleep(1200);
+  await capture('06-timeline-done.png');
 
   console.log('[visual] done');
   setTimeout(() => app.quit(), 800);

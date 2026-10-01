@@ -113,7 +113,8 @@ class EngineSupervisor extends EventEmitter {
     const logStream = this.opts.logFile
       ? fs.createWriteStream(this.opts.logFile, { flags: 'a' })
       : null;
-    this.child = spawn(java, args, { env, stdio: ['ignore', 'pipe', 'pipe'] });
+    // detached+进程组：应用被强杀（SIGKILL）时也不会遗留孤儿 JVM 占用 H2 锁（V1.2 实测）
+    this.child = spawn(java, args, { env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
     this.child.stdout.pipe(logStream, { end: false });
     this.child.stderr.pipe(logStream, { end: false });
     this.emit('pid', this.child.pid);
@@ -184,11 +185,17 @@ class EngineSupervisor extends EventEmitter {
   stop() {
     this.stoppedByUser = true;
     if (this.child) {
-      this.child.kill('SIGTERM');
+      const pid = this.child.pid;
+      try {
+        // 进程组整组终止（detached 启动，-pid 杀组，含 JVM 自身的子进程）
+        process.kill(-pid, 'SIGTERM');
+      } catch {
+        try { this.child.kill('SIGTERM'); } catch { /* 已退出 */ }
+      }
       const child = this.child;
       setTimeout(() => {
         try {
-          if (child.exitCode === null) child.kill('SIGKILL');
+          if (child.exitCode === null) process.kill(-pid, 'SIGKILL');
         } catch {
           /* 已退出 */
         }

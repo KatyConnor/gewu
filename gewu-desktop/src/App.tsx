@@ -18,6 +18,22 @@ import type { FileChangeDTO } from '@gewu/agent-ui/api-client';
 import ApprovalDialog from './components/ApprovalDialog';
 import './styles.css';
 
+// ============ 辅助：尾部正文拆分（最后过程条目之后的正文 = 独立气泡；web splitFinalContent 同语义） ============
+function splitFinal(items: ProcessItem[], full: string): { items: ProcessItem[]; finalText: string } {
+  let lastIdx = -1;
+  for (let i = items.length - 1; i >= 0; i--) {
+    if (items[i].kind !== 'content') { lastIdx = i; break; }
+  }
+  if (lastIdx === -1) return { items: [], finalText: full };
+  const tl = items.slice(0, lastIdx + 1);
+  const tail = items.slice(lastIdx + 1)
+    .filter((x) => x.kind === 'content')
+    .map((x) => (x as { text: string }).text)
+    .join('');
+  const finalText = tail && full.endsWith(tail) ? full.slice(0, full.length - tail.length) : full;
+  return { items: tl, finalText: finalText || full };
+}
+
 // ============ 桌面工作台（D1-24）：共享组件族接入 ============
 // 时间线（AIProcessTimeline）/ 会话侧栏（SessionSidebar）/ 任务卡片（PlanCard）/
 // 文件变更面板（FileEditorPanel，写文件后自动出现 +N/-N 与 diff 审查）——全部来自共享包。
@@ -101,6 +117,7 @@ export default function App() {
   useEffect(() => {
     (window as unknown as Record<string, unknown>).__gewu_test = {
       newSession,
+      send: (t: string) => send(t),
       openSession: (id: string) => openSession(id),
       seedAndOpen: async () => {
         // 由主进程完成种子写入；此处仅刷新并打开首个会话
@@ -146,9 +163,10 @@ export default function App() {
     : '新对话';
 
   // ============ 发送（过程时间线 + 任务计划 + 变更追踪） ============
-  const send = useCallback(async () => {
-    if (!input.trim() || streaming) return;
-    const text = input.trim();
+  const send = useCallback(async (preset?: string) => {
+    const text = (preset ?? input).trim();
+    if (!text || streaming) return;
+    setView('workbench'); // 从主页直接发送（测试钩子/快捷发送）也进入工作台
     setInput('');
     setMessages((prev) => [...prev, { role: 'user', content: text }, { role: 'assistant', content: '' }]);
     setStreaming(true);
@@ -186,9 +204,15 @@ export default function App() {
           return next;
         });
       },
-      // 截断重试：清空正文段（过程行保留，S9-M0 语义）
+      // 截断重试：清空正文段与气泡正文（过程行保留，S9-M0 语义）
       onContentReset: () => {
         try { tracker.resetContent(); } catch { /* 忽略 */ }
+        setMessages((prev) => {
+          const next = [...prev];
+          const last = next[next.length - 1];
+          if (last?.role === 'assistant') next[next.length - 1] = { ...last, content: '' };
+          return next;
+        });
       },
       onPlan: (title: string, steps: PlanStepInfo[], planPath?: string) => setPlan({ title, steps, planPath }),
       onApprovalRequired: (req: ApprovalRequestPayload) => setPendingApproval(req),
@@ -417,14 +441,21 @@ export default function App() {
           {messages.length === 0 && <p className="hint center-text">选择会话或直接开始对话</p>}
           {messages.map((m, i) => {
             const isLast = i === messages.length - 1;
-            const timelineItems = m.process ?? [];
+            const allItems = m.process ?? [];
             const isStreamingMsg = streamingLast && isLast;
             const expanded = expandedMsgs[i] ?? isStreamingMsg;
+            // 共享包 splitFinalContent：尾部正文（最后过程条目之后）独立成气泡，
+            // 过程叙述（思考/工具/中途正文段）留在时间线内——消除双份渲染（web 同语义）
+            const trackerLike = { items: allItems };
+            const split = m.role === 'assistant' && allItems.length > 0
+              ? splitFinal(allItems, m.content)
+              : { items: allItems, finalText: m.content };
+            void trackerLike;
             return (
               <div key={i} className={`msg ${m.role}`}>
-                {m.role === 'assistant' && hasProcessActivity(timelineItems) && (
+                {m.role === 'assistant' && hasProcessActivity(split.items) && (
                   <AIProcessTimeline
-                    items={timelineItems}
+                    items={split.items}
                     streaming={isStreamingMsg}
                     status={isStreamingMsg ? '生成中…' : undefined}
                     totalMs={m.processMs}
@@ -433,9 +464,9 @@ export default function App() {
                     onToggle={() => setExpandedMsgs((prev) => ({ ...prev, [i]: !expanded }))}
                   />
                 )}
-                {m.role === 'user' || m.content ? (
-                  <div className="bubble">{m.content}</div>
-                ) : streamingLast && isLast ? (
+                {m.role === 'user' || split.finalText ? (
+                  <div className="bubble">{split.finalText}</div>
+                ) : isStreamingMsg ? (
                   <div className="bubble dim">…</div>
                 ) : null}
               </div>
@@ -451,7 +482,7 @@ export default function App() {
           onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send(); } }}
           disabled={streaming}
         />
-        <button className="btn primary" onClick={send} disabled={streaming || !input.trim()}>
+        <button className="btn primary" onClick={() => send()} disabled={streaming || !input.trim()}>
           {streaming ? '生成中…' : '发送'}
         </button>
       </div>

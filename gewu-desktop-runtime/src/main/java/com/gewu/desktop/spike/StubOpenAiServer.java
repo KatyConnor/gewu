@@ -16,6 +16,7 @@ import java.nio.charset.StandardCharsets;
  */
 public class StubOpenAiServer {
 
+    private final java.util.concurrent.atomic.AtomicInteger phase = new java.util.concurrent.atomic.AtomicInteger();
     private HttpServer server;
     private int port;
 
@@ -27,10 +28,18 @@ public class StubOpenAiServer {
             exchange.getResponseHeaders().set("Cache-Control", "no-cache");
             exchange.sendResponseHeaders(200, 0);
             try (OutputStream out = exchange.getResponseBody()) {
-                chunk(out, "{\"choices\":[{\"delta\":{\"role\":\"assistant\",\"reasoning_content\":\"Spike：正在解析请求并组织回复。\"}}]}");
-                chunk(out, "{\"choices\":[{\"delta\":{\"content\":\"你好\"}}]}");
-                chunk(out, "{\"choices\":[{\"delta\":{\"content\":\"，格物桌面运行时流式链路工作正常。\"}}]}");
-                chunk(out, "{\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":24,\"total_tokens\":36}}");
+                if (phase.getAndIncrement() == 0) {
+                    // 第一轮：驱动内置 write_file 工具（视觉回归：时间线工具行 + 授权 + 文件落地）
+                    String toolArgs = "{\\\"path\\\":\\\"visual-sort.txt\\\",\\\"content\\\":\\\"冒泡排序验证（视觉回归）\\n第二行\\\"}";
+                    chunk(out, "{\"choices\":[{\"delta\":{\"role\":\"assistant\",\"reasoning_content\":\"Spike：需要创建文件，调用 write_file。\"}}]}");
+                    chunk(out, "{\"choices\":[{\"delta\":{\"tool_calls\":[{\"index\":0,\"id\":\"call-1\",\"type\":\"function\",\"function\":{\"name\":\"write_file\",\"arguments\":\"" + toolArgs + "\"}}]}}]}");
+                    chunk(out, "{\"choices\":[{\"delta\":{},\"finish_reason\":\"tool_calls\"}]}");
+                } else {
+                    // 第二轮：工具结果回灌后的最终正文
+                    chunk(out, "{\"choices\":[{\"delta\":{\"content\":\"visual-sort.txt 已创建，内容已写入。\"}}]}");
+                    chunk(out, "{\"choices\":[{\"delta\":{\"content\":\"冒泡排序验证完成（视觉回归）。\"}}]}");
+                    chunk(out, "{\"choices\":[{\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":20,\"completion_tokens\":30,\"total_tokens\":50}}");
+                }
                 out.write("data: [DONE]\n\n".getBytes(StandardCharsets.UTF_8));
                 out.flush();
             }

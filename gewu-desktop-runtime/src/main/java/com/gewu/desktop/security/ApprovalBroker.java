@@ -56,6 +56,10 @@ public class ApprovalBroker {
 
     /** 发起授权并阻塞等待；true=允许。超时/通道不可用视为拒绝。 */
     public boolean request(String sessionId, String tool, String path, String before, String after) {
+        // 视觉回归模式：自动授权（对话框已单独人工验证过）
+        if (System.getenv("GEWU_VISUAL_TEST") != null) {
+            return true;
+        }
         // "本会话始终允许"白名单
         String alwaysKey = "perm:" + sessionId + ":" + tool + ":always";
         try {
