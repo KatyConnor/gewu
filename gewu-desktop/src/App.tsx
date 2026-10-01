@@ -60,26 +60,22 @@ export default function App() {
   // ============ 数据刷新 ============
   const refreshSessions = useCallback(async (withArchived = true) => {
     try {
-      const res = await connRef.current.fetch('/v1/ai/sessions');
-      if (res.ok) setSessions((await res.json()) as SessionItem[]);
+      setSessions((await connRef.current.data('/v1/ai/sessions')) as SessionItem[]);
       if (withArchived) {
-        const res2 = await connRef.current.fetch('/v1/ai/sessions?status=2');
-        if (res2.ok) setArchived((await res2.json()) as SessionItem[]);
+        setArchived((await connRef.current.data('/v1/ai/sessions?status=2')) as SessionItem[]);
       }
     } catch { /* 状态条已反映 */ }
   }, []);
 
   const refreshModels = useCallback(async () => {
     try {
-      const res = await connRef.current.fetch('/v1/ai/models');
-      if (res.ok) setModels((await res.json()) as ModelItem[]);
+      setModels((await connRef.current.data('/v1/ai/models')) as ModelItem[]);
     } catch { /* 忽略 */ }
   }, []);
 
   const refreshFileChanges = useCallback(async (sessionId: string) => {
     try {
-      const res = await connRef.current.fetch(`/v1/sessions/${sessionId}/file-changes`);
-      if (res.ok) setFileChanges((await res.json()) as FileChangeDTO[]);
+      setFileChanges((await connRef.current.data(`/v1/sessions/${sessionId}/file-changes`)) as FileChangeDTO[]);
     } catch { /* 忽略 */ }
   }, []);
 
@@ -120,11 +116,8 @@ export default function App() {
   const openSession = useCallback(async (sessionId: string) => {
     setView('workbench');
     setActiveSession(sessionId); setMessages([]); setPlan(null);
-    const res = await connRef.current.fetch(`/v1/ai/sessions/${sessionId}/messages`);
-    if (res.ok) {
-      const list = (await res.json()) as Array<{ role: string; content: string }>;
-      setMessages(list.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })));
-    }
+    const list = (await connRef.current.data(`/v1/ai/sessions/${sessionId}/messages`)) as Array<{ role: string; content: string }>;
+    setMessages(list.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })));
     refreshFileChanges(sessionId);
   }, [refreshFileChanges]);
 

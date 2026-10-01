@@ -79,6 +79,15 @@ export class EngineConnection {
     return this.transport;
   }
 
+  /** JSON 数据面请求：Result 信封解包，返回 data（401 自愈同 fetch） */
+  async data(path: string, init?: RequestInit): Promise<unknown> {
+    const res = await this.fetch(path, init);
+    if (!res.ok) throw new Error(`HTTP ${res.status} ${path}`);
+    const env = (await res.json()) as { code: number; message: string; data: unknown };
+    if (env.code !== 10000) throw new Error(env.message || `业务错误 ${env.code}`);
+    return env.data;
+  }
+
   /** 带自愈的请求：401 或网络错误 → 刷新引擎信息重试一次 */
   async fetch(path: string, init?: RequestInit): Promise<Response> {
     const t = this.getTransport();

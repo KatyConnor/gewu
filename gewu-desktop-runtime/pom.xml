@@ -21,6 +21,12 @@
             <artifactId>gewu-agent-engine</artifactId>
             <version>${project.version}</version>
         </dependency>
+        <!-- Result 信封（与平台响应契约同构） -->
+        <dependency>
+            <groupId>com.gewu</groupId>
+            <artifactId>gewu-common</artifactId>
+            <version>${project.version}</version>
+        </dependency>
 
         <!-- 宿主 Web 层：引擎 API Profile 端点（MVC + SseEmitter，与平台 interface 同构） -->
         <dependency>

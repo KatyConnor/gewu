@@ -96,8 +96,8 @@ async function runVisualTest(outDir) {
       method: 'POST', headers,
       body: JSON.stringify({ title: '视觉回归会话' }),
     });
-    const sess = await sessRes.json();
-    global.__visLastSessionId = sess.sessionId;
+    const sessEnv = await sessRes.json();
+    global.__visLastSessionId = (sessEnv.data || sessEnv).sessionId;
     await fetch(`${base}/sessions/${sess.sessionId}/file-changes/content?path=visual-test.md`, {
       method: 'PUT', headers,
       body: JSON.stringify({ content: '# 视觉回归\n第一行内容\n第二行内容' }),

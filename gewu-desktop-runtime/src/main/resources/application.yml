@@ -16,9 +16,6 @@ spring:
   flyway:
     enabled: true
     locations: classpath:db/migration
-  jackson:
-    # 对齐平台 ChatStreamEvent 契约：null 字段不输出（Spike 遗留项修复）
-    default-property-inclusion: non_null
 
 gewu:
   desktop:
