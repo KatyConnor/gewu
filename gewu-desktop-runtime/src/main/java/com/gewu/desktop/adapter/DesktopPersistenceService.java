@@ -151,6 +151,11 @@ public class DesktopPersistenceService implements PersistenceService {
         return agentId;
     }
 
+    /** Agent 删除（本地库；引用它的会话由模型解析回退机制兜底） */
+    public int deleteAgent(String agentId) {
+        return jdbc.update("DELETE FROM local_agent WHERE id = ?", agentId);
+    }
+
     /** AgentSpec 行载体（避免与引擎 AgentSpec 类型混淆） */
     private static class AgentSpecRow {
         String id;

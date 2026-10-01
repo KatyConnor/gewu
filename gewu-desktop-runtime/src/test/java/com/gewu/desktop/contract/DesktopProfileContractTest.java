@@ -156,6 +156,39 @@ class DesktopProfileContractTest {
         assertThat(list).contains("shell.exec", "fs.glob", "fs.grep", "git.status", "project.context");
     }
 
+    // ==================== Agent 域（D2-8） ====================
+
+    @Test
+    @Order(40)
+    void agentCrudRoundtripAndFallback() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+
+        // 创建（模型绑定当前可用供应商）
+        Map body = post("/api/v1/agents", Map.of(
+                "name", "契约测试 Agent", "description", "D2-8",
+                "systemPrompt", "你是测试助手。", "status", 1));
+        assertThat(body.get("code")).isEqualTo(10000);
+        String agentId = String.valueOf(((Map) body.get("data")).get("agentId"));
+
+        // 列表形状
+Map agentsBody = rest.getForObject("/api/v1/agents", Map.class);
+        assertThat(agentsBody.get("code")).isEqualTo(10000);
+        List list = (List) agentsBody.get("data");
+        assertThat(list).isNotNull();
+        if (!list.isEmpty()) {
+            assertThat((Map) list.get(0)).containsKeys("agentId", "name", "status", "modelProvider");
+        }
+
+        // 删除后对话：模型解析回退到其余 Agent（不得 MODEL_NOT_RESOLVED）
+        rest.exchange("/api/v1/agents/" + agentId, HttpMethod.DELETE, null, Map.class);
+        HttpHeaders h2 = new HttpHeaders();
+        h2.setContentType(MediaType.APPLICATION_JSON);
+        String stream = rest.exchange("/api/v1/ai/chat/stream", HttpMethod.POST,
+                new HttpEntity<>("{\"message\":\"\"}"), String.class).getBody();
+        assertThat(stream).doesNotContain("MODEL_NOT_RESOLVED");
+    }
+
     // ==================== 工具方法 ====================
 
     private Map post(String path, Object payload) {
