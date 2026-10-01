@@ -7,8 +7,15 @@ import Editor, { loader } from '@monaco-editor/react';
 let configured = false;
 function ensureLoader() {
   if (configured) return;
+  const g = globalThis as { __GEWU_MONACO_VS_PATH__?: string; __GEWU_MONACO_MODE__?: 'npm' | 'paths' };
+  if (g.__GEWU_MONACO_MODE__ === 'npm') {
+    // npm 模式：宿主入口（monaco-setup）已同步 loader.config({ monaco })——
+    // 此处不得覆盖（异步配置存在与 loader.init() 的竞态，用户实测卡死）
+    configured = true;
+    return;
+  }
   configured = true;
-  loader.config({ paths: { vs: (globalThis as { __GEWU_MONACO_VS_PATH__?: string }).__GEWU_MONACO_VS_PATH__ || '/monaco/vs' } });
+  loader.config({ paths: { vs: g.__GEWU_MONACO_VS_PATH__ || '/monaco/vs' } });
 }
 
 export default function MonacoEditor({ value, language, path, onChange, readOnly = false, wordWrap = 'on' }: {
@@ -21,7 +28,7 @@ export default function MonacoEditor({ value, language, path, onChange, readOnly
   /** 自动换行：预览关（横向滚动贴近 IDE），编辑默认开 */
   wordWrap?: 'on' | 'off';
 }) {
-  ensureLoader();
+  void ensureLoader();
   const ref = useRef(false);
   useEffect(() => { ref.current = true; }, []);
 

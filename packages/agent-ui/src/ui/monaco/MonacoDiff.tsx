@@ -4,10 +4,16 @@
 import { DiffEditor, loader } from '@monaco-editor/react';
 
 let configured = false;
-function ensureLoader() {
+async function ensureLoader() {
   if (configured) return;
   configured = true;
-  loader.config({ paths: { vs: (globalThis as { __GEWU_MONACO_VS_PATH__?: string }).__GEWU_MONACO_VS_PATH__ || '/monaco/vs' } });
+  const g = globalThis as { __GEWU_MONACO_VS_PATH__?: string; __GEWU_MONACO_MODE__?: 'npm' | 'paths' };
+  if (g.__GEWU_MONACO_MODE__ === 'npm') {
+    const monaco = await import('monaco-editor');
+    loader.config({ monaco });
+    return;
+  }
+  loader.config({ paths: { vs: g.__GEWU_MONACO_VS_PATH__ || '/monaco/vs' } });
 }
 
 export default function MonacoDiff({ original, modified, language }: {
@@ -16,7 +22,7 @@ export default function MonacoDiff({ original, modified, language }: {
   language: string;
   path: string;
 }) {
-  ensureLoader();
+  void ensureLoader();
   return (
     <DiffEditor
       height="100%"
