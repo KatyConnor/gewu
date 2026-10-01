@@ -134,3 +134,8 @@ body {
 }
 .chat-title { font-size: 13px; color: var(--text-secondary); truncate: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip { background: var(--accent-soft); border-color: rgba(0,184,148,0.3); color: var(--accent); }
+
+/* ===== 助手消息纵向布局（时间线在上、正文在下；修复左右分栏——用户实测） ===== */
+.msg.assistant { flex-direction: column; align-items: stretch; }
+.msg.assistant .bubble { max-width: 100%; }
+.chat { position: relative; }

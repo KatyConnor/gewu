@@ -248,6 +248,22 @@ public class DesktopChatController {
         return result;
     }
 
+    // ==================== 过程时间线持久化（D1-24 收尾：渲染层快照回写） ====================
+
+    public record ProcessPersistRequest(java.util.List<Map<String, Object>> process, Long processMs) {
+    }
+
+    /** 渲染层流结束后回写过程快照（ProcessItem 原生形状；重进会话还原时间线） */
+    @org.springframework.web.bind.annotation.PutMapping("/ai/sessions/{sessionId}/messages/last/process")
+    public Map<String, Object> persistProcess(@org.springframework.web.bind.annotation.PathVariable String sessionId,
+                                              @RequestBody ProcessPersistRequest req) throws Exception {
+        String metadata = objectMapper.writeValueAsString(Map.of(
+                "process", req.process() == null ? List.of() : req.process(),
+                "processMs", req.processMs() == null ? 0 : req.processMs()));
+        int n = sessionStore.updateLastAssistantMetadata(sessionId, metadata);
+        return Map.of("ok", n > 0);
+    }
+
     // ==================== 模型清单 ====================
 
     /** GET /ai/models：与 @gewu/agent-ui/protocol ModelInfo 同构 */

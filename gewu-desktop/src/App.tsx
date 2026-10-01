@@ -133,8 +133,21 @@ export default function App() {
   const openSession = useCallback(async (sessionId: string) => {
     setView('workbench');
     setActiveSession(sessionId); setMessages([]); setPlan(null);
-    const list = (await connRef.current.data(`/v1/ai/sessions/${sessionId}/messages`)) as Array<{ role: string; content: string }>;
-    setMessages(list.map((m) => ({ role: m.role as 'user' | 'assistant', content: m.content })));
+    const list = (await connRef.current.data(`/v1/ai/sessions/${sessionId}/messages`)) as Array<{
+      role: string; content: string; metadata?: string | null;
+    }>;
+    setMessages(list.map((m) => {
+      let process: ProcessItem[] | undefined;
+      if (m.metadata) {
+        try {
+          const meta = JSON.parse(m.metadata) as { process?: ProcessItem[]; processMs?: number };
+          if (Array.isArray(meta.process) && meta.process.length > 0) {
+            process = meta.process;
+          }
+        } catch { /* metadata 非 JSON：忽略 */ }
+      }
+      return { role: m.role as 'user' | 'assistant', content: m.content, process };
+    }));
     refreshFileChanges(sessionId);
   }, [refreshFileChanges]);
 
@@ -232,7 +245,7 @@ export default function App() {
         { message: text, sessionId: activeSession ?? undefined, clientId },
         callbacks
       );
-      // 收尾：时间线定格
+      // 收尾：时间线定格 + 过程快照回写（重进会话还原时间线——用户实测问题1）
       const items = tracker.snapshot().items;
       const totalMs = Date.now() - startedAt;
       setMessages((prev) => {
@@ -243,6 +256,16 @@ export default function App() {
         }
         return next;
       });
+      try {
+        const sidForPersist = activeSession ?? ((await connRef.current.data('/v1/ai/sessions')) as SessionItem[])[0]?.sessionId;
+        if (sidForPersist) {
+          await connRef.current.fetch(`/v1/ai/sessions/${sidForPersist}/messages/last/process`, {
+            method: 'PUT',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ process: items, processMs: totalMs }),
+          });
+        }
+      } catch { /* 回写失败不影响本轮展示 */ }
       refreshSessions();
       const target = activeSession ?? sessions[0]?.sessionId ?? null;
       if (target) refreshFileChanges(target);

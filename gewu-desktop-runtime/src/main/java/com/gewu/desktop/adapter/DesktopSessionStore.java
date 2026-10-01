@@ -100,6 +100,13 @@ public class DesktopSessionStore {
                 pinned ? 1 : 0, System.currentTimeMillis(), id);
     }
 
+    /** 最近一条 assistant 消息写入 metadata（过程时间线持久化，D1-24 收尾） */
+    public int updateLastAssistantMetadata(String sessionId, String metadataJson) {
+        return jdbc.update("UPDATE local_message SET metadata = ? WHERE id = ("
+                + "SELECT id FROM local_message WHERE session_id = ? AND role = 'assistant' "
+                + "ORDER BY seq DESC LIMIT 1)", metadataJson, sessionId);
+    }
+
     public int delete(String id) {
         return jdbc.update("UPDATE local_session SET status = 3, updated_at = ? WHERE id = ?",
                 System.currentTimeMillis(), id);
