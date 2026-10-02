@@ -99,6 +99,19 @@ async function runVisualTest(outDir) {
   await sleep(1500);
   await capture('02-workbench.png');
 
+  // 编排工作台（侧栏常驻导航驱动：主页/对话/编排第三颗按钮；IIFE 防全局 const 污染后续脚本）
+  await mainWindow.webContents.executeJavaScript(
+    "(() => { const el = document.querySelectorAll('.side-nav .btn')[2]; el && el.click(); })(); 'ok'");
+  await sleep(2000);
+  await capture('02b-orchestration.png');
+  // 回主页验证独立侧栏形态（无会话列表，管理面板/设置可见）
+  await mainWindow.webContents.executeJavaScript(
+    "(() => { const el = document.querySelectorAll('.side-nav .btn')[0]; el && el.click(); })(); 'ok'");
+  await sleep(1200);
+  await capture('02c-home.png');
+  await mainWindow.webContents.executeJavaScript("window.__gewu_test.newSession(); 'ok'");
+  await sleep(1200);
+
   // 种一个文件变更（引擎 REST：建会话 + 写文件），驱动 chip 与面板
   try {
     const info = supervisor.getInfo();
@@ -205,6 +218,10 @@ function createSupervisor() {
   const supervisor = new EngineSupervisor({
     jarPath: engineJarPath(),
     dataDir: path.join(app.getPath('userData'), 'engine-data'),
+    // 视觉回归：引擎数据目录也隔离（userData 隔离只管 Chromium 侧，JVM 侧需显式 CLI 参数）
+    isolatedDataDir: process.env.GEWU_VISUAL_TEST
+      ? path.join(process.env.GEWU_VISUAL_TEST, 'engine-data')
+      : undefined,
     modelKeys: vault.getModelKeys(),
     profiles: process.env.GEWU_ENGINE_PROFILE || undefined,
     logFile: path.join(app.getPath('userData'), 'engine.log'),

@@ -292,3 +292,20 @@ body {
 /* ===== 侧栏常驻导航（主页/对话/编排——三视图通用） ===== */
 .side-nav { display: flex; gap: 6px; margin-bottom: 12px; }
 .side-nav .btn { flex: 1; padding: 6px 2px; font-size: 12px; white-space: nowrap; }
+
+/* SessionSidebar 收缩包装：共享组件根为 h-full + flex-shrink-0 + w-72（web 全高设计），
+   在桌面 .sidebar（flex 列）内会占满视口并把后续元素（管理面板/设置）挤出可视区（用户实测） */
+.sidebar-body { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
+.sidebar-body > aside { height: auto; flex: 1 1 0; min-height: 0; width: 100%; border-right: none; }
+.home-actions { flex-shrink: 0; }
+
+/* 主页侧栏独立形态（无会话列表）：导航 + 弹性空隙 + 管理面板/设置 + 用户行 */
+.home-side-gap { flex: 1 1 0; }
+.home-user-row {
+  flex-shrink: 0; display: flex; align-items: center; gap: 10px; padding: 12px;
+  border-top: 1px solid var(--border); font-size: 13px; color: var(--text-secondary);
+}
+.home-user-avatar {
+  width: 28px; height: 28px; border-radius: 50%; background: var(--accent); color: #081211;
+  display: flex; align-items: center; justify-content: center; font-size: 13px; font-weight: 600;
+}

@@ -104,6 +104,12 @@ class EngineSupervisor extends EventEmitter {
     if (this.opts.profiles) {
       args.push(`--spring.profiles.active=${this.opts.profiles}`);
     }
+    // 数据目录隔离（视觉回归与已运行实例并存的前提）：引擎只认 CLI 参数
+    // --gewu.desktop.data-dir（DesktopRuntimeApplication），env 传递无效——
+    // 缺省 ./data 随 Electron cwd 解析，两实例同 cwd 会争同一 H2 文件锁（实测 degraded）
+    if (this.opts.isolatedDataDir) {
+      args.push(`--gewu.desktop.data-dir=${this.opts.isolatedDataDir}`);
+    }
     const env = {
       ...process.env,
       GEWU_ENGINE_TOKEN: this.token,

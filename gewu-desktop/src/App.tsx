@@ -378,7 +378,7 @@ export default function App() {
     </div>
   );
 
-  // 主页空态（对标 web ChatHomeView）
+  // 主页空态（对标 web ChatHomeView）：主页侧栏为独立形态（无会话列表——会话属「对话」视图）
   if (view === 'home') {
     return (
       <div className="layout">
@@ -387,27 +387,14 @@ export default function App() {
         )}
         <aside className="sidebar">
           {sideNav}
-          <SessionSidebar
-            sessions={sessions}
-            archivedSessions={archived}
-            projects={[]}
-            activeSessionId={null}
-            currentProjectId={null}
-            showArchived={showArchived}
-            onToggleArchived={() => setShowArchived((v) => !v)}
-            onSelectSession={(s) => openSession(s.sessionId)}
-            onCreateSession={() => newSession()}
-            onArchive={(id) => archiveSession(id)}
-            onUnarchive={(id) => unarchiveSession(id)}
-            onPin={(id, p2) => pinSession(id, p2)}
-            loading={false}
-            user={{ name: '本地用户' }}
-            onBackHome={() => setView('home')}
-            streamingSessionId={streaming ? activeSession : null}
-          />
+          <div className="home-side-gap" />
           <div className="home-actions">
             <button className="btn" onClick={() => { setMgmtOpen(true); setShowSettings(false); }}>管理面板</button>
             <button className="btn" onClick={() => setShowSettings((v) => !v)}>设置</button>
+          </div>
+          <div className="home-user-row">
+            <span className="home-user-avatar">本</span>
+            <span>本地用户</span>
           </div>
           {mgmtOpen && <ManagementPanel conn={connRef.current} onClose={() => setMgmtOpen(false)} />}
         </aside>
@@ -445,24 +432,26 @@ export default function App() {
         )}
         <aside className="sidebar">
           {sideNav}
-          <SessionSidebar
-            sessions={sessions}
-            archivedSessions={archived}
-            projects={[]}
-            activeSessionId={null}
-            currentProjectId={null}
-            showArchived={showArchived}
-            onToggleArchived={() => setShowArchived((v) => !v)}
-            onSelectSession={(s) => openSession(s.sessionId)}
-            onCreateSession={() => newSession()}
-            onArchive={(id) => archiveSession(id)}
-            onUnarchive={(id) => unarchiveSession(id)}
-            onPin={(id, p2) => pinSession(id, p2)}
-            loading={false}
-            user={{ name: '本地用户' }}
-            onBackHome={() => setView('home')}
-            streamingSessionId={streaming ? activeSession : null}
-          />
+          <div className="sidebar-body">
+            <SessionSidebar
+              sessions={sessions}
+              archivedSessions={archived}
+              projects={[]}
+              activeSessionId={null}
+              currentProjectId={null}
+              showArchived={showArchived}
+              onToggleArchived={() => setShowArchived((v) => !v)}
+              onSelectSession={(s) => openSession(s.sessionId)}
+              onCreateSession={() => newSession()}
+              onArchive={(id) => archiveSession(id)}
+              onUnarchive={(id) => unarchiveSession(id)}
+              onPin={(id, p2) => pinSession(id, p2)}
+              loading={false}
+              user={{ name: '本地用户' }}
+              onBackHome={() => setView('home')}
+              streamingSessionId={streaming ? activeSession : null}
+            />
+          </div>
           <div className="home-actions">
             <button className="btn" onClick={() => { setMgmtOpen(true); setShowSettings(false); }}>管理面板</button>
             <button className="btn" onClick={() => setShowSettings((v) => !v)}>设置</button>
@@ -482,25 +471,27 @@ export default function App() {
         <ApprovalDialog req={pendingApproval} onDecide={(a, al) => decideApproval(pendingApproval.approvalId, a, al)} />
       )}
         <aside className="sidebar">
-          {sideNav}
+        {sideNav}
+        <div className="sidebar-body">
           <SessionSidebar
             sessions={sessions}
             archivedSessions={archived}
             projects={[]}
             activeSessionId={activeSession}
-          currentProjectId={null}
-          showArchived={showArchived}
-          onToggleArchived={() => setShowArchived((v) => !v)}
-          onSelectSession={(s) => openSession(s.sessionId)}
-          onCreateSession={() => newSession()}
-          onArchive={(id) => archiveSession(id)}
-          onUnarchive={(id) => unarchiveSession(id)}
-          onPin={(id, p) => pinSession(id, p)}
-          loading={false}
-          user={{ name: '本地用户' }}
-          onBackHome={() => setView('home')}
-          streamingSessionId={streaming ? activeSession : null}
-        />
+            currentProjectId={null}
+            showArchived={showArchived}
+            onToggleArchived={() => setShowArchived((v) => !v)}
+            onSelectSession={(s) => openSession(s.sessionId)}
+            onCreateSession={() => newSession()}
+            onArchive={(id) => archiveSession(id)}
+            onUnarchive={(id) => unarchiveSession(id)}
+            onPin={(id, p) => pinSession(id, p)}
+            loading={false}
+            user={{ name: '本地用户' }}
+            onBackHome={() => setView('home')}
+            streamingSessionId={streaming ? activeSession : null}
+          />
+        </div>
         {showSettings && (
           <div className="settings">
             <h4>模型供应商</h4>
