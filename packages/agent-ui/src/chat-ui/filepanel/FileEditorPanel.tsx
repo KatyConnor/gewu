@@ -13,9 +13,11 @@ import MarkdownReader from '../../ui/MarkdownReader';
 /** 面板默认宽度（px）：ChatPage 拖拽调宽时的最窄边界（向右拖不越过默认位置） */
 export const FILE_PANEL_MIN_WIDTH = 520;
 
-// Monaco 懒加载（自托管资源，免 CDN；React.lazy 客户端懒加载替代 next/dynamic——包内不绑定 Next）
-const MonacoDiffEditor = lazy(() => import('../../ui/monaco/MonacoDiff'));
-const MonacoFileEditor = lazy(() => import('../../ui/monaco/MonacoEditor'));
+// 文件视图（Phase 2 降级路线）：SourceEditor 同签名替换 Monaco——
+// Monaco AMD loader 在 file:// Electron 下同步阻塞主线程（用户实测取证：
+// 点『打开』后主线程探针连续超时），零 loader 的 SourceEditor 完全可用；
+// Monaco 富编辑器为深化项（需 http 资源服务/worker 环境），见组件头注释
+const SourceEditor = lazy(() => import('../../ui/monaco/SourceEditor'));
 
 /** Monaco 分包加载占位 */
 const EditorLoader = () => (
@@ -23,11 +25,8 @@ const EditorLoader = () => (
     <Loader2 className="w-4 h-4 text-tech-400 animate-spin" />
   </div>
 );
-function SuspensedMonacoDiff(props: ComponentProps<typeof MonacoDiffEditor>) {
-  return <Suspense fallback={<EditorLoader />}><SuspensedMonacoDiff {...props} /></Suspense>;
-}
-function SuspensedMonacoFileEditor(props: ComponentProps<typeof MonacoFileEditor>) {
-  return <Suspense fallback={<EditorLoader />}><SuspensedMonacoFileEditor {...props} /></Suspense>;
+function SuspensedSourceEditor(props: ComponentProps<typeof SourceEditor>) {
+  return <Suspense fallback={<EditorLoader />}><SourceEditor {...props} /></Suspense>;
 }
 
 /** 标签页类型：审查（diff）或文件（预览/编辑） */
@@ -382,8 +381,14 @@ export default function FileEditorPanel({ sessionId, changes, onClose, onChanges
                 changeType={activeDiff?.changeType ?? 'MODIFY'} path={active.path} />
             ) : (
               <div className="flex-1 min-h-0">
-                <SuspensedMonacoDiff original={activeDiff?.before ?? ''} modified={activeDiff?.after ?? ''}
-                  language={monacoLangOf(active.path)} path={active.path} />
+                <div className="flex-1 min-h-0 overflow-auto">
+                  <SuspensedSourceEditor value={activeDiff?.before ?? ''} language={monacoLangOf(active.path)}
+                    path={active.path} readOnly wordWrap="off" />
+                </div>
+                <div className="flex-1 min-h-0 overflow-auto border-l" style={{ borderColor: 'rgba(0,184,148,0.15)' }}>
+                  <SuspensedSourceEditor value={activeDiff?.after ?? ''} language={monacoLangOf(active.path)}
+                    path={active.path} readOnly wordWrap="off" />
+                </div>
               </div>
             )}
           </>
@@ -434,13 +439,13 @@ export default function FileEditorPanel({ sessionId, changes, onClose, onChanges
                 </div>
               ) : (
                 <div className="flex-1 min-h-0">
-                  <SuspensedMonacoFileEditor value={activeText} language={monacoLangOf(active.path)}
+                  <SuspensedSourceEditor value={activeText} language={monacoLangOf(active.path)}
                     path={active.path} readOnly wordWrap="off" />
                 </div>
               )
             ) : (
               <div className="flex-1 min-h-0">
-                <SuspensedMonacoFileEditor value={activeText} language={monacoLangOf(active.path)}
+                <SuspensedSourceEditor value={activeText} language={monacoLangOf(active.path)}
                   path={active.path} wordWrap="on"
                   onChange={(v) => {
                     const text = v ?? '';

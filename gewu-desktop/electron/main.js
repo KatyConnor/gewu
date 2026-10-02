@@ -131,14 +131,47 @@ async function runVisualTest(outDir) {
   await sleep(2500);
   await capture('04-filepanel.png');
 
-  // 点首行『打开』→ Monaco/Markdown 视图（npm 竞态修复验证：不卡死、编辑器渲染）
+  // 点『打开』→ Monaco 视图（取证核心：种子 .java + 无响应探针 + console 钩子）
+  try {
+    const info = supervisor.getInfo();
+    const base = `http://127.0.0.1:${info.port}/api/v1`;
+    const headers = { 'Content-Type': 'application/json', 'X-Engine-Token': info.token };
+    const javaCode = fs.readFileSync(path.join(__dirname, 'fixtures/sm4.java'), 'utf8');
+    const sessRes = await fetch(`${base}/ai/sessions`, {
+      method: 'POST', headers,
+      body: JSON.stringify({ title: '取证会话' }),
+    });
+    const sessEnv = await sessRes.json();
+    const javaSessionId = (sessEnv.data || sessEnv).sessionId;
+    await fetch(`${base}/sessions/${javaSessionId}/file-changes/content?path=Sm4Util.java`, {
+      method: 'PUT', headers,
+      body: JSON.stringify({ content: javaCode }),
+    });
+    await mainWindow.webContents.executeJavaScript(
+      `window.__gewu_test.openSession(${JSON.stringify(javaSessionId)}); 'ok'`);
+    await sleep(2000);
+  } catch (e) {
+    console.log('[visual] 取证种子失败:', e.message);
+  }
   await mainWindow.webContents.executeJavaScript(
-    "const rows = document.querySelectorAll('.session-item'); "
-    + "(async () => { const btns = []; "
+    "(async () => { const btns = []; "
     + "document.querySelectorAll('button').forEach(b => { if (b.textContent === '打开') btns.push(b); }); "
-    + "if (btns.length) btns[btns.length - 1].click(); })(); 'ok'");
-  await sleep(4000);
-  await capture('07-editor.png');
+    + "if (btns.length) btns[btns.length - 1].click(); return 'clicked:' + btns.length; })(); 'ok'");
+  // 无响应探针：主线程阻塞时 evaluate 会超时（取证核心）
+  for (let t = 1; t <= 4; t++) {
+    await sleep(3000);
+    const probeStart = Date.now();
+    try {
+      await Promise.race([
+        mainWindow.webContents.executeJavaScript('"probe:" + (1+1)').then((v) => v),
+        new Promise((_, rej) => setTimeout(() => rej(new Error('EVAL_TIMEOUT')), 4000)),
+      ]);
+      console.log(`[probe] ${t * 3}s 主线程响应正常 (${Date.now() - probeStart}ms)`);
+    } catch (e) {
+      console.error(`[probe] ${t * 3}s 主线程阻塞！${e.message}`);
+    }
+    await capture(`07-freeze-${t * 3}s.png`);
+  }
 
   // 发送消息驱动工具调用循环（时间线交错 + 授权[视觉模式自动] + 文件落地）
   await mainWindow.webContents.executeJavaScript(
