@@ -369,6 +369,15 @@ export default function App() {
   const totalAdd = fileChanges.reduce((s, c) => s + (c.additions || 0), 0);
   const totalDel = fileChanges.reduce((s, c) => s + (c.deletions || 0), 0);
 
+  // 侧栏常驻导航（用户实测：入口不应只藏在主页卡片——三个视图均在侧栏顶部可见）
+  const sideNav = (
+    <div className="side-nav">
+      <button className={`btn small ${view === 'home' ? 'chip' : ''}`} onClick={() => setView('home')}>⌂ 主页</button>
+      <button className={`btn small ${view === 'workbench' ? 'chip' : ''}`} onClick={() => setView('workbench')}>◉ 对话</button>
+      <button className={`btn small ${view === 'orchestration' ? 'chip' : ''}`} onClick={() => setView('orchestration')}>▦ 编排</button>
+    </div>
+  );
+
   // 主页空态（对标 web ChatHomeView）
   if (view === 'home') {
     return (
@@ -377,6 +386,7 @@ export default function App() {
           <ApprovalDialog req={pendingApproval} onDecide={(a, al) => decideApproval(pendingApproval.approvalId, a, al)} />
         )}
         <aside className="sidebar">
+          {sideNav}
           <SessionSidebar
             sessions={sessions}
             archivedSessions={archived}
@@ -434,6 +444,7 @@ export default function App() {
           <ApprovalDialog req={pendingApproval} onDecide={(a, al) => decideApproval(pendingApproval.approvalId, a, al)} />
         )}
         <aside className="sidebar">
+          {sideNav}
           <SessionSidebar
             sessions={sessions}
             archivedSessions={archived}
@@ -470,12 +481,13 @@ export default function App() {
       {pendingApproval && (
         <ApprovalDialog req={pendingApproval} onDecide={(a, al) => decideApproval(pendingApproval.approvalId, a, al)} />
       )}
-      <aside className="sidebar">
-        <SessionSidebar
-          sessions={sessions}
-          archivedSessions={archived}
-          projects={[]}
-          activeSessionId={activeSession}
+        <aside className="sidebar">
+          {sideNav}
+          <SessionSidebar
+            sessions={sessions}
+            archivedSessions={archived}
+            projects={[]}
+            activeSessionId={activeSession}
           currentProjectId={null}
           showArchived={showArchived}
           onToggleArchived={() => setShowArchived((v) => !v)}

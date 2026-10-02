@@ -288,3 +288,7 @@ body {
 .console-node { color: var(--gold); flex-shrink: 0; }
 .console-text { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .card-icon.flow { background: rgba(6,182,212,0.12); color: var(--cyber); }
+
+/* ===== 侧栏常驻导航（主页/对话/编排——三视图通用） ===== */
+.side-nav { display: flex; gap: 6px; margin-bottom: 12px; }
+.side-nav .btn { flex: 1; padding: 6px 2px; font-size: 12px; white-space: nowrap; }
