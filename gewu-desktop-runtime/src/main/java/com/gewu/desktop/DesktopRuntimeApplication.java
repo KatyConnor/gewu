@@ -27,6 +27,19 @@ public class DesktopRuntimeApplication {
                 .orElse("./data");
         Files.createDirectories(Path.of(dataDir));
         SpringApplication.run(DesktopRuntimeApplication.class, args);
+        // 父进程死亡看门狗：stdin EOF（父进程退出/被杀）→ 引擎自退出，
+        // 防孤儿 JVM 占用 H2 文件锁（V1.2 用户实测：孤儿引擎致 degraded）
+        Thread watchdog = new Thread(() -> {
+            try {
+                if (System.in.read() == -1) {
+                    System.exit(0);
+                }
+            } catch (java.io.IOException ignored) {
+                System.exit(0);
+            }
+        }, "engine-stdin-watchdog");
+        watchdog.setDaemon(true);
+        watchdog.start();
     }
 }
 

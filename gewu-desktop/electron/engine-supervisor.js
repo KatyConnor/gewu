@@ -14,6 +14,7 @@ const { EventEmitter } = require('events');
 
 const MAX_RESTARTS = 3;
 const HEALTH_SOFT_TIMEOUT_MS = 45_000;
+const WATCHDOG_COOKIE = 'GEWU-ENGINE-WATCHDOG';
 const HEALTH_TIMEOUT_MS = 120_000;
 const HEALTH_POLL_MS = 500;
 
@@ -114,7 +115,8 @@ class EngineSupervisor extends EventEmitter {
       ? fs.createWriteStream(this.opts.logFile, { flags: 'a' })
       : null;
     // detached+进程组：应用被强杀（SIGKILL）时也不会遗留孤儿 JVM 占用 H2 锁（V1.2 实测）
-    this.child = spawn(java, args, { env, stdio: ['ignore', 'pipe', 'pipe'], detached: true });
+    // stdin 管道保持：父进程死亡 → 引擎侧 stdin EOF 自退出（双向死亡联动，防孤儿占 H2 锁）
+    this.child = spawn(java, args, { env, stdio: ['pipe', 'pipe', 'pipe'], detached: true });
     this.child.stdout.pipe(logStream, { end: false });
     this.child.stderr.pipe(logStream, { end: false });
     this.emit('pid', this.child.pid);
@@ -180,6 +182,14 @@ class EngineSupervisor extends EventEmitter {
       token: this.token,
       pid: this.child ? this.child.pid : null,
     };
+  }
+
+  /** 同步强杀（process exit 兜底；异步 API 不可用场景） */
+  killSync() {
+    if (!this.child) return;
+    try { process.kill(-this.child.pid, 'SIGKILL'); } catch {
+      try { this.child.kill('SIGKILL'); } catch { /* 已退出 */ }
+    }
   }
 
   stop() {
