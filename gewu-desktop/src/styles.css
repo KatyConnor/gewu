@@ -173,3 +173,10 @@ body {
 }
 .turn-file-row:last-child { border-bottom: none; }
 .turn-file-name { flex: 1; font-family: monospace; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text-secondary); }
+
+/* ===== 管理面板 ===== */
+.tab-row { display: flex; gap: 6px; margin-bottom: 10px; }
+.list-block { max-height: 30vh; overflow-y: auto; margin-bottom: 10px; border: 1px solid var(--border); border-radius: 8px; padding: 6px; }
+.row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; font-size: 12px; border-radius: 6px; }
+.row:hover { background: var(--accent-soft); }
+.form-block { border-top: 1px solid var(--border); padding-top: 10px; }

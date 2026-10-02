@@ -16,6 +16,7 @@ import { FileEditorPanel, FILE_PANEL_MIN_WIDTH } from '@gewu/agent-ui/chat-ui/fi
 import type { ApprovalRequestPayload } from '@gewu/agent-ui/protocol';
 import type { FileChangeDTO } from '@gewu/agent-ui/api-client';
 import ApprovalDialog from './components/ApprovalDialog';
+import ManagementPanel from './components/ManagementPanel';
 import TerminalPanel from './components/TerminalPanel';
 import './styles.css';
 
@@ -71,6 +72,7 @@ export default function App() {
   const [gitBranch, setGitBranch] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<{ basename: string | null }>({ basename: null });
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequestPayload | null>(null);
+  const [mgmtOpen, setMgmtOpen] = useState(false);
   // 视图状态：home（主页空态）/ workbench（工作台）——修复"新建会话后仍停留主页"
   const [view, setView] = useState<'home' | 'workbench'>('home');
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -393,8 +395,10 @@ export default function App() {
             streamingSessionId={streaming ? activeSession : null}
           />
           <div className="home-actions">
+            <button className="btn" onClick={() => { setMgmtOpen(true); setShowSettings(false); }}>管理面板</button>
             <button className="btn" onClick={() => setShowSettings((v) => !v)}>设置</button>
           </div>
+          {mgmtOpen && <ManagementPanel conn={connRef.current} onClose={() => setMgmtOpen(false)} />}
         </aside>
         <main className="home">
           <div className="home-logo">格物</div>
@@ -418,6 +422,7 @@ export default function App() {
 
   return (
     <div className="layout">
+      {mgmtOpen && <ManagementPanel conn={connRef.current} onClose={() => setMgmtOpen(false)} />}
       {pendingApproval && (
         <ApprovalDialog req={pendingApproval} onDecide={(a, al) => decideApproval(pendingApproval.approvalId, a, al)} />
       )}
@@ -474,6 +479,7 @@ export default function App() {
             {gitBranch && <span className="chip-static git">⎇ {gitBranch}</span>}
           </div>
           <div className="flex items-center gap-2">
+            <button className="btn small" onClick={() => setMgmtOpen(true)}>管理</button>
             {fileChanges.length > 0 && (
               <button className="btn small chip" onClick={() => setFilePanelOpen((v) => !v)}>
                 {fileChanges.length} 个文件已更改
