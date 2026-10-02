@@ -39,6 +39,7 @@ body {
 .sidebar {
   width: 280px; flex-shrink: 0; background: var(--panel);
   border-right: 1px solid var(--border); display: flex; flex-direction: column; padding: 12px;
+  position: relative; overflow: hidden;
 }
 .sidebar-head { display: flex; gap: 8px; margin-bottom: 12px; }
 .session-list { flex: 1; overflow-y: auto; }
@@ -49,7 +50,12 @@ body {
 .session-item:hover { background: var(--accent-soft); }
 .session-item.active { background: var(--accent-soft); border: 1px solid var(--accent); }
 .session-item .count { color: var(--text-dim); font-size: 11px; }
-.settings { border-top: 1px solid var(--border); padding-top: 12px; margin-top: 12px; }
+.settings {
+  position: absolute; left: 8px; right: 8px; bottom: 56px;
+  max-height: 62vh; overflow-y: auto; z-index: 40;
+  background: var(--bg-surface); border: 1px solid var(--border); border-radius: 10px;
+  padding: 12px; box-shadow: 0 10px 34px rgba(0, 0, 0, 0.55);
+}
 .settings h4 { font-size: 13px; margin-bottom: 8px; }
 .settings input {
   width: 100%; background: var(--bg); color: var(--text); border: 1px solid var(--border);
