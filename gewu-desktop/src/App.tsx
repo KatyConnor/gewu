@@ -377,6 +377,19 @@ export default function App() {
       <button className={`btn small ${view === 'orchestration' ? 'chip' : ''}`} onClick={() => setView('orchestration')}>▦ 编排</button>
     </div>
   );
+  // 侧栏统一 footer（管理面板/设置 + 用户行）——三视图同序同构（用户实测：主页与编排顺序不一致）
+  const sidebarFooter = (
+    <>
+      <div className="home-actions">
+        <button className="btn" onClick={() => { setMgmtOpen(true); setShowSettings(false); }}>管理面板</button>
+        <button className="btn" onClick={() => setShowSettings((v) => !v)}>设置</button>
+      </div>
+      <div className="home-user-row">
+        <span className="home-user-avatar">本</span>
+        <span>本地用户</span>
+      </div>
+    </>
+  );
 
   // 主页空态（对标 web ChatHomeView）：主页侧栏为独立形态（无会话列表——会话属「对话」视图）
   if (view === 'home') {
@@ -388,14 +401,7 @@ export default function App() {
         <aside className="sidebar">
           {sideNav}
           <div className="home-side-gap" />
-          <div className="home-actions">
-            <button className="btn" onClick={() => { setMgmtOpen(true); setShowSettings(false); }}>管理面板</button>
-            <button className="btn" onClick={() => setShowSettings((v) => !v)}>设置</button>
-          </div>
-          <div className="home-user-row">
-            <span className="home-user-avatar">本</span>
-            <span>本地用户</span>
-          </div>
+          {sidebarFooter}
           {mgmtOpen && <ManagementPanel conn={connRef.current} onClose={() => setMgmtOpen(false)} />}
         </aside>
         <main className="home">
@@ -432,30 +438,8 @@ export default function App() {
         )}
         <aside className="sidebar">
           {sideNav}
-          <div className="sidebar-body">
-            <SessionSidebar
-              sessions={sessions}
-              archivedSessions={archived}
-              projects={[]}
-              activeSessionId={null}
-              currentProjectId={null}
-              showArchived={showArchived}
-              onToggleArchived={() => setShowArchived((v) => !v)}
-              onSelectSession={(s) => openSession(s.sessionId)}
-              onCreateSession={() => newSession()}
-              onArchive={(id) => archiveSession(id)}
-              onUnarchive={(id) => unarchiveSession(id)}
-              onPin={(id, p2) => pinSession(id, p2)}
-              loading={false}
-              user={{ name: '本地用户' }}
-              onBackHome={() => setView('home')}
-              streamingSessionId={streaming ? activeSession : null}
-            />
-          </div>
-          <div className="home-actions">
-            <button className="btn" onClick={() => { setMgmtOpen(true); setShowSettings(false); }}>管理面板</button>
-            <button className="btn" onClick={() => setShowSettings((v) => !v)}>设置</button>
-          </div>
+          <div className="home-side-gap" />
+          {sidebarFooter}
         </aside>
         <main className="orch-main">
           <OrchestrationWorkbench conn={connRef.current} onBackHome={() => setView('home')} />
@@ -492,6 +476,7 @@ export default function App() {
             streamingSessionId={streaming ? activeSession : null}
           />
         </div>
+        {sidebarFooter}
         {showSettings && (
           <div className="settings">
             <h4>模型供应商</h4>

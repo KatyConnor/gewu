@@ -297,6 +297,8 @@ body {
    在桌面 .sidebar（flex 列）内会占满视口并把后续元素（管理面板/设置）挤出可视区（用户实测） */
 .sidebar-body { flex: 1 1 0; min-height: 0; display: flex; flex-direction: column; }
 .sidebar-body > aside { height: auto; flex: 1 1 0; min-height: 0; width: 100%; border-right: none; }
+/* 隐藏 SessionSidebar 自带用户 footer（含重复的返回主页按钮）——统一用 App 侧 sidebarFooter，三视图同序 */
+.sidebar-body > aside > div:last-child { display: none; }
 .home-actions { flex-shrink: 0; }
 
 /* 主页侧栏独立形态（无会话列表）：导航 + 弹性空隙 + 管理面板/设置 + 用户行 */
