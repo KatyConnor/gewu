@@ -46,15 +46,18 @@ public class DesktopFileChangeController {
         return dto;
     }
 
-    /** 读取当前文件内容（打开/预览/编辑视图） */
-    @GetMapping("/content")
-    public Map<String, Object> content(@PathVariable String sessionId,
-                                       @RequestParam String path) throws Exception {
+    /** 读取当前文件内容（data = 纯字符串，与平台契约一致——FileEditorPanel 直用）。
+     * produces=JSON：String 返回值默认走 ISO-8859-1 文本转换器（中文响应损坏实测） */
+    @GetMapping(value = "/content", produces = org.springframework.http.MediaType.APPLICATION_JSON_VALUE)
+    public com.gewu.common.result.Result<String> content(@PathVariable String sessionId,
+                          @RequestParam String path) throws Exception {
         String content = fileService.readFile(sessionId, path);
         if (content == null) {
             throw new IllegalArgumentException("文件不存在: " + path);
         }
-        return Map.of("path", path, "content", content);
+        // 显式 Result<String>：绕开 String 返回值被 StringHttpMessageConverter
+        // 以 ISO-8859-1 写出的缺陷（中文响应损坏实测）；data=纯字符串与平台契约一致
+        return com.gewu.common.result.Result.success(content);
     }
 
     public record SaveContentRequest(String content) {

@@ -156,6 +156,22 @@ class DesktopProfileContractTest {
         assertThat(list).contains("shell.exec", "fs.glob", "fs.grep", "git.status", "project.context");
     }
 
+    // ==================== 文件变更域（D2-9 补测：content data 为纯字符串） ====================
+
+    @Test
+    @Order(35)
+    void fileContentEndpointShape() {
+        // 先经 REST 写一个文件（走同一变更记录入口）
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        rest.exchange("/api/v1/sessions/" + sessionId + "/file-changes/content?path=ct.md",
+                HttpMethod.PUT, new HttpEntity<>(Map.of("content", "契约内容测试"), headers), Map.class);
+        // data 必须是纯字符串（平台契约）——此前误返回 {path, content} 对象
+        Map body = rest.getForObject("/api/v1/sessions/" + sessionId + "/file-changes/content?path=ct.md", Map.class);
+        assertThat(body.get("code")).isEqualTo(10000);
+        assertThat(body.get("data")).isInstanceOf(String.class);
+    }
+
     // ==================== Agent 域（D2-8） ====================
 
     @Test
