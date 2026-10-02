@@ -43,7 +43,9 @@ type SessionItem = import('@gewu/agent-ui/protocol').SessionDTO;
 interface MessageItem {
   role: 'user' | 'assistant'; content: string;
   process?: ProcessItem[]; processMs?: number; startAt?: number;
+  stats?: { rounds?: number; elapsedMs?: number; tokenEstimated?: number };
 }
+interface GitInfo { branch: string | null }
 interface ModelItem { provider: string; modelName: string; displayName: string; supported: boolean }
 
 export default function App() {
@@ -66,6 +68,8 @@ export default function App() {
   const [fileChanges, setFileChanges] = useState<FileChangeDTO[]>([]);
   const [filePanelOpen, setFilePanelOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
+  const [gitBranch, setGitBranch] = useState<string | null>(null);
+  const [workspace, setWorkspace] = useState<{ basename: string | null }>({ basename: null });
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequestPayload | null>(null);
   // 视图状态：home（主页空态）/ workbench（工作台）——修复"新建会话后仍停留主页"
   const [view, setView] = useState<'home' | 'workbench'>('home');
@@ -140,16 +144,25 @@ export default function App() {
     }>;
     setMessages(list.map((m) => {
       let process: ProcessItem[] | undefined;
+      let stats: MessageItem['stats'] | undefined;
       if (m.metadata) {
         try {
-          const meta = JSON.parse(m.metadata) as { process?: ProcessItem[]; processMs?: number };
-          if (Array.isArray(meta.process) && meta.process.length > 0) {
-            process = meta.process;
-          }
+          const meta = JSON.parse(m.metadata) as {
+            process?: ProcessItem[]; processMs?: number; stats?: MessageItem['stats'];
+          };
+          if (Array.isArray(meta.process) && meta.process.length > 0) process = meta.process;
+          if (meta.stats) stats = meta.stats;
         } catch { /* metadata 非 JSON：忽略 */ }
       }
-      return { role: m.role as 'user' | 'assistant', content: m.content, process };
+      return { role: m.role as 'user' | 'assistant', content: m.content, process, stats };
     }));
+    try {
+      const gi = (await connRef.current.data(`/v1/sessions/${sessionId}/git-info`)) as GitInfo;
+      setGitBranch(gi.branch ?? null);
+    } catch { setGitBranch(null); }
+    const sess = sessions.find((s) => s.sessionId === sessionId);
+    const dir = sess?.directory ?? null;
+    setWorkspace({ basename: dir ? dir.split(/[\\/]/).filter(Boolean).pop() || 'workspace' : 'workspace' });
     refreshFileChanges(sessionId);
   }, [refreshFileChanges]);
 
@@ -201,6 +214,7 @@ export default function App() {
     });
 
     let contentStartedFlag = false;
+    let doneStats: MessageItem['stats'] | undefined;
     const callbacks: ChatStreamCallbacks = {
       ...handlers,
       // 内容片段喂给过程时间线（对齐 web：图文交错；首块前触发 contentStarted）
@@ -229,6 +243,7 @@ export default function App() {
           return next;
         });
       },
+      onExecutionStats: (stats) => { doneStats = stats; },
       onPlan: (title: string, steps: PlanStepInfo[], planPath?: string) => setPlan({ title, steps, planPath }),
       onApprovalRequired: (req: ApprovalRequestPayload) => setPendingApproval(req),
       onError: (msg: string) => setMessages((prev) => {
@@ -264,7 +279,7 @@ export default function App() {
           await connRef.current.fetch(`/v1/ai/sessions/${sidForPersist}/messages/last/process`, {
             method: 'PUT',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ process: items, processMs: totalMs }),
+            body: JSON.stringify({ process: items, processMs: totalMs, stats: doneStats }),
           });
         }
       } catch { /* 回写失败不影响本轮展示 */ }
@@ -347,6 +362,9 @@ export default function App() {
 
   const lastMsg = messages[messages.length - 1];
   const streamingLast = streaming && lastMsg?.role === 'assistant';
+  const workspaceName = workspace.basename || null;
+  const totalAdd = fileChanges.reduce((s, c) => s + (c.additions || 0), 0);
+  const totalDel = fileChanges.reduce((s, c) => s + (c.deletions || 0), 0);
 
   // 主页空态（对标 web ChatHomeView）
   if (view === 'home') {
@@ -450,11 +468,17 @@ export default function App() {
       <div className="main-area">
       <main className="chat">
         <div className="chat-head">
-          <span className="chat-title">{activeTitle}</span>
+          <div className="flex items-center gap-2 min-w-0">
+            <span className="chat-title">{activeTitle}</span>
+            {workspaceName && <span className="chip-static">📁 {workspaceName}</span>}
+            {gitBranch && <span className="chip-static git">⎇ {gitBranch}</span>}
+          </div>
           <div className="flex items-center gap-2">
             {fileChanges.length > 0 && (
               <button className="btn small chip" onClick={() => setFilePanelOpen((v) => !v)}>
                 {fileChanges.length} 个文件已更改
+                {totalAdd > 0 && <span className="stat-add"> +{totalAdd}</span>}
+                {totalDel > 0 && <span className="stat-del"> -{totalDel}</span>}
               </button>
             )}
             <button className="btn small" onClick={() => setTerminalOpen((v) => !v)}>

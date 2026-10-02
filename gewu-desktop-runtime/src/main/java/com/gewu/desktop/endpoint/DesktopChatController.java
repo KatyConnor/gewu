@@ -42,13 +42,15 @@ public class DesktopChatController {
     private final com.gewu.agent.engine.llm.LlmProvider llmProvider;
     private final DesktopModelCatalog modelCatalog;
     private final ApprovalBroker approvalBroker;
+    private final com.gewu.desktop.adapter.LocalFileService fileChangeService;
 
     public DesktopChatController(AgentEngine agentEngine, ObjectMapper objectMapper,
                                  DesktopSessionStore sessionStore,
                                  DesktopPersistenceService persistenceService,
                                  com.gewu.agent.engine.llm.LlmProvider llmProvider,
                                  DesktopModelCatalog modelCatalog,
-                                 ApprovalBroker approvalBroker) {
+                                 ApprovalBroker approvalBroker,
+                                 com.gewu.desktop.adapter.LocalFileService fileChangeService) {
         this.agentEngine = agentEngine;
         this.objectMapper = objectMapper;
         this.sessionStore = sessionStore;
@@ -56,6 +58,7 @@ public class DesktopChatController {
         this.llmProvider = llmProvider;
         this.modelCatalog = modelCatalog;
         this.approvalBroker = approvalBroker;
+        this.fileChangeService = fileChangeService;
     }
 
     @GetMapping("/engine/health")
@@ -152,12 +155,17 @@ public class DesktopChatController {
             task.setModelName(pm[1]);
 
             StringBuilder content = new StringBuilder();
+            final java.util.concurrent.atomic.AtomicReference<Object> doneStats =
+                    new java.util.concurrent.atomic.AtomicReference<>();
             approvalBroker.registerEmitter(sessionId, emitter);
             agentEngine.executeStream(task).subscribe(
                     event -> {
                         try {
                             if ("content".equals(event.getType()) && event.getContent() != null) {
                                 content.append(event.getContent());
+                            }
+                            if ("done".equals(event.getType()) && event.getMetadata() != null) {
+                                doneStats.set(event.getMetadata());
                             }
                             emitter.send(SseEmitter.event().data(objectMapper.writeValueAsString(event)));
                         } catch (Exception e) {
@@ -179,11 +187,13 @@ public class DesktopChatController {
                     () -> {
                         try {
                             if (content.length() > 0) {
-                                // 助手消息落库（幂等键 = clientId:a）
+                                // 助手消息落库（幂等键 = clientId:a）——metadata 带 done.stats（尾部收尾行）
                                 String assistantClientId = clientId == null || clientId.isBlank()
                                         ? null : clientId + ":a";
+                                String meta = doneStats.get() == null ? null
+                                        : objectMapper.writeValueAsString(Map.of("stats", doneStats.get()));
                                 sessionStore.appendMessage(sessionId, "assistant", content.toString(),
-                                        assistantClientId, null);
+                                        assistantClientId, meta);
                             }
                             emitter.send(SseEmitter.event().data("[DONE]"));
                         } catch (Exception ignored) {
@@ -250,18 +260,30 @@ public class DesktopChatController {
 
     // ==================== 过程时间线持久化（D1-24 收尾：渲染层快照回写） ====================
 
-    public record ProcessPersistRequest(java.util.List<Map<String, Object>> process, Long processMs) {
+    public record ProcessPersistRequest(java.util.List<Map<String, Object>> process, Long processMs,
+                                        java.util.Map<String, Object> stats) {
     }
 
-    /** 渲染层流结束后回写过程快照（ProcessItem 原生形状；重进会话还原时间线） */
+    /** 渲染层流结束后回写过程快照与执行统计（ProcessItem 原生形状；重进会话还原时间线与收尾行） */
     @org.springframework.web.bind.annotation.PutMapping("/ai/sessions/{sessionId}/messages/last/process")
     public Map<String, Object> persistProcess(@org.springframework.web.bind.annotation.PathVariable String sessionId,
                                               @RequestBody ProcessPersistRequest req) throws Exception {
-        String metadata = objectMapper.writeValueAsString(Map.of(
-                "process", req.process() == null ? List.of() : req.process(),
-                "processMs", req.processMs() == null ? 0 : req.processMs()));
-        int n = sessionStore.updateLastAssistantMetadata(sessionId, metadata);
+        java.util.Map<String, Object> metadata = new java.util.LinkedHashMap<>();
+        metadata.put("process", req.process() == null ? List.of() : req.process());
+        metadata.put("processMs", req.processMs() == null ? 0 : req.processMs());
+        if (req.stats() != null) {
+            metadata.put("stats", req.stats());
+        }
+        String metaJson = objectMapper.writeValueAsString(metadata);
+        int n = sessionStore.updateLastAssistantMetadata(sessionId, metaJson);
+        // 同步更新会话行 metadata？会话行无该列——返回即可
         return Map.of("ok", n > 0);
+    }
+
+    /** 工作区 Git 分支（顶栏 chip；非 git 目录 data.branch=null） */
+    @org.springframework.web.bind.annotation.GetMapping("/sessions/{sessionId}/git-info")
+    public Map<String, Object> gitInfo(@org.springframework.web.bind.annotation.PathVariable String sessionId) {
+        return Map.of("branch", fileChangeService.gitBranch(sessionId));
     }
 
     // ==================== 模型清单 ====================

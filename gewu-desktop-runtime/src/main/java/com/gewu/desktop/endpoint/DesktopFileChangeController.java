@@ -46,6 +46,22 @@ public class DesktopFileChangeController {
         return dto;
     }
 
+    public record UndoRequest(java.util.List<String> paths) {
+    }
+
+    /** 撤销回合变更（before 快照回写；paths 空=全部） */
+    @org.springframework.web.bind.annotation.PostMapping("/undo")
+    public java.util.List<java.util.Map<String, Object>> undo(@PathVariable String sessionId,
+                                                              @org.springframework.web.bind.annotation.RequestBody(required = false) UndoRequest req) throws Exception {
+        return fileService.undoTurn(sessionId, req == null ? null : req.paths());
+    }
+
+    /** 工作区 Git 分支（顶栏 chip） */
+    @org.springframework.web.bind.annotation.GetMapping("/git-info")
+    public java.util.Map<String, Object> gitInfo(@PathVariable String sessionId) {
+        return java.util.Map.of("branch", fileService.gitBranch(sessionId));
+    }
+
     /** 读取当前文件内容（data = 纯字符串，与平台契约一致——FileEditorPanel 直用）。
      * produces=JSON：String 返回值默认走 ISO-8859-1 文本转换器（中文响应损坏实测） */
     @GetMapping(value = "/content", produces = org.springframework.http.MediaType.APPLICATION_JSON_VALUE)

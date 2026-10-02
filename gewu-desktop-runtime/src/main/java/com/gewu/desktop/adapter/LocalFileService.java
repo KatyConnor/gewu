@@ -197,6 +197,64 @@ public class LocalFileService {
         writeFile(sessionId, path, content, false);
     }
 
+    // ==================== 回合撤销（对齐 web TurnChangesBar 撤销语义） ====================
+
+    /**
+     * 撤销变更：将每个变更文件的 before_snapshot 写回（新建文件 → 删除），
+     * 清除变更行；paths 空 = 全部撤销（白名单=变更表本身，无需额外校验）。
+     * 返回逐路径结果。
+     */
+    public List<Map<String, Object>> undoTurn(String sessionId, List<String> paths) throws IOException {
+        Path root = rootFor(sessionId);
+        List<Map<String, Object>> results = new ArrayList<>();
+        List<Map<String, Object>> rows = jdbc.queryForList(
+                "SELECT file_path, change_type, before_snapshot FROM local_file_change WHERE session_id = ?",
+                sessionId);
+        for (Map<String, Object> row : rows) {
+            String path = String.valueOf(row.getOrDefault("FILE_PATH", row.get("file_path")));
+            if (paths != null && !paths.isEmpty() && !paths.contains(path)) {
+                continue;
+            }
+            String type = String.valueOf(row.getOrDefault("CHANGE_TYPE", row.get("change_type")));
+            Object beforeObj = row.getOrDefault("BEFORE_SNAPSHOT", row.get("before_snapshot"));
+            String before = beforeObj == null ? null : String.valueOf(beforeObj);
+            Map<String, Object> r = new LinkedHashMap<>();
+            r.put("path", path);
+            try {
+                Path target = PathGuard.secureResolve(root, path);
+                if ("CREATE".equals(type)) {
+                    Files.deleteIfExists(target); // 新建文件：撤销即删除
+                } else if (before != null) {
+                    Files.writeString(target, before); // 修改：写回首改前基线
+                } else {
+                    Files.deleteIfExists(target);
+                }
+                jdbc.update("DELETE FROM local_file_change WHERE session_id = ? AND file_path = ?", sessionId, path);
+                audit(sessionId, "undo", "ALLOW", path, type);
+                r.put("success", true);
+            } catch (Exception e) {
+                r.put("success", false);
+                r.put("reason", e.getMessage());
+            }
+            results.add(r);
+        }
+        return results;
+    }
+
+    /** 当前工作区 Git 分支（顶栏 chip；非 git 目录返回 null） */
+    public String gitBranch(String sessionId) {
+        try {
+            Path root = rootFor(sessionId);
+            Process p = new ProcessBuilder("git", "branch", "--show-current")
+                    .directory(root.toFile()).redirectErrorStream(true).start();
+            p.waitFor(5, java.util.concurrent.TimeUnit.SECONDS);
+            String out = new String(p.getInputStream().readAllBytes()).trim();
+            return out.isEmpty() ? null : out;
+        } catch (Exception e) {
+            return null;
+        }
+    }
+
     // ==================== 授权与审计 ====================
 
     /** 写授权（D1-21）：READ_ONLY 拒绝；WORKSPACE_WRITE 弹窗 diff 确认（alwaysAllow 白名单跳过）；
