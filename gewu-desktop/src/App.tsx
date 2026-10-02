@@ -16,6 +16,7 @@ import { FileEditorPanel, FILE_PANEL_MIN_WIDTH } from '@gewu/agent-ui/chat-ui/fi
 import type { ApprovalRequestPayload } from '@gewu/agent-ui/protocol';
 import type { FileChangeDTO } from '@gewu/agent-ui/api-client';
 import ApprovalDialog from './components/ApprovalDialog';
+import TerminalPanel from './components/TerminalPanel';
 import './styles.css';
 
 // ============ 辅助：尾部正文拆分（最后过程条目之后的正文 = 独立气泡；web splitFinalContent 同语义） ============
@@ -64,6 +65,7 @@ export default function App() {
   const [plan, setPlan] = useState<{ title: string; steps: PlanStepInfo[]; planPath?: string } | null>(null);
   const [fileChanges, setFileChanges] = useState<FileChangeDTO[]>([]);
   const [filePanelOpen, setFilePanelOpen] = useState(false);
+  const [terminalOpen, setTerminalOpen] = useState(false);
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequestPayload | null>(null);
   // 视图状态：home（主页空态）/ workbench（工作台）——修复"新建会话后仍停留主页"
   const [view, setView] = useState<'home' | 'workbench'>('home');
@@ -449,11 +451,16 @@ export default function App() {
       <main className="chat">
         <div className="chat-head">
           <span className="chat-title">{activeTitle}</span>
-          {fileChanges.length > 0 && (
-            <button className="btn small chip" onClick={() => setFilePanelOpen((v) => !v)}>
-              {fileChanges.length} 个文件已更改
+          <div className="flex items-center gap-2">
+            {fileChanges.length > 0 && (
+              <button className="btn small chip" onClick={() => setFilePanelOpen((v) => !v)}>
+                {fileChanges.length} 个文件已更改
+              </button>
+            )}
+            <button className="btn small" onClick={() => setTerminalOpen((v) => !v)}>
+              {terminalOpen ? '收起终端' : '终端'}
             </button>
-          )}
+          </div>
         </div>
         {plan && plan.steps.length > 0 && (
           <div className="plan-wrap">

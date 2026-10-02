@@ -22,6 +22,15 @@ declare global {
       onEngineStatus(cb: (s: { state: string; detail?: unknown; info?: EngineInfo }) => void): () => void;
       saveModelKey(p: { providerCode: string; apiKey: string; displayName?: string; baseUrl?: string; modelsJson?: string }): Promise<{ ok: boolean }>;
       listSavedProviders(): Promise<Array<{ code: string; displayName?: string; baseUrl?: string }>>;
+      terminal: {
+        create: (opts?: { cwd?: string; cols?: number; rows?: number; shell?: string }) =>
+          Promise<{ tabId: string; backend: string }>;
+        write: (p: { tabId: string; data: string }) => Promise<void>;
+        resize: (p: { tabId: string; cols: number; rows: number }) => Promise<void>;
+        kill: (p: { tabId: string }) => Promise<void>;
+        onData: (cb: (d: { tabId: string; data: string }) => void) => () => void;
+        onExit: (cb: (d: { tabId: string; code: number }) => void) => () => void;
+      };
     };
   }
 }

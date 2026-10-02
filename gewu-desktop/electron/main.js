@@ -8,6 +8,7 @@ const path = require('path');
 const fs = require('fs');
 const { EngineSupervisor } = require('./engine-supervisor');
 const { SecretVault } = require('./secret-vault');
+const { TerminalManager } = require('./terminal-manager');
 
 const isDev = process.argv.includes('--dev');
 const DEV_URL = process.env.GEWU_DEV_URL || 'http://127.0.0.1:5173';
@@ -21,6 +22,7 @@ if (process.env.GEWU_VISUAL_TEST) {
 let mainWindow = null;
 let supervisor = null;
 let vault = null;
+let terminals = null;
 
 // ============ 单实例锁 ============
 const gotLock = app.requestSingleInstanceLock();
@@ -36,6 +38,13 @@ if (!gotLock) {
 
   app.whenReady().then(() => {
     vault = new SecretVault(app.getPath('userData'));
+    terminals = new TerminalManager();
+    terminals.on('data', (tabId, data) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('terminal:data', { tabId, data });
+    });
+    terminals.on('exit', (tabId, code) => {
+      if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('terminal:exit', { tabId, code });
+    });
     supervisor = createSupervisor();
 
     createWindow();
@@ -59,6 +68,7 @@ if (!gotLock) {
 
   app.on('before-quit', () => {
     if (supervisor) supervisor.stop();
+    if (terminals) terminals.killAll();
   });
 
 // ============ 视觉回归自捕获（GEWU_VISUAL_TEST=<outdir>，Phase 1 验收） ============
@@ -236,3 +246,12 @@ ipcMain.handle('secret:saveModelKey', (_e, payload) => {
   return { ok: true };
 });
 ipcMain.handle('secret:listProviders', () => (vault ? vault.listProviders() : []));
+
+// ============ 终端（D1-25） ============
+ipcMain.handle('terminal:create', (_e, opts) => {
+  const cwd = opts && opts.cwd ? opts.cwd : path.join(app.getPath('home'));
+  return terminals.create({ cwd, cols: opts && opts.cols, rows: opts && opts.rows, shell: opts && opts.shell });
+});
+ipcMain.handle('terminal:write', (_e, { tabId, data }) => terminals.write(tabId, data));
+ipcMain.handle('terminal:resize', (_e, { tabId, cols, rows }) => terminals.resize(tabId, cols, rows));
+ipcMain.handle('terminal:kill', (_e, { tabId }) => terminals.kill(tabId));
