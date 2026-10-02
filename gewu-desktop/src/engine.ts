@@ -153,6 +153,56 @@ export class EngineConnection {
     }
     return consumeChatSse(res, callbacks);
   }
+
+  /** 通用 SSE 流消费（编排域）：事件形状与 chat 不同（graph_start/node_start/…），
+   *  且编排流无 [DONE]——以流结束收尾。自愈语义同 streamChat（401/网络错误重试一次）。 */
+  async streamSse(path: string, body: unknown, onEvent: (evt: Record<string, unknown>) => void): Promise<void> {
+    const attempt = async (): Promise<Response> => {
+      const t = this.getTransport();
+      if (!t) throw new Error('引擎未就绪');
+      return fetch(`${t.baseUrl}${path}`, {
+        method: 'POST',
+        headers: { ...t.extraHeaders, 'Content-Type': 'application/json', Accept: 'text/event-stream' },
+        body: body === undefined ? undefined : JSON.stringify(body),
+      });
+    };
+    let res: Response;
+    try {
+      res = await attempt();
+      if (res.status === 401) {
+        await this.refreshAndRetry(path, undefined);
+        res = await attempt();
+      }
+    } catch (e) {
+      await this.refreshAndRetry(path, undefined).catch(() => {
+        throw e;
+      });
+      res = await attempt();
+    }
+    if (!res.ok || !res.body) throw new Error(`流式请求失败: ${res.status}`);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buffer = '';
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let idx;
+      while ((idx = buffer.indexOf('\n\n')) >= 0) {
+        const raw = buffer.slice(0, idx);
+        buffer = buffer.slice(idx + 2);
+        for (const line of raw.split('\n')) {
+          const s = line.startsWith('data:') ? line.slice(5).trim() : '';
+          if (!s || s === '[DONE]') continue;
+          try {
+            onEvent(JSON.parse(s) as Record<string, unknown>);
+          } catch {
+            // 非 JSON data 行忽略
+          }
+        }
+      }
+    }
+  }
 }
 
 import type { ChatStreamCallbacks } from '@gewu/agent-ui/protocol';

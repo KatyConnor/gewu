@@ -10,8 +10,8 @@
 
 | 计划任务 | 状态 | 实证（提交） |
 |----------|------|--------------|
-| D1-13 契约测试 | ✅ | DesktopProfileContractTest **11 例**（@SpringBootTest+stub）：chat 流事件形状/会话 CRUD/归档过滤/幂等重放/file-changes/models/engine-admin 信封断言（21ac6c3） |
-| D2-1/3 Docker 沙箱执行器 + code_execute | ✅ | LocalDockerSandboxExecutor（容器名 hash 定址 / --memory 512m --cpus 1 --network none / 宿主 uid:gid 注入 / inspect 幂等建容器）+ CodeExecuteTool，**5 测试**（567d6a4） |
+| D1-13 契约测试 | ✅ | DesktopProfileContractTest **10 例**（@SpringBootTest+stub）：chat 流事件形状/会话 CRUD/归档过滤/幂等重放/file-changes/models/engine-admin 信封断言（21ac6c3） |
+| D2-1/3 Docker 沙箱执行器 + code_execute | ✅ | LocalDockerSandboxExecutor（容器名 hash 定址 / --memory 512m --cpus 1 --network none / 宿主 uid:gid 注入 / inspect 幂等建容器）+ CodeExecuteTool，**4 测试**（本机无 Docker 时 assumeTrue 自动跳过）（567d6a4） |
 | D2-10 记忆 v1 | ✅ | DesktopMemoryStore TF-IDF 检索（CJK bigram 分词）+ MemoryRouter system 消息前置注入，**4 测试**（21ac6c3） |
 | D2-2 MCP 服务器管理 | ✅ | DesktopMcpConfigSource（local_mcp_server 表 → McpServerDescriptor）+ `/mcp-servers` CRUD + 工具动态发现端点（1e79713）+ 管理面板「MCP」标签 |
 | D2-8 Agent 管理 | ✅ | `/agents` CRUD 端点（db5437f）+ 管理面板「Agent」标签（创建即生效于对话） |
@@ -26,7 +26,7 @@
 
 | 验证项 | 结果 |
 |--------|------|
-| 自动化测试 **20 例全绿**（契约 11 + 记忆 4 + 沙箱 5） | ✅ mvn test |
+| 自动化测试 **18 例全绿**（契约 10 + 记忆 4 + 沙箱 4；沙箱用例依赖本机 Docker，缺席自动跳过） | ✅ mvn test |
 | stub 两阶段工具循环 → 视觉回归时间线图文交错 | ✅ 自动化（b9139ee，GEWU_VISUAL_TEST） |
 | 撤销全链路 E2E（变更列表 → undo → before 快照回写 + 列表清空） | ✅ 自动化 |
 | git-info 返回真实分支（fix/sandbox-security-storage） | ✅ 自动化 |
@@ -57,6 +57,6 @@
 
 ## 五、结论
 
-**Phase 2 目标达成**：单机形态补齐管理面（模型供应商/Agent/MCP/技能四标签 CRUD）、隔离沙箱执行（code_execute）、记忆 v1（TF-IDF）、契约测试（20 例自动化全绿）、终端面板；会话页按用户实测差异清单与 Web 端对齐（信息带/收尾行/汇总条/撤销/时间线持久化）。**平台侧零代码侵入原则保持不变**（仅 monorepo 注册与共享包协议复用）。
+**Phase 2 目标达成**：单机形态补齐管理面（模型供应商/Agent/MCP/技能四标签 CRUD）、隔离沙箱执行（code_execute）、记忆 v1（TF-IDF）、契约测试（18 例自动化全绿）、终端面板；会话页按用户实测差异清单与 Web 端对齐（信息带/收尾行/汇总条/撤销/时间线持久化）。**平台侧零代码侵入原则保持不变**（仅 monorepo 注册与共享包协议复用）。
 
 **下一步（Phase 3）**：① 编排工作台 UI（DesktopOrchestrationController 端点已就绪，画布 + 生命周期交互）② 协同基础（等平台 N1/N2 排期）③ Phase 4 backlog 按优先级滚动。

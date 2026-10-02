@@ -130,6 +130,37 @@ class DesktopProfileContractTest {
         assertThat(after.size()).isEqualTo(before.size());
     }
 
+    // ==================== 编排域（Phase 3 · D2-6） ====================
+
+    @Test
+    @Order(23)
+    void orchestrationStreamShape() {
+        HttpHeaders headers = new HttpHeaders();
+        headers.setContentType(MediaType.APPLICATION_JSON);
+        // PIPELINE 两节点：refId 留空 → 图变量 modelProvider/modelName 兜底（播种语义）；
+        // sessionId 传真实会话（复用 createSessionShape 工作区，write_file 工具路径可用）
+        String graph = """
+                {"graphId":"contract-pipeline","name":"契约流水线","type":"AD_HOC","mode":"PIPELINE",\
+                "variables":{"modelProvider":"spike-stub","modelName":"stub-model"},\
+                "nodes":[{"nodeId":"g1","type":"AGENT","roleCode":"ANALYST"},\
+                {"nodeId":"g2","type":"AGENT","roleCode":"BUILDER","inputs":{"message":"基于上游产出继续。"}}],\
+                "edges":[{"fromNode":"g1","toNode":"g2"}]}""";
+        String body = "{\"graph\":" + graph + ",\"input\":\"契约测试运行目标\",\"sessionId\":\"" + sessionId + "\"}";
+        String stream = rest.exchange("/api/v1/orchestration/graphs/execute/stream", HttpMethod.POST,
+                new HttpEntity<>(body, headers), String.class).getBody();
+        assertThat(stream).isNotNull();
+        // 事件契约：graph_start（含 executionId）/node_start/node_complete/graph_complete
+        assertThat(stream).contains("\"type\":\"graph_start\"");
+        assertThat(stream).contains("\"type\":\"node_start\"");
+        assertThat(stream).contains("\"nodeId\":\"g1\"");
+        assertThat(stream).contains("\"nodeId\":\"g2\"");
+        assertThat(stream).contains("\"type\":\"node_complete\"");
+        assertThat(stream).contains("\"type\":\"graph_complete\"");
+        assertThat(stream).contains("executionId");
+        // 图变量播种契约：不得出现"不支持的编排模式"等启动失败
+        assertThat(stream).doesNotContain("不支持的编排模式");
+    }
+
     // ==================== 模型与工具 ====================
 
     @Test

@@ -180,3 +180,111 @@ body {
 .row { display: flex; align-items: center; gap: 8px; padding: 4px 6px; font-size: 12px; border-radius: 6px; }
 .row:hover { background: var(--accent-soft); }
 .form-block { border-top: 1px solid var(--border); padding-top: 10px; }
+
+/* ===== 编排工作台（Phase 3 · D2-6 渲染层） ===== */
+.orch-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.orch { flex: 1; display: flex; flex-direction: column; min-height: 0; padding: 12px 16px; gap: 10px; }
+.orch-head { display: flex; align-items: center; gap: 10px; }
+.orch-title { font-size: 15px; font-weight: 600; letter-spacing: 1px; }
+.orch-status {
+  font-size: 11px; padding: 3px 10px; border-radius: 10px;
+  background: var(--bg-surface); border: 1px solid var(--border); color: var(--text-secondary);
+}
+.orch-status.s-running { color: var(--accent); border-color: rgba(0,184,148,0.4); }
+.orch-status.s-paused { color: var(--gold); border-color: rgba(212,168,83,0.4); }
+.orch-status.s-done { color: #3fb950; border-color: rgba(63,185,80,0.35); }
+.orch-status.s-failed, .orch-status.s-cancelled { color: #f85149; border-color: rgba(248,80,72,0.35); }
+.orch-hint { margin-left: auto; font-size: 11px; color: var(--text-dim); }
+.orch-toolbar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.orch-toolbar label { font-size: 12px; color: var(--text-dim); }
+.orch-toolbar select, .orch-toolbar input {
+  background: var(--bg-surface); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 8px; font-size: 12px;
+}
+.orch-name { width: 260px; }
+.orch-goal { display: flex; gap: 10px; align-items: stretch; }
+.orch-goal textarea {
+  flex: 1; background: var(--bg-surface); color: var(--text); border: 1px solid var(--border);
+  border-radius: 8px; padding: 8px 10px; font-size: 13px; font-family: inherit; resize: none; height: 52px;
+}
+.orch-goal textarea:focus { outline: none; border-color: var(--accent); }
+.orch-actions { display: flex; flex-direction: column; gap: 4px; }
+.orch-actions .btn { padding: 3px 14px; font-size: 12px; }
+.btn.danger { color: #f85149; border-color: rgba(248,80,72,0.35); }
+.orch-body { flex: 1; display: flex; gap: 10px; min-height: 0; }
+.orch-canvas-wrap {
+  flex: 1; min-width: 0; overflow: auto; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg-surface);
+  background-image: radial-gradient(rgba(0, 184, 148, 0.07) 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+.orch-canvas { position: relative; }
+.orch-edges { position: absolute; inset: 0; pointer-events: none; }
+.orch-edge { stroke: rgba(139,168,157,0.4); stroke-width: 1.5; }
+.orch-edge.active { stroke: var(--accent); stroke-width: 2; }
+.orch-edge.t-done { stroke: rgba(63,185,80,0.5); }
+.orch-edge.t-failed { stroke: rgba(248,80,72,0.6); }
+.orch-node {
+  position: absolute; background: var(--bg-card); border: 1px solid var(--border); border-radius: 10px;
+  padding: 8px 10px; cursor: pointer; display: flex; flex-direction: column; gap: 4px; overflow: hidden;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.orch-node:hover { border-color: rgba(0,184,148,0.4); }
+.orch-node.sel { border-color: var(--accent); box-shadow: 0 0 0 1px rgba(0,184,148,0.35); }
+.orch-node.st-running { border-color: var(--accent); animation: orch-pulse 1.4s ease-in-out infinite; }
+.orch-node.st-done { border-color: rgba(63,185,80,0.5); }
+.orch-node.st-failed { border-color: rgba(248,80,72,0.6); }
+@keyframes orch-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0,184,148,0.25); }
+  50% { box-shadow: 0 0 0 5px rgba(0,184,148,0.08); }
+}
+.orch-node-head { display: flex; align-items: center; gap: 6px; }
+.orch-node-icon { color: var(--accent); font-size: 13px; }
+.orch-node-role { font-size: 12px; font-weight: 600; color: var(--text-primary); flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.orch-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--text-dim); flex-shrink: 0; }
+.orch-dot.d-running { background: var(--accent); }
+.orch-dot.d-done { background: #3fb950; }
+.orch-dot.d-failed { background: #f85149; }
+.orch-node-id { font-size: 10px; color: var(--text-dim); }
+.orch-node-out {
+  flex: 1; font-family: monospace; font-size: 10px; line-height: 1.45; color: var(--text-dim);
+  overflow: hidden; white-space: pre-wrap; word-break: break-all;
+}
+.orch-side {
+  width: 300px; flex-shrink: 0; border: 1px solid var(--border); border-radius: 10px;
+  background: var(--bg-surface); padding: 10px; overflow-y: auto; display: flex; flex-direction: column;
+}
+.orch-form { display: flex; flex-direction: column; gap: 6px; }
+.orch-form label { font-size: 11px; color: var(--text-dim); margin-top: 4px; }
+.orch-form input, .orch-form select {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 8px; font-size: 12px; width: 100%;
+}
+.orch-msg, .orch-json {
+  background: var(--bg); color: var(--text); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 8px; font-size: 12px; width: 100%;
+  font-family: inherit; resize: vertical;
+}
+.orch-msg { height: 90px; }
+.orch-json { height: 300px; font-family: 'Cascadia Code', Consolas, monospace; font-size: 11px; }
+.orch-msg:focus, .orch-json:focus { outline: none; border-color: var(--accent); }
+.orch-json-actions { display: flex; gap: 8px; margin-top: 6px; }
+.orch-final { border: 1px solid rgba(63,185,80,0.3); background: rgba(63,185,80,0.05); border-radius: 10px; padding: 8px 12px; }
+.orch-final-label { font-size: 11px; color: #3fb950; margin-bottom: 4px; }
+.orch-final-pre {
+  font-size: 12px; line-height: 1.6; white-space: pre-wrap; word-break: break-word;
+  max-height: 180px; overflow-y: auto; margin: 0; color: var(--text-primary);
+}
+.orch-console {
+  height: 170px; flex-shrink: 0; overflow-y: auto; border: 1px solid var(--border);
+  border-radius: 10px; background: var(--bg-surface); padding: 6px 10px; font-family: monospace;
+}
+.console-line { display: flex; align-items: baseline; gap: 8px; font-size: 11px; padding: 2px 0; }
+.console-ts { color: var(--text-dim); flex-shrink: 0; }
+.console-type { color: var(--accent); flex-shrink: 0; min-width: 96px; }
+.console-line.c-error .console-type { color: #f85149; }
+.console-line.c-node_start .console-type { color: var(--gold); }
+.console-line.c-node_complete .console-type { color: #3fb950; }
+.console-node { color: var(--gold); flex-shrink: 0; }
+.console-text { color: var(--text-secondary); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.card-icon.flow { background: rgba(6,182,212,0.12); color: var(--cyber); }

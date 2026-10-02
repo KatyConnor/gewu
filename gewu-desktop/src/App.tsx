@@ -18,6 +18,7 @@ import type { FileChangeDTO } from '@gewu/agent-ui/api-client';
 import ApprovalDialog from './components/ApprovalDialog';
 import ManagementPanel from './components/ManagementPanel';
 import TerminalPanel from './components/TerminalPanel';
+import OrchestrationWorkbench from './components/OrchestrationWorkbench';
 import './styles.css';
 
 // ============ 辅助：尾部正文拆分（最后过程条目之后的正文 = 独立气泡；web splitFinalContent 同语义） ============
@@ -73,8 +74,8 @@ export default function App() {
   const [workspace, setWorkspace] = useState<{ basename: string | null }>({ basename: null });
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequestPayload | null>(null);
   const [mgmtOpen, setMgmtOpen] = useState(false);
-  // 视图状态：home（主页空态）/ workbench（工作台）——修复"新建会话后仍停留主页"
-  const [view, setView] = useState<'home' | 'workbench'>('home');
+  // 视图状态：home（主页空态）/ workbench（工作台）/ orchestration（编排工作台）
+  const [view, setView] = useState<'home' | 'workbench' | 'orchestration'>('home');
   const bottomRef = useRef<HTMLDivElement>(null);
   // 时间线展开态（按消息索引）：流中最后一条默认展开（实时可见），完成后折叠可点击
   const [expandedMsgs, setExpandedMsgs] = useState<Record<number, boolean>>({});
@@ -410,11 +411,54 @@ export default function App() {
               <span className="card-icon plus">＋</span>
               <span>新建会话</span>
             </button>
+            <button className="home-card" onClick={() => setView('orchestration')}>
+              <span className="card-icon flow">▦</span>
+              <span>编排工作台</span>
+            </button>
             <button className="home-card" onClick={() => setShowSettings(true)}>
               <span className="card-icon doc">⚙</span>
               <span>模型设置</span>
             </button>
           </div>
+        </main>
+      </div>
+    );
+  }
+
+  // 编排工作台（Phase 3 · D2-6）：本地多 Agent 编排（四模式 + 画布 + 生命周期）
+  if (view === 'orchestration') {
+    return (
+      <div className="layout">
+        {mgmtOpen && <ManagementPanel conn={connRef.current} onClose={() => setMgmtOpen(false)} />}
+        {pendingApproval && (
+          <ApprovalDialog req={pendingApproval} onDecide={(a, al) => decideApproval(pendingApproval.approvalId, a, al)} />
+        )}
+        <aside className="sidebar">
+          <SessionSidebar
+            sessions={sessions}
+            archivedSessions={archived}
+            projects={[]}
+            activeSessionId={null}
+            currentProjectId={null}
+            showArchived={showArchived}
+            onToggleArchived={() => setShowArchived((v) => !v)}
+            onSelectSession={(s) => openSession(s.sessionId)}
+            onCreateSession={() => newSession()}
+            onArchive={(id) => archiveSession(id)}
+            onUnarchive={(id) => unarchiveSession(id)}
+            onPin={(id, p2) => pinSession(id, p2)}
+            loading={false}
+            user={{ name: '本地用户' }}
+            onBackHome={() => setView('home')}
+            streamingSessionId={streaming ? activeSession : null}
+          />
+          <div className="home-actions">
+            <button className="btn" onClick={() => { setMgmtOpen(true); setShowSettings(false); }}>管理面板</button>
+            <button className="btn" onClick={() => setShowSettings((v) => !v)}>设置</button>
+          </div>
+        </aside>
+        <main className="orch-main">
+          <OrchestrationWorkbench conn={connRef.current} onBackHome={() => setView('home')} />
         </main>
       </div>
     );
@@ -479,6 +523,7 @@ export default function App() {
             {gitBranch && <span className="chip-static git">⎇ {gitBranch}</span>}
           </div>
           <div className="flex items-center gap-2">
+            <button className="btn small" onClick={() => setView('orchestration')}>编排</button>
             <button className="btn small" onClick={() => setMgmtOpen(true)}>管理</button>
             {fileChanges.length > 0 && (
               <button className="btn small chip" onClick={() => setFilePanelOpen((v) => !v)}>

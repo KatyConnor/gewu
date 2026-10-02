@@ -42,7 +42,8 @@ public class DesktopOrchestrationController {
         this.objectMapper = objectMapper;
     }
 
-    public record ExecuteRequest(OrchestrationGraph graph, String sessionId) {
+    /** 运行目标（input）：播种进上下文供 PIPELINE 起始输入 / DEBATE 辩题 / ${var.input} 模板引用 */
+    public record ExecuteRequest(OrchestrationGraph graph, String sessionId, String input) {
     }
 
     /** 流式执行（SSE，事件契约与平台编排流一致：graph_start/node_x/graph_complete） */
@@ -55,6 +56,14 @@ public class DesktopOrchestrationController {
                     .sessionId(req.sessionId() == null ? "orch-session" : req.sessionId())
                     .userId("local")
                     .build();
+            // 上下文变量播种（与平台 OrchestrationService#buildContextVariables 同构）：
+            // 图定义 variables 先入（modelProvider/modelName 节点兜底所需），运行时 input 后入覆盖同名键
+            Map<String, Object> vars = new LinkedHashMap<>();
+            if (req.graph() != null && req.graph().getVariables() != null) {
+                vars.putAll(req.graph().getVariables());
+            }
+            vars.put("input", req.input() == null ? "" : req.input());
+            ctx.setVariables(vars);
             final String execId = ctx.getExecutionId();
             streamEmitters.put(execId, emitter);
 
