@@ -35,40 +35,53 @@ export default function TerminalPanel({ cwd, height = 220 }: {
     let disposed = false;
     let tabId: string | null = null;
 
+    // 订阅先于 create（用户实测空终端根因）：shell 提示符在 PTY spawn 瞬间发出，
+    // 若等 create 返回再订阅，首屏输出必然丢失。早期数据先缓冲，拿到 tabId 后回放。
+    const earlyBuffer: string[] = [];
+    const offData = window.gewu.terminal.onData(({ tabId: tid, data }) => {
+      if (tid === tabId) term.write(data);
+      else if (tabId === null) earlyBuffer.push(data);
+    });
+    const offExit = window.gewu.terminal.onExit(({ tabId: tid }) => {
+      if (tid === tabId) term.writeln('\r\n[会话已退出]');
+    });
+
     (async () => {
       // 容器尺寸就绪后再创建（fit 计算需要实际像素）
       await new Promise((r) => setTimeout(r, 100));
       if (disposed) return;
-      const cols = Math.max(20, Math.floor(hostRef.current!.clientWidth / 9));
-      const rows = Math.max(8, Math.floor((hostRef.current!.clientHeight - 8) / 18));
-      const { tabId: id } = await window.gewu.terminal.create({ cwd, cols, rows });
-      if (disposed) { window.gewu.terminal.kill({ tabId: id }); return; }
-      tabIdRef.current = id;
-      tabId = id;
-      const offData = window.gewu.terminal.onData(({ tabId: tid, data }) => {
-        if (tid === id) term.write(data);
-      });
-      const offExit = window.gewu.terminal.onExit(({ tabId: tid }) => {
-        if (tid === id) term.writeln('\r\n[会话已退出]');
-      });
-      const onResize = () => {
-        try { fit.fit(); } catch { /* 隐藏态 */ }
-      };
-      window.addEventListener('resize', onResize);
-      const ro = new ResizeObserver(onResize);
-      ro.observe(hostRef.current!);
-      // 清理链
-      (term as unknown as { _gewuCleanup?: () => void })._gewuCleanup = () => {
-        offData(); offExit();
-        window.removeEventListener('resize', onResize);
-        ro.disconnect();
-        window.gewu.terminal.kill({ tabId: id });
-      };
-      term.focus();
+      try {
+        const cols = Math.max(20, Math.floor(hostRef.current!.clientWidth / 9));
+        const rows = Math.max(8, Math.floor((hostRef.current!.clientHeight - 8) / 18));
+        const { tabId: id } = await window.gewu.terminal.create({ cwd, cols, rows });
+        if (disposed) { window.gewu.terminal.kill({ tabId: id }); return; }
+        tabId = id;
+        tabIdRef.current = id;
+        earlyBuffer.forEach((d) => term.write(d));
+        earlyBuffer.length = 0;
+        const onResize = () => {
+          try { fit.fit(); } catch { /* 隐藏态 */ }
+        };
+        window.addEventListener('resize', onResize);
+        const ro = new ResizeObserver(onResize);
+        ro.observe(hostRef.current!);
+        // 清理链
+        (term as unknown as { _gewuCleanup?: () => void })._gewuCleanup = () => {
+          offData(); offExit();
+          window.removeEventListener('resize', onResize);
+          ro.disconnect();
+          window.gewu.terminal.kill({ tabId: id });
+        };
+        term.focus();
+      } catch (e) {
+        term.writeln(`\r\n[终端创建失败] ${e instanceof Error ? e.message : String(e)}`);
+      }
     })();
 
     return () => {
       disposed = true;
+      offData();
+      offExit();
       const t = termRef.current;
       if (t) {
         const cleanup = (t as unknown as { _gewuCleanup?: () => void })._gewuCleanup;
@@ -80,7 +93,7 @@ export default function TerminalPanel({ cwd, height = 220 }: {
   }, [cwd]);
 
   return (
-    <div ref={hostRef} style={{ height, width: '100%' }}
+    <div ref={hostRef} style={{ height, width: '100%', flexShrink: 0 }}
       className="terminal-host border-t" />
   );
 }

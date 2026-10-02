@@ -71,7 +71,7 @@ export default function App() {
   const [filePanelOpen, setFilePanelOpen] = useState(false);
   const [terminalOpen, setTerminalOpen] = useState(false);
   const [gitBranch, setGitBranch] = useState<string | null>(null);
-  const [workspace, setWorkspace] = useState<{ basename: string | null }>({ basename: null });
+  const [workspace, setWorkspace] = useState<{ basename: string | null; dir?: string | null }>({ basename: null });
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequestPayload | null>(null);
   const [mgmtOpen, setMgmtOpen] = useState(false);
   // 视图状态：home（主页空态）/ workbench（工作台）/ orchestration（编排工作台）
@@ -165,7 +165,7 @@ export default function App() {
     } catch { setGitBranch(null); }
     const sess = sessions.find((s) => s.sessionId === sessionId);
     const dir = sess?.directory ?? null;
-    setWorkspace({ basename: dir ? dir.split(/[\\/]/).filter(Boolean).pop() || 'workspace' : 'workspace' });
+    setWorkspace({ basename: dir ? dir.split(/[\\/]/).filter(Boolean).pop() || 'workspace' : 'workspace', dir });
     refreshFileChanges(sessionId);
   }, [refreshFileChanges]);
 
@@ -567,6 +567,7 @@ export default function App() {
           })}
           <div ref={bottomRef} />
         </div>
+        {terminalOpen && <TerminalPanel cwd={workspace.dir || undefined} />}
       <div className="composer">
         <textarea
           value={input}

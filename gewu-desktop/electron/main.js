@@ -99,6 +99,15 @@ async function runVisualTest(outDir) {
   await sleep(1500);
   await capture('02-workbench.png');
 
+  // 终端抽屉（对话视图顶栏「终端」按钮驱动）——用户实测：曾仅切状态未挂载组件
+  await mainWindow.webContents.executeJavaScript(
+    "(() => { const el = [...document.querySelectorAll('.chat-head .btn')].find((b) => b.textContent.includes('终端')); el && el.click(); })(); 'ok'");
+  await sleep(2500);
+  await capture('02a-terminal.png');
+  await mainWindow.webContents.executeJavaScript(
+    "(() => { const el = [...document.querySelectorAll('.chat-head .btn')].find((b) => b.textContent.includes('收起终端')); el && el.click(); })(); 'ok'");
+  await sleep(800);
+
   // 编排工作台（侧栏常驻导航驱动：主页/对话/编排第三颗按钮；IIFE 防全局 const 污染后续脚本）
   await mainWindow.webContents.executeJavaScript(
     "(() => { const el = document.querySelectorAll('.side-nav .btn')[2]; el && el.click(); })(); 'ok'");
@@ -272,7 +281,10 @@ function createWindow() {
 
   // 渲染层诊断（console/崩溃/无响应 → 主进程日志，视觉回归可捕获真实报错）
   mainWindow.webContents.on('console-message', (_e, level, message, line, source) => {
-    if (level >= 2) console.log(`[renderer:${level}] ${message} @${source}:${line}`);
+    // 视觉回归转发全量（含 info 级插桩）；常态仅 warning+，避免日志噪音
+    if (level >= 2 || process.env.GEWU_VISUAL_TEST) {
+      console.log(`[renderer:${level}] ${message} @${source}:${line}`);
+    }
   });
   mainWindow.webContents.on('render-process-gone', (_e, details) => {
     console.error('[renderer] 进程崩溃:', details.reason, details.exitCode);
