@@ -7,15 +7,12 @@ import Editor, { loader } from '@monaco-editor/react';
 let configured = false;
 function ensureLoader() {
   if (configured) return;
-  const g = globalThis as { __GEWU_MONACO_VS_PATH__?: string; __GEWU_MONACO_MODE__?: 'npm' | 'paths' };
-  if (g.__GEWU_MONACO_MODE__ === 'npm') {
-    // npm 模式：宿主入口（monaco-setup）已同步 loader.config({ monaco })——
-    // 此处不得覆盖（异步配置存在与 loader.init() 的竞态，用户实测卡死）
-    configured = true;
-    return;
-  }
   configured = true;
-  loader.config({ paths: { vs: g.__GEWU_MONACO_VS_PATH__ || '/monaco/vs' } });
+  // 自托管 AMD 资源（web public/monaco；桌面 vite public 同构复制）。
+  // 相对路径兼容 file://（Electron 生产态）与 dev server；
+  // 宿主可经 __GEWU_MONACO_VS_PATH__ 覆盖。
+  const g = globalThis as { __GEWU_MONACO_VS_PATH__?: string };
+  loader.config({ paths: { vs: g.__GEWU_MONACO_VS_PATH__ || './monaco/vs' } });
 }
 
 export default function MonacoEditor({ value, language, path, onChange, readOnly = false, wordWrap = 'on' }: {

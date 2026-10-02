@@ -13,10 +13,12 @@ const { TerminalManager } = require('./terminal-manager');
 const isDev = process.argv.includes('--dev');
 const DEV_URL = process.env.GEWU_DEV_URL || 'http://127.0.0.1:5173';
 
-// 视觉回归模式：软件渲染（无 GPU/显示器依赖）
+// 视觉回归模式：软件渲染 + 隔离 userData（独立 H2/单实例锁，
+  // 不干扰用户正在运行的桌面应用与引擎——V1.2 实测教训）
 if (process.env.GEWU_VISUAL_TEST) {
   app.commandLine.appendSwitch('disable-gpu');
   app.commandLine.appendSwitch('disable-software-rasterizer-vsync');
+  app.setPath('userData', '/tmp/gewu-visual-userdata');
 }
 
 let mainWindow = null;
@@ -24,8 +26,8 @@ let supervisor = null;
 let vault = null;
 let terminals = null;
 
-// ============ 单实例锁 ============
-const gotLock = app.requestSingleInstanceLock();
+// ============ 单实例锁（视觉回归隔离 userData 后锁互不影响） ============
+const gotLock = process.env.GEWU_VISUAL_TEST || app.requestSingleInstanceLock();
 if (!gotLock) {
   app.quit();
 } else {
@@ -129,6 +131,15 @@ async function runVisualTest(outDir) {
   await sleep(2500);
   await capture('04-filepanel.png');
 
+  // 点首行『打开』→ Monaco/Markdown 视图（npm 竞态修复验证：不卡死、编辑器渲染）
+  await mainWindow.webContents.executeJavaScript(
+    "const rows = document.querySelectorAll('.session-item'); "
+    + "(async () => { const btns = []; "
+    + "document.querySelectorAll('button').forEach(b => { if (b.textContent === '打开') btns.push(b); }); "
+    + "if (btns.length) btns[btns.length - 1].click(); })(); 'ok'");
+  await sleep(4000);
+  await capture('07-editor.png');
+
   // 发送消息驱动工具调用循环（时间线交错 + 授权[视觉模式自动] + 文件落地）
   await mainWindow.webContents.executeJavaScript(
     "window.__gewu_test.send('在当前工作区创建 visual-sort.txt，内容写：冒泡排序验证'); 'ok'");
@@ -208,6 +219,15 @@ function createWindow() {
       callback({ responseHeaders: details.responseHeaders });
     }
   });
+
+  // 渲染层诊断（console/崩溃/无响应 → 主进程日志，视觉回归可捕获真实报错）
+  mainWindow.webContents.on('console-message', (_e, level, message, line, source) => {
+    if (level >= 2) console.log(`[renderer:${level}] ${message} @${source}:${line}`);
+  });
+  mainWindow.webContents.on('render-process-gone', (_e, details) => {
+    console.error('[renderer] 进程崩溃:', details.reason, details.exitCode);
+  });
+  mainWindow.webContents.on('unresponsive', () => console.error('[renderer] 无响应！'));
 
   // 外链走系统浏览器
   mainWindow.webContents.setWindowOpenHandler(({ url }) => {
