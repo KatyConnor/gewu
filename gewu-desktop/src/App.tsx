@@ -620,7 +620,7 @@ export default function App() {
           })}
           <div ref={bottomRef} />
         </div>
-        {terminalOpen && <TerminalPanel cwd={workspace.dir || undefined} />}
+        {terminalOpen && <TerminalPanel cwd={workspace.dir || undefined} onAllClosed={() => setTerminalOpen(false)} />}
       <div className="composer">
         <textarea
           value={input}

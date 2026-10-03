@@ -307,6 +307,35 @@ html { overflow: hidden; height: 100%; }
 }
 .ws-actions { justify-content: flex-start; }
 
+/* ===== 终端多 Tab（D1-27 完整化） ===== */
+.term-tabs {
+  display: flex; align-items: center; gap: 2px; padding: 4px 8px 0;
+  background: var(--bg-surface); border-top: 1px solid var(--border);
+  overflow-x: auto; flex-shrink: 0;
+}
+.term-tab {
+  display: flex; align-items: center; gap: 6px; padding: 4px 10px;
+  font-size: 11px; color: var(--text-dim); cursor: pointer;
+  border: 1px solid transparent; border-bottom: none; border-radius: 6px 6px 0 0;
+  white-space: nowrap; flex-shrink: 0;
+}
+.term-tab:hover { color: var(--text-secondary); }
+.term-tab.active {
+  color: var(--accent); background: #0a0f0d; border-color: var(--border);
+}
+.term-tab.exited { color: #f85149; }
+.term-tab-label { max-width: 140px; overflow: hidden; text-overflow: ellipsis; }
+.term-tab-close {
+  background: none; border: none; color: var(--text-dim); cursor: pointer;
+  font-size: 12px; padding: 0 2px; line-height: 1;
+}
+.term-tab-close:hover { color: #f85149; }
+.term-tab-add {
+  background: none; border: 1px dashed var(--border); border-radius: 6px;
+  color: var(--text-dim); cursor: pointer; font-size: 12px; padding: 2px 8px; flex-shrink: 0;
+}
+.term-tab-add:hover { color: var(--accent); border-color: rgba(0,184,148,0.4); }
+
 /* ===== 侧栏常驻导航（主页/对话/编排——三视图通用） ===== */
 .side-nav { display: flex; gap: 6px; margin-bottom: 12px; }
 .side-nav .btn { flex: 1; padding: 6px 2px; font-size: 12px; white-space: nowrap; }

@@ -113,6 +113,11 @@ async function runVisualTest(outDir) {
     "(() => { const el = [...document.querySelectorAll('.chat-head .btn')].find((b) => b.textContent.includes('终端')); el && el.click(); })(); 'ok'");
   await sleep(2500);
   await capture('02a-terminal.png');
+  // 多 Tab（D1-27）：「＋」新建第二标签后捕获
+  await mainWindow.webContents.executeJavaScript(
+    "(() => { const el = document.querySelector('.term-tab-add'); el && el.click(); })(); 'ok'");
+  await sleep(2500);
+  await capture('02a2-two-tabs.png');
   await mainWindow.webContents.executeJavaScript(
     "(() => { const el = [...document.querySelectorAll('.chat-head .btn')].find((b) => b.textContent.includes('收起终端')); el && el.click(); })(); 'ok'");
   await sleep(800);
