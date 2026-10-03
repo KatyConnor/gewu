@@ -3,7 +3,7 @@
  *   窗口/单实例锁/生命周期 + EngineSupervisor（JVM 引擎守护）+ SecretVault（密钥托管）+ IPC 注册。
  * 渲染层：dev 加载 Vite dev server；prod 加载 dist/index.html（file://）并注入 CSP。
  */
-const { app, BrowserWindow, ipcMain, shell } = require('electron');
+const { app, BrowserWindow, ipcMain, shell, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { EngineSupervisor } = require('./engine-supervisor');
@@ -93,6 +93,15 @@ async function runVisualTest(outDir) {
   }
   await sleep(3000); // 渲染层 waitEngineReady + 主页首屏数据
   await capture('01-home.png');
+
+  // 新建会话对话框（工作区选择器）：主页卡片驱动
+  await mainWindow.webContents.executeJavaScript(
+    "(() => { const el = document.querySelector('.home-card'); el && el.click(); })(); 'ok'");
+  await sleep(800);
+  await capture('01b-wsdialog.png');
+  await mainWindow.webContents.executeJavaScript(
+    "(() => { const el = document.querySelector('.ws-dialog .dialog-actions .btn'); el && el.click(); })(); 'ok'");
+  await sleep(400);
 
   // 进工作台（测试钩子驱动，确定性高于 DOM click）
   await mainWindow.webContents.executeJavaScript("window.__gewu_test.newSession(); 'ok'");
@@ -328,6 +337,14 @@ function createWindow() {
 
 // ============ IPC（§5.3 控制面通道） ============
 ipcMain.handle('engine:getInfo', () => (supervisor ? supervisor.getInfo() : { state: 'stopped' }));
+/** 工作区选择器（会话绑定本地目录）：主进程原生目录对话框 */
+ipcMain.handle('dir:choose', async () => {
+  const result = await dialog.showOpenDialog(mainWindow, {
+    title: '选择会话工作目录',
+    properties: ['openDirectory', 'createDirectory'],
+  });
+  return result.canceled || !result.filePaths.length ? null : result.filePaths[0];
+});
 ipcMain.handle('engine:restart', async () => {
   if (!supervisor) return { state: 'stopped' };
   supervisor.restarts = 0;

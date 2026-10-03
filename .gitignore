@@ -68,7 +68,10 @@ yarn-error.log*
 
 # ==================== Build ====================
 dist/
+# build/ 为 Java 模块产物规则；gewu-desktop/build 存放入库资源（icon）与产物（jre）
 build/
+!gewu-desktop/build/
+gewu-desktop/build/jre/
 out/
 
 # ==================== Environment ====================

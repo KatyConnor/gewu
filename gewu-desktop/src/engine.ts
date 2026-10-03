@@ -19,6 +19,8 @@ declare global {
     gewu: {
       getEngineInfo(): Promise<EngineInfo>;
       restartEngine(): Promise<EngineInfo>;
+      /** 选择本地目录（会话工作区绑定），取消返回 null */
+      chooseDirectory(): Promise<string | null>;
       onEngineStatus(cb: (s: { state: string; detail?: unknown; info?: EngineInfo }) => void): () => void;
       saveModelKey(p: { providerCode: string; apiKey: string; displayName?: string; baseUrl?: string; modelsJson?: string }): Promise<{ ok: boolean }>;
       listSavedProviders(): Promise<Array<{ code: string; displayName?: string; baseUrl?: string }>>;

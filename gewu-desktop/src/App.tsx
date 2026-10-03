@@ -174,6 +174,29 @@ export default function App() {
     setActiveSession(null); setMessages([]); setPlan(null); setFileChanges([]); setFilePanelOpen(false);
   }, []);
 
+  // ============ 新建会话对话框（工作区选择器，Phase 1 遗留补齐） ============
+  const [wsOpen, setWsOpen] = useState(false);
+  const [wsForm, setWsForm] = useState<{ title: string; directory: string | null }>({ title: '', directory: null });
+  const openWsDialog = useCallback(() => { setWsForm({ title: '', directory: null }); setWsOpen(true); }, []);
+  const createWsSession = useCallback(async () => {
+    try {
+      const body: Record<string, unknown> = { title: wsForm.title.trim() || '新会话' };
+      if (wsForm.directory) body.directory = wsForm.directory;
+      const env = await connRef.current.fetch('/v1/ai/sessions', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      if (!env.ok) throw new Error(`HTTP ${env.status}`);
+      const data = (await env.json()) as { data?: { sessionId?: string } };
+      const sid = data.data?.sessionId;
+      setWsOpen(false);
+      refreshSessions();
+      if (sid) openSession(sid); else newSession();
+    } catch (e) {
+      setSettingsMsg(`创建失败: ${e instanceof Error ? e.message : String(e)}`);
+      setWsOpen(false);
+    }
+  }, [wsForm, refreshSessions, openSession, newSession]);
+
   const archiveSession = useCallback(async (id: string) => {
     await connRef.current.fetch(`/v1/ai/sessions/${id}/archive`, { method: 'PUT' });
     refreshSessions();
@@ -409,8 +432,38 @@ export default function App() {
           <h1 className="home-title">格物<span className="dot">·</span>致虚</h1>
           <p className="home-sub">本地智能体工作台</p>
           <p className="home-slogan">致知在格物，物格而后知至。<br />选择左侧会话开始对话，或创建新的会话。</p>
+          {wsOpen && (
+            <div className="overlay" onClick={() => setWsOpen(false)}>
+              <div className="dialog ws-dialog" onClick={(e) => e.stopPropagation()}>
+                <div className="dialog-head">
+                  <span className="dialog-title">新建会话</span>
+                  <span className="dialog-badge">工作区</span>
+                </div>
+                <p className="dialog-sub">绑定本地目录后，文件工具、终端与 Git 信息将以该目录为工作区。</p>
+                <input className="ws-input" placeholder="会话标题（可选，默认「新会话」）" value={wsForm.title}
+                  onChange={(e) => setWsForm((f) => ({ ...f, title: e.target.value }))} />
+                <div className="ws-dir-row">
+                  {wsForm.directory
+                    ? <span className="dialog-path">{wsForm.directory}</span>
+                    : <span className="hint">未选择目录：使用引擎默认工作区</span>}
+                </div>
+                <div className="dialog-actions ws-actions">
+                  <button className="btn" onClick={async () => {
+                    const dir = await window.gewu.chooseDirectory();
+                    if (dir) setWsForm((f) => ({ ...f, directory: dir }));
+                  }}>选择目录</button>
+                  {wsForm.directory && (
+                    <button className="btn small" onClick={() => setWsForm((f) => ({ ...f, directory: null }))}>清除</button>
+                  )}
+                  <span style={{ flex: 1 }} />
+                  <button className="btn" onClick={() => setWsOpen(false)}>取消</button>
+                  <button className="btn primary" onClick={createWsSession}>创建</button>
+                </div>
+              </div>
+            </div>
+          )}
           <div className="home-cards">
-            <button className="home-card" onClick={newSession}>
+            <button className="home-card" onClick={openWsDialog}>
               <span className="card-icon plus">＋</span>
               <span>新建会话</span>
             </button>

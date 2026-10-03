@@ -10,6 +10,8 @@ contextBridge.exposeInMainWorld('gewu', {
   getEngineInfo: () => ipcRenderer.invoke('engine:getInfo'),
   /** 手动重启引擎（诊断态） */
   restartEngine: () => ipcRenderer.invoke('engine:restart'),
+  /** 选择本地目录（会话工作区绑定），取消返回 null */
+  chooseDirectory: () => ipcRenderer.invoke('dir:choose'),
   /** 引擎状态推送订阅，返回取消订阅函数 */
   onEngineStatus: (cb) => {
     const handler = (_e, status) => cb(status);
