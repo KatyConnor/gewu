@@ -31,6 +31,15 @@ export default function TerminalPanel({ cwd, height = 220 }: {
     term.loadAddon(fit);
     term.open(hostRef.current!);
     termRef.current = term;
+    // 键盘输入：xterm → PTY（用户实测无法输入：组件此前从未接线；
+    // tabId 就绪前的按键丢弃——create 在挂载后百毫秒内完成，无感）
+    term.onData((d) => {
+      if (tabIdRef.current) window.gewu.terminal.write({ tabId: tabIdRef.current, data: d });
+    });
+    // 尺寸变化转发（script 回退后端不支持热 resize 时主进程侧忽略）
+    term.onResize(({ cols, rows }) => {
+      if (tabIdRef.current) window.gewu.terminal.resize({ tabId: tabIdRef.current, cols, rows });
+    });
 
     let disposed = false;
     let tabId: string | null = null;
