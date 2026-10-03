@@ -16,7 +16,7 @@ import { FileEditorPanel, FILE_PANEL_MIN_WIDTH } from '@gewu/agent-ui/chat-ui/fi
 import type { ApprovalRequestPayload } from '@gewu/agent-ui/protocol';
 import type { FileChangeDTO } from '@gewu/agent-ui/api-client';
 import ApprovalDialog from './components/ApprovalDialog';
-import ManagementPanel from './components/ManagementPanel';
+import SettingsPanel from './components/SettingsPanel';
 import TerminalPanel from './components/TerminalPanel';
 import OrchestrationWorkbench from './components/OrchestrationWorkbench';
 import './styles.css';
@@ -62,9 +62,7 @@ export default function App() {
   const [input, setInput] = useState('');
   const [streaming, setStreaming] = useState(false);
   const [models, setModels] = useState<ModelItem[]>([]);
-  const [showSettings, setShowSettings] = useState(false);
-  const [providerForm, setProviderForm] = useState({ code: '', displayName: '', baseUrl: '', modelName: '', apiKey: '' });
-  const [settingsMsg, setSettingsMsg] = useState<string | null>(null);
+  const [wsErr, setWsErr] = useState<string | null>(null);
   // S9 工作台状态
   const [plan, setPlan] = useState<{ title: string; steps: PlanStepInfo[]; planPath?: string } | null>(null);
   const [fileChanges, setFileChanges] = useState<FileChangeDTO[]>([]);
@@ -73,7 +71,7 @@ export default function App() {
   const [gitBranch, setGitBranch] = useState<string | null>(null);
   const [workspace, setWorkspace] = useState<{ basename: string | null; dir?: string | null }>({ basename: null });
   const [pendingApproval, setPendingApproval] = useState<ApprovalRequestPayload | null>(null);
-  const [mgmtOpen, setMgmtOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
   // 视图状态：home（主页空态）/ workbench（工作台）/ orchestration（编排工作台）
   const [view, setView] = useState<'home' | 'workbench' | 'orchestration'>('home');
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -177,7 +175,7 @@ export default function App() {
   // ============ 新建会话对话框（工作区选择器，Phase 1 遗留补齐） ============
   const [wsOpen, setWsOpen] = useState(false);
   const [wsForm, setWsForm] = useState<{ title: string; directory: string | null }>({ title: '', directory: null });
-  const openWsDialog = useCallback(() => { setWsForm({ title: '', directory: null }); setWsOpen(true); }, []);
+  const openWsDialog = useCallback(() => { setWsForm({ title: '', directory: null }); setWsErr(null); setWsOpen(true); }, []);
   const createWsSession = useCallback(async () => {
     try {
       const body: Record<string, unknown> = { title: wsForm.title.trim() || '新会话' };
@@ -192,8 +190,7 @@ export default function App() {
       refreshSessions();
       if (sid) openSession(sid); else newSession();
     } catch (e) {
-      setSettingsMsg(`创建失败: ${e instanceof Error ? e.message : String(e)}`);
-      setWsOpen(false);
+      setWsErr(`创建失败: ${e instanceof Error ? e.message : String(e)}`);
     }
   }, [wsForm, refreshSessions, openSession, newSession]);
 
@@ -319,46 +316,7 @@ export default function App() {
     }
   }, [input, streaming, activeSession, sessions, refreshSessions, refreshFileChanges]);
 
-  // ============ 供应商管理 ============
-  const saveProvider = useCallback(async () => {
-    if (!providerForm.code || !providerForm.baseUrl) { setSettingsMsg('code 与 baseUrl 必填'); return; }
-    try {
-      await window.gewu.saveModelKey({
-        providerCode: providerForm.code, apiKey: providerForm.apiKey,
-        displayName: providerForm.displayName, baseUrl: providerForm.baseUrl,
-        modelsJson: JSON.stringify([{
-          name: providerForm.modelName || providerForm.code + '-model',
-          displayName: providerForm.displayName || providerForm.code, description: '',
-        }]),
-      });
-      const res = await connRef.current.fetch('/v1/engine/providers', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          code: providerForm.code, displayName: providerForm.displayName,
-          baseUrl: providerForm.baseUrl, apiKey: providerForm.apiKey,
-          modelsJson: JSON.stringify([{
-            name: providerForm.modelName || providerForm.code + '-model',
-            displayName: providerForm.displayName || providerForm.code, description: '',
-          }]),
-        }),
-      });
-      if (res.ok) {
-        setSettingsMsg(`已保存 ${providerForm.code}（Key 已注入，重启后自动恢复）`);
-        setProviderForm({ code: '', displayName: '', baseUrl: '', modelName: '', apiKey: '' });
-        refreshModels();
-      } else { setSettingsMsg(`保存失败: HTTP ${res.status}`); }
-    } catch (e) { setSettingsMsg(`保存失败: ${String(e)}`); }
-  }, [providerForm, refreshModels]);
-
-  const deleteProvider = useCallback(async (code: string) => {
-    if (!confirm(`删除供应商 ${code}？引用它的 Agent 将自动回退到其余可用供应商。`)) return;
-    try {
-      const res = await connRef.current.fetch(`/v1/engine/providers/${encodeURIComponent(code)}`, { method: 'DELETE' });
-      if (res.ok) { setSettingsMsg(`已删除 ${code}`); refreshModels(); }
-      else setSettingsMsg(`删除失败: HTTP ${res.status}`);
-    } catch (e) { setSettingsMsg(`删除失败: ${String(e)}`); }
-  }, [refreshModels]);
+  // ============ 供应商管理（已整合进统一设置面板 SettingsPanel） ============
 
   const decideApproval = useCallback(async (approvalId: string, approve: boolean, alwaysAllow: boolean) => {
     setPendingApproval(null);
@@ -400,18 +358,15 @@ export default function App() {
       <button className={`btn small ${view === 'orchestration' ? 'chip' : ''}`} onClick={() => setView('orchestration')}>▦ 编排</button>
     </div>
   );
-  // 侧栏统一 footer（管理面板/设置 + 用户行）——三视图同序同构（用户实测：主页与编排顺序不一致）
+  // 侧栏统一 footer（用户行 + 齿轮设置入口——对齐 web 用户面板右侧齿轮）：
+  // 三视图同序同构（用户实测：主页与编排顺序不一致）
   const sidebarFooter = (
-    <>
-      <div className="home-actions">
-        <button className="btn" onClick={() => { setMgmtOpen(true); setShowSettings(false); }}>管理面板</button>
-        <button className="btn" onClick={() => setShowSettings((v) => !v)}>设置</button>
-      </div>
-      <div className="home-user-row">
-        <span className="home-user-avatar">本</span>
-        <span>本地用户</span>
-      </div>
-    </>
+    <div className="home-user-row">
+      <span className="home-user-avatar">本</span>
+      <span>本地用户</span>
+      <span style={{ flex: 1 }} />
+      <button className="user-gear" title="设置" onClick={() => setSettingsOpen(true)}>⚙</button>
+    </div>
   );
 
   // 主页空态（对标 web ChatHomeView）：主页侧栏为独立形态（无会话列表——会话属「对话」视图）
@@ -425,7 +380,7 @@ export default function App() {
           {sideNav}
           <div className="home-side-gap" />
           {sidebarFooter}
-          {mgmtOpen && <ManagementPanel conn={connRef.current} onClose={() => setMgmtOpen(false)} />}
+          {settingsOpen && <SettingsPanel conn={connRef.current} onClose={() => setSettingsOpen(false)} onChanged={refreshModels} />}
         </aside>
         <main className="home">
           <div className="home-logo">格物</div>
@@ -447,6 +402,7 @@ export default function App() {
                     ? <span className="dialog-path">{wsForm.directory}</span>
                     : <span className="hint">未选择目录：使用引擎默认工作区</span>}
                 </div>
+                {wsErr && <p className="error">{wsErr}</p>}
                 <div className="dialog-actions ws-actions">
                   <button className="btn" onClick={async () => {
                     const dir = await window.gewu.chooseDirectory();
@@ -471,9 +427,9 @@ export default function App() {
               <span className="card-icon flow">▦</span>
               <span>编排工作台</span>
             </button>
-            <button className="home-card" onClick={() => setShowSettings(true)}>
+            <button className="home-card" onClick={() => setSettingsOpen(true)}>
               <span className="card-icon doc">⚙</span>
-              <span>模型设置</span>
+              <span>设置</span>
             </button>
           </div>
         </main>
@@ -485,7 +441,7 @@ export default function App() {
   if (view === 'orchestration') {
     return (
       <div className="layout">
-        {mgmtOpen && <ManagementPanel conn={connRef.current} onClose={() => setMgmtOpen(false)} />}
+        {settingsOpen && <SettingsPanel conn={connRef.current} onClose={() => setSettingsOpen(false)} onChanged={refreshModels} />}
         {pendingApproval && (
           <ApprovalDialog req={pendingApproval} onDecide={(a, al) => decideApproval(pendingApproval.approvalId, a, al)} />
         )}
@@ -503,7 +459,7 @@ export default function App() {
 
   return (
     <div className="layout">
-      {mgmtOpen && <ManagementPanel conn={connRef.current} onClose={() => setMgmtOpen(false)} />}
+      {settingsOpen && <SettingsPanel conn={connRef.current} onClose={() => setSettingsOpen(false)} onChanged={refreshModels} />}
       {pendingApproval && (
         <ApprovalDialog req={pendingApproval} onDecide={(a, al) => decideApproval(pendingApproval.approvalId, a, al)} />
       )}
@@ -530,30 +486,6 @@ export default function App() {
           />
         </div>
         {sidebarFooter}
-        {showSettings && (
-          <div className="settings">
-            <h4>模型供应商</h4>
-            {models.length === 0 && <p className="hint">尚未配置，引擎以无模型状态运行</p>}
-            {models.map((m) => (
-              <div key={m.provider + m.modelName} className="provider-row">
-                <span className="hint">{m.provider} / {m.displayName}</span>
-                <button className="btn small" onClick={() => deleteProvider(m.provider)}>删除</button>
-              </div>
-            ))}
-            <input placeholder="编码（如 zhipu，同编码覆盖更新）" value={providerForm.code}
-              onChange={(e) => setProviderForm({ ...providerForm, code: e.target.value })} />
-            <input placeholder="显示名" value={providerForm.displayName}
-              onChange={(e) => setProviderForm({ ...providerForm, displayName: e.target.value })} />
-            <input placeholder="Base URL（如 https://open.bigmodel.cn/api/paas/v4）" value={providerForm.baseUrl}
-              onChange={(e) => setProviderForm({ ...providerForm, baseUrl: e.target.value })} />
-            <input placeholder="模型名（modelName，如 glm-4-flash）" value={providerForm.modelName}
-              onChange={(e) => setProviderForm({ ...providerForm, modelName: e.target.value })} />
-            <input placeholder="API Key" type="password" value={providerForm.apiKey}
-              onChange={(e) => setProviderForm({ ...providerForm, apiKey: e.target.value })} />
-            <button className="btn primary" onClick={saveProvider}>保存供应商</button>
-            {settingsMsg && <p className="hint">{settingsMsg}</p>}
-          </div>
-        )}
       </aside>
       <div className="main-area">
       <main className="chat">
@@ -565,7 +497,7 @@ export default function App() {
           </div>
           <div className="flex items-center gap-2">
             <button className="btn small" onClick={() => setView('orchestration')}>编排</button>
-            <button className="btn small" onClick={() => setMgmtOpen(true)}>管理</button>
+            <button className="btn small" onClick={() => setSettingsOpen(true)}>设置</button>
             {fileChanges.length > 0 && (
               <button className="btn small chip" onClick={() => setFilePanelOpen((v) => !v)}>
                 {fileChanges.length} 个文件已更改

@@ -99,8 +99,22 @@ async function runVisualTest(outDir) {
     "(() => { const el = document.querySelector('.home-card'); el && el.click(); })(); 'ok'");
   await sleep(800);
   await capture('01b-wsdialog.png');
+  // 关闭 ws 对话框（点「取消」——勿点「选择目录」：原生 dialog 在 headless 下挂起）
   await mainWindow.webContents.executeJavaScript(
-    "(() => { const el = document.querySelector('.ws-dialog .dialog-actions .btn'); el && el.click(); })(); 'ok'");
+    "(() => { const el = [...document.querySelectorAll('.ws-dialog .dialog-actions .btn')].find((b) => b.textContent.trim() === '取消'); el && el.click(); })(); 'ok'");
+  await sleep(400);
+  // 统一设置面板（用户行齿轮 → 左导航 + 模型两栏编辑器）
+  await mainWindow.webContents.executeJavaScript(
+    "(() => { const el = document.querySelector('.user-gear'); el && el.click(); })(); 'ok'");
+  await sleep(1200);
+  await capture('01c-settings.png');
+  // 切到「子智能体」验证导航切换
+  await mainWindow.webContents.executeJavaScript(
+    "(() => { const el = [...document.querySelectorAll('.settings-nav-item')].find((n) => n.textContent.includes('子智能体')); el && el.click(); })(); 'ok'");
+  await sleep(600);
+  await capture('01d-settings-agents.png');
+  await mainWindow.webContents.executeJavaScript(
+    "(() => { const el = document.querySelector('.settings-nav-head .btn'); el && el.click(); })(); 'ok'");
   await sleep(400);
 
   // 进工作台（测试钩子驱动，确定性高于 DOM click）

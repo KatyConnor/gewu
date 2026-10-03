@@ -336,6 +336,55 @@ html { overflow: hidden; height: 100%; }
 }
 .term-tab-add:hover { color: var(--accent); border-color: rgba(0,184,148,0.4); }
 
+/* ===== 统一设置面板（对齐 web 设置页：左导航 + 内容区） ===== */
+.settings-shell {
+  background: var(--panel); border: 1px solid var(--border); border-radius: 12px;
+  width: 920px; max-width: 94vw; height: 78vh; display: flex; overflow: hidden;
+}
+.settings-nav {
+  width: 200px; flex-shrink: 0; border-right: 1px solid var(--border);
+  padding: 12px 8px; display: flex; flex-direction: column; gap: 2px; overflow-y: auto;
+}
+.settings-nav-head {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 0 6px 10px; border-bottom: 1px solid var(--border); margin-bottom: 8px;
+}
+.settings-nav-item {
+  padding: 9px 12px; border-radius: 8px; font-size: 13px; color: var(--text-secondary);
+  cursor: pointer; transition: all 0.15s;
+}
+.settings-nav-item:hover { background: var(--accent-soft); color: var(--text-primary); }
+.settings-nav-item.active { background: var(--accent-soft); color: var(--accent); border: 1px solid rgba(0,184,148,0.25); }
+.settings-content { flex: 1; min-width: 0; padding: 16px 20px; overflow-y: auto; }
+.settings-title { font-size: 15px; font-weight: 600; margin-bottom: 10px; }
+
+/* 用户行齿轮（设置入口——对齐 web 用户面板右侧齿轮） */
+.user-gear {
+  background: none; border: none; color: var(--text-dim); cursor: pointer;
+  font-size: 16px; padding: 4px 6px; border-radius: 6px; transition: all 0.15s;
+}
+.user-gear:hover { color: var(--accent); background: var(--accent-soft); }
+
+/* 模型设置：两栏（供应商清单 | 编辑 + 模型清单） */
+.prov-wrap { display: flex; gap: 12px; align-items: stretch; min-height: 0; }
+.prov-list {
+  width: 210px; flex-shrink: 0; border: 1px solid var(--border); border-radius: 8px;
+  padding: 6px; display: flex; flex-direction: column; gap: 2px; max-height: 52vh; overflow-y: auto;
+}
+.prov-item { padding: 8px 10px; border-radius: 6px; cursor: pointer; font-size: 12px; }
+.prov-item:hover { background: var(--accent-soft); }
+.prov-item.active { background: var(--accent-soft); border: 1px solid rgba(0,184,148,0.3); }
+.prov-item-name { display: block; color: var(--text-primary); }
+.prov-item-code { display: block; font-size: 10px; color: var(--text-dim); }
+.prov-edit { flex: 1; min-width: 0; }
+.model-rows-head { display: flex; justify-content: space-between; align-items: center; margin: 8px 0 6px; }
+.model-row { display: flex; gap: 6px; align-items: center; margin-bottom: 6px; }
+.model-row input {
+  flex: 1; min-width: 0; background: #0a0f0d; color: var(--text); border: 1px solid #21262d;
+  border-radius: 6px; padding: 7px 9px; font-size: 12px;
+}
+.model-row input:focus { outline: none; border-color: var(--accent); }
+
 /* ===== 侧栏常驻导航（主页/对话/编排——三视图通用） ===== */
 .side-nav { display: flex; gap: 6px; margin-bottom: 12px; }
 .side-nav .btn { flex: 1; padding: 6px 2px; font-size: 12px; white-space: nowrap; }
