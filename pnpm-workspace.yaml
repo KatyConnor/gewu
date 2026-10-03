@@ -6,8 +6,13 @@ overrides:
   # react-syntax-highlighter@16 的 async-languages 引用 sql_more（hljs 10.7+ 才有），
   # 与 gewu-web 旧 lockfile 的已知可用组合保持一致
   highlight.js: 10.7.3
-# pnpm 11 配置：构建脚本白名单 + 关闭 run 前 deps 检查（11.9 版状态检查缺陷）
+# pnpm 11 配置：构建脚本审批（allowBuilds 值必须是 true/false，占位符会导致依赖构建被静默跳过）
 onlyBuiltDependencies:
   - electron
   - esbuild
+  - node-pty
+allowBuilds:
+  electron: true
+  esbuild: true
+  node-pty: true
 verifyDepsBeforeRun: false

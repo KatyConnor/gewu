@@ -16,6 +16,7 @@
     "node": ">=18"
   },
   "devDependencies": {
+    "@electron/rebuild": "^4.2.0",
     "@types/react": "^18.3.31",
     "@types/react-dom": "^18",
     "@vitejs/plugin-react": "^4.3.0",
@@ -35,6 +36,7 @@
     },
     "files": [
       "electron/**/*",
+      "dist/**/*",
       "package.json"
     ],
     "mac": {
@@ -85,32 +87,31 @@
         {
           "target": "AppImage",
           "arch": [
-            "x64",
-            "arm64"
-          ]
-        },
-        {
-          "target": "deb",
-          "arch": [
-            "x64"
-          ]
-        },
-        {
-          "target": "rpm",
-          "arch": [
             "x64"
           ]
         },
         {
           "target": "tar.gz",
           "arch": [
-            "x64",
-            "arm64"
+            "x64"
           ]
         }
       ],
       "maintainer": "gewu-platform"
-    }
+    },
+    "asarUnpack": [
+      "node_modules/node-pty/**"
+    ],
+    "extraResources": [
+      {
+        "from": "../gewu-desktop-runtime/target/gewu-desktop-runtime-1.0.0-SNAPSHOT.jar",
+        "to": "runtime/desktop-runtime.jar"
+      },
+      {
+        "from": "build/jre",
+        "to": "jre"
+      }
+    ]
   },
   "allowScripts": {
     "electron@31.7.7": true
@@ -119,6 +120,7 @@
     "@gewu/agent-ui": "workspace:*",
     "@xterm/addon-fit": "0.10.0",
     "@xterm/xterm": "5.5.0",
+    "node-pty": "1.1.0",
     "react": "^18",
     "react-dom": "^18"
   }

@@ -153,6 +153,20 @@ async function runVisualTest(outDir) {
   await sleep(2500);
   await capture('04-filepanel.png');
 
+  // 审查 → 分栏（用户实测：分栏布局打乱整页且无法关闭——回归捕获）
+  await mainWindow.webContents.executeJavaScript(
+    "(() => { const el = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === '审查'); el && el.click(); })(); 'ok'");
+  await sleep(1500);
+  await capture('04a-review.png');
+  await mainWindow.webContents.executeJavaScript(
+    "(() => { const el = [...document.querySelectorAll('button')].find((b) => b.textContent.trim() === '分栏'); el && el.click(); })(); 'ok'");
+  await sleep(1500);
+  await capture('04b-split.png');
+  // 分栏态页面滚动约束验证：html 不得可滚（滚动即布局打乱）
+  const splitScroll = await mainWindow.webContents.executeJavaScript(
+    "JSON.stringify({ scrollY: window.scrollY, docH: document.documentElement.scrollHeight, winH: window.innerHeight, headerVisible: !!document.querySelector('.border-l .border-b') })");
+  console.log('[visual] split-scroll-check', splitScroll);
+
   // 点『打开』→ Monaco 视图（取证核心：种子 .java + 无响应探针 + console 钩子）
   try {
     const info = supervisor.getInfo();
@@ -224,8 +238,12 @@ function engineJarPath() {
 }
 
 function createSupervisor() {
+  // 打包态捆绑 JRE 优先（resources/jre 由 builder extraResources 打入）；
+  // 开发态不存在 → resolveJava 回退 JAVA_HOME/PATH
+  const bundledJava = path.join(process.resourcesPath || '', 'jre', 'bin', 'java');
   const supervisor = new EngineSupervisor({
     jarPath: engineJarPath(),
+    javaPath: fs.existsSync(bundledJava) ? bundledJava : undefined,
     dataDir: path.join(app.getPath('userData'), 'engine-data'),
     // 视觉回归：引擎数据目录也隔离（userData 隔离只管 Chromium 侧，JVM 侧需显式 CLI 参数）
     isolatedDataDir: process.env.GEWU_VISUAL_TEST
