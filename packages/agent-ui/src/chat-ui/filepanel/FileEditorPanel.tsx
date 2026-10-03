@@ -380,12 +380,12 @@ export default function FileEditorPanel({ sessionId, changes, onClose, onChanges
               <InlineDiffView before={activeDiff?.before ?? null} after={activeDiff?.after ?? null}
                 changeType={activeDiff?.changeType ?? 'MODIFY'} path={active.path} />
             ) : (
-              <div className="flex-1 min-h-0">
-                <div className="flex-1 min-h-0 overflow-auto">
+              <div className="flex-1 min-h-0 flex">
+                <div className="flex-1 min-w-0 min-h-0 overflow-auto scrollbar-thin">
                   <SuspensedSourceEditor value={activeDiff?.before ?? ''} language={monacoLangOf(active.path)}
                     path={active.path} readOnly wordWrap="off" />
                 </div>
-                <div className="flex-1 min-h-0 overflow-auto border-l" style={{ borderColor: 'rgba(0,184,148,0.15)' }}>
+                <div className="flex-1 min-w-0 min-h-0 overflow-auto scrollbar-thin border-l" style={{ borderColor: 'rgba(0,184,148,0.15)' }}>
                   <SuspensedSourceEditor value={activeDiff?.after ?? ''} language={monacoLangOf(active.path)}
                     path={active.path} readOnly wordWrap="off" />
                 </div>

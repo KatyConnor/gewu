@@ -16,6 +16,10 @@ body {
   overflow: hidden;
 }
 
+/* 溢出防线（用户实测分栏模式打乱整页）：body hidden 不约束 html 视口滚动，
+   任何子树溢出都会让整页可滚、标题栏/关闭钮移出可视区 */
+html { overflow: hidden; height: 100%; }
+
 #root { height: 100vh; }
 
 .center { height: 100vh; display: flex; align-items: center; justify-content: center; }
@@ -133,7 +137,7 @@ body {
 .home-actions .btn { width: 100%; margin-bottom: 8px; }
 
 /* ===== D1-24 布局：聊天列 + 右侧文件面板横向并列（对齐 web） ===== */
-.main-area { flex: 1; display: flex; min-width: 0; }
+.main-area { flex: 1; display: flex; min-width: 0; overflow: hidden; }
 .chat-head {
   display: flex; align-items: center; justify-content: space-between; gap: 10px;
   padding: 10px 24px; border-bottom: 1px solid var(--border); flex-shrink: 0;
