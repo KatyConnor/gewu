@@ -11,6 +11,3 @@ onlyBuiltDependencies:
   - electron
   - esbuild
 verifyDepsBeforeRun: false
-allowBuilds:
-  electron: set this to true or false
-  esbuild: set this to true or false
