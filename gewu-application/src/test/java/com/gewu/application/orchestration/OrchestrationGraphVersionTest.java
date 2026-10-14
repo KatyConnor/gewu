@@ -58,6 +58,7 @@ class OrchestrationGraphVersionTest {
 
     private OrchestrationGraphEntity draftGraph() {
         OrchestrationGraphEntity entity = new OrchestrationGraphEntity();
+        entity.setCreatedBy("u1"); // H-1 属主校验：与 activateGraph/executeGraph("g-1", "u1", …) 对齐
         entity.setId("g-1");
         entity.setStatus("draft");
         entity.setOrchestrationMode("PIPELINE");

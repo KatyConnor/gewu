@@ -53,6 +53,7 @@ class OrchestrationContextVariablesTest {
     @DisplayName("执行上下文合并图定义 variables，input 覆盖同名模板键")
     void contextVariablesMergeGraphVariables() {
         OrchestrationGraphEntity entity = new OrchestrationGraphEntity();
+        entity.setCreatedBy("u1"); // H-1 属主校验：与 executeGraph("g-1", "u1", …) 对齐
         entity.setId("g-1");
         entity.setStatus("draft");
         entity.setOrchestrationMode("PIPELINE");

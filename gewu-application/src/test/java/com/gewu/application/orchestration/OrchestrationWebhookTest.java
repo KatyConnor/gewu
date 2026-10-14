@@ -62,6 +62,7 @@ class OrchestrationWebhookTest {
         entity.setStatus("active");
         entity.setOrchestrationMode("PIPELINE");
         entity.setGraphDefinition(DEFINITION);
+        entity.setCreatedBy("u1"); // H-1 属主校验：与各用例 userId 对齐
         return entity;
     }
 
