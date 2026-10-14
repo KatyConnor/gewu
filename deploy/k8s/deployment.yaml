@@ -19,6 +19,14 @@ spec:
         - name: gewu-platform
           image: gewu/platform:1.0.0-SNAPSHOT
           imagePullPolicy: IfNotPresent
+          # M-12（UCSS D5）：容器安全上下文（镜像为 Dockerfile.secure 的 uid=1001 非 root）
+          securityContext:
+            runAsNonRoot: true
+            runAsUser: 1001
+            allowPrivilegeEscalation: false
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 8080
               protocol: TCP

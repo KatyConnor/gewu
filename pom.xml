@@ -44,7 +44,13 @@
         <!-- S8：覆写内嵌 Tomcat 至 10.1.36（Boot 3.2.5 默认 10.1.20）——
              10.1.21~10.1.36 含 16 个月的 NIO Endpoint/Poller 与异步场景修复，
              针对 interface 长运行挂起问题；单属性可逆 -->
-        <tomcat.version>10.1.36</tomcat.version>
+        <!-- M-13 同线 patch 收敛（UCSS SCA）：10.1.36→10.1.46 修复 CVE-2025-55668/53506/31650、
+             CVE-2026-24880 等 10.1 线修复项；单属性可逆 -->
+        <tomcat.version>10.1.46</tomcat.version>
+        <!-- M-13：6.2.4→6.2.7（Boot 3.2 线末版）修复 CVE-2024-38821 静态资源授权绕过等 3 项 -->
+        <spring-security.version>6.2.7</spring-security.version>
+        <!-- M-13：4.1.109→4.1.118.Final 修复 CVE-2025-25193/CVE-2024-47535 DoS -->
+        <netty.version>4.1.118.Final</netty.version>
         <mybatis-plus.version>3.5.5</mybatis-plus.version>
         <hutool.version>5.8.25</hutool.version>
         <mapstruct.version>1.5.5.Final</mapstruct.version>
