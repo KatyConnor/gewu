@@ -32,6 +32,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.net.URI;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -199,6 +200,60 @@ public class DevWorkspaceService {
         return resp.getStdout();
     }
 
+    /**
+     * 结构化目录列表（IDEA 式工作台文件树数据源）：把 ls -la 原文解析为
+     * 名称/类型/大小/修改时间条目，跳过 . .. 与 total 行；符号链接按文件处理并剪掉 " -> target"。
+     */
+    public java.util.List<com.gewu.application.workspace.dto.WorkspaceFileEntry> listEntries(String path) {
+        String sandboxId = ensureRunningSandbox();
+        String target = path != null && !path.isBlank() ? sanitizeWorkspaceRel(path) : "";
+        String cmd = "ls -la --time-style=+%s "
+                + shellQuote(target.isEmpty() ? "/workspace" : "/workspace/" + target);
+        ExecCommandResponse resp = sandboxClient.execCommand(sandboxId, cmd, 10);
+        java.util.List<com.gewu.application.workspace.dto.WorkspaceFileEntry> entries = new java.util.ArrayList<>();
+        for (String line : resp.getStdout().split("\n")) {
+            if (line.isBlank() || line.startsWith("total ")) {
+                continue;
+            }
+            // 格式: perms links owner group size mtime name...
+            String[] parts = line.trim().split("\\s+", 7);
+            if (parts.length < 7) {
+                continue;
+            }
+            String name = parts[6];
+            int arrow = name.indexOf(" -> ");
+            if (arrow > 0) {
+                name = name.substring(0, arrow);
+            }
+            if (name.equals(".") || name.equals("..")) {
+                continue;
+            }
+            boolean dir = parts[0].startsWith("d");
+            long size;
+            long mtime;
+            try {
+                size = Long.parseLong(parts[4]);
+                mtime = Long.parseLong(parts[5]);
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            entries.add(new com.gewu.application.workspace.dto.WorkspaceFileEntry(name, dir, size, mtime));
+        }
+        return entries;
+    }
+
+    /** 删除工作区项目：清理沙箱卷内目录并删除记录（clone 失败重来的通道） */
+    public void deleteRepo(String projectId) {
+        WorkspaceProject project = getProjectEntity(projectId);
+        String sandboxId = ensureRunningSandbox();
+        if (project.getLocalPath() != null && !project.getLocalPath().isBlank()) {
+            sandboxClient.execCommand(sandboxId,
+                    "rm -rf " + shellQuote("/workspace/" + sanitizeWorkspaceRel(project.getLocalPath())), 15);
+        }
+        workspaceProjectMapper.deleteById(projectId);
+        log.info("工作区项目已删除: projectId={}, path={}", projectId, project.getLocalPath());
+    }
+
     /** 读取文件内容（通过 exec cat） */
     public String readFile(String filePath) {
         String sandboxId = ensureRunningSandbox();
@@ -207,22 +262,41 @@ public class DevWorkspaceService {
         return resp.getStdout();
     }
 
-    /** 写入文件内容（通过 Docker cp，绕过 CommandValidator） */
+    /** 写入文件内容（通过 Docker cp，绕过 CommandValidator）。客户端净化 + 服务端 validatePath 双层防御。 */
     public void writeFile(String filePath, String content) {
         String sandboxId = getDevSandboxId();
-        sandboxClient.writeFile(sandboxId, filePath, content);
+        sandboxClient.writeFile(sandboxId, sanitizeWorkspaceRel(filePath), content);
     }
 
-    /** 上传文件（通过 Docker cp） */
+    /** 与 WorkspaceService 同款黑名单（L-1 对齐）：可执行载荷不入容器 */
+    private static final java.util.Set<String> BLOCKED_UPLOAD_EXTENSIONS = java.util.Set.of(
+            ".exe", ".bat", ".cmd", ".sh", ".ps1", ".dll", ".so", ".dylib");
+    private static final long DEV_UPLOAD_MAX_BYTES = 100L * 1024 * 1024;
+
+    /** 上传文件（通过 Docker cp）。客户端净化 + 服务端 validatePath 双层防御。 */
     public void uploadFile(String remotePath, MultipartFile file) throws IOException {
+        // L-1（UCSS SEC-FILE-01）：文件名黑名单 + 应用层大小校验
+        String name = file.getOriginalFilename();
+        if (name == null || name.isBlank()) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "文件名不能为空");
+        }
+        String lower = name.toLowerCase();
+        for (String ext : BLOCKED_UPLOAD_EXTENSIONS) {
+            if (lower.endsWith(ext)) {
+                throw BusinessException.of(ResultCode.PARAM_INVALID, "不支持的文件类型: " + ext);
+            }
+        }
+        if (file.getSize() > DEV_UPLOAD_MAX_BYTES) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "文件超过 100MB 限制");
+        }
         String sandboxId = getDevSandboxId();
-        sandboxClient.uploadFile(sandboxId, remotePath, file);
+        sandboxClient.uploadFile(sandboxId, sanitizeWorkspaceRel(remotePath), file);
     }
 
-    /** 下载文件（通过 Docker cp） */
+    /** 下载文件（通过 Docker cp）。客户端净化 + 服务端 validatePath 双层防御。 */
     public byte[] downloadFile(String filePath) {
         String sandboxId = getDevSandboxId();
-        return sandboxClient.downloadFile(sandboxId, filePath);
+        return sandboxClient.downloadFile(sandboxId, sanitizeWorkspaceRel(filePath));
     }
 
     /** 删除文件/目录（通过 exec rm） */
@@ -255,6 +329,13 @@ public class DevWorkspaceService {
         String repoUrl = validateRepoUrl(command.getRepoUrl());
         String branch = validateBranch(command.getRepoBranch() != null ? command.getRepoBranch() : "main");
         String localPath = "projects/" + projectName;
+        // ssh 形式地址规范化为 https(命中 Git 凭证则自动携带 token;沙箱容器内无 ssh key 基础设施)
+        String normalizedUrl = normalizeGitUrl(repoUrl);
+        String effectiveUrl = resolveCredentialUrl(normalizedUrl);
+        if (effectiveUrl.equals(normalizedUrl) && !normalizedUrl.equals(repoUrl)) {
+            // ssh→https 转换但无凭证命中:回退原 ssh 地址(匿名 https 对私有仓库必失败)
+            effectiveUrl = repoUrl;
+        }
 
         WorkspaceProject project = new WorkspaceProject();
         project.setWorkspaceId(ws.getId());
@@ -269,24 +350,85 @@ public class DevWorkspaceService {
         // 创建父目录
         sandboxClient.execCommand(sandboxId, "mkdir -p " + shellQuote("/workspace/" + localPath), 5);
 
-        // 执行 git clone
-        String cloneCmd = "git clone --branch " + shellQuote(branch) + " " + shellQuote(repoUrl)
+        // 执行 git clone(GIT_SSH_COMMAND:容器内首连远程无 TTY,自动接受新主机指纹——
+        // 修用户实测 Host key verification failed;BatchMode 禁用交互提示)
+        String cloneCmd = "GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes\""
+                + " git clone --branch " + shellQuote(branch) + " " + shellQuote(effectiveUrl)
                 + " " + shellQuote("/workspace/" + localPath);
         ExecCommandResponse resp = sandboxClient.execCommand(sandboxId, cloneCmd, 120);
 
         if (resp.getExitCode() != null && resp.getExitCode() == 0) {
             project.setCloneStatus("ready");
+            project.setCloneError(null);
             ExecCommandResponse headResp = sandboxClient.execCommand(
                     sandboxId, "git -C " + shellQuote("/workspace/" + localPath) + " rev-parse HEAD", 10);
             project.setHeadCommit(headResp.getStdout().trim());
         } else {
             project.setCloneStatus("failed");
-            log.warn("Git clone 失败: repo={}, stderr={}", command.getRepoUrl(), resp.getStderr());
+            String stderr = resp.getStderr() != null ? resp.getStderr().trim() : "";
+            if (effectiveUrl.startsWith("git@") || effectiveUrl.startsWith("ssh://")) {
+                stderr += "\n[提示] ssh 方式需要在沙箱内配置 SSH Key;建议改用 https 仓库地址,并在「Git 凭证」中配置访问 Token。";
+            }
+            project.setCloneError(stderr.length() > 480 ? stderr.substring(0, 480) : stderr);
+            log.warn("Git clone 失败: repo={}, stderr={}", command.getRepoUrl(), stderr);
         }
         project.setLastSyncAt(System.currentTimeMillis());
         workspaceProjectMapper.updateById(project);
 
         return project;
+    }
+
+    /**
+     * 按凭证重写 https 仓库地址：私有仓库 clone 自动携带 token（host 匹配优先）。
+     */
+    private String resolveCredentialUrl(String repoUrl) {
+        if (repoUrl == null || !repoUrl.startsWith("https://")) {
+            return repoUrl;
+        }
+        try {
+            String userId = UserContext.currentUserId();
+            if (userId == null) {
+                return repoUrl;
+            }
+            var creds = credMapper.selectList(
+                    new LambdaQueryWrapper<GitCredential>()
+                            .eq(GitCredential::getUserId, userId)
+                            .eq(GitCredential::getCredType, "token"));
+            if (creds.isEmpty()) {
+                return repoUrl;
+            }
+            String host = URI.create(repoUrl).getHost();
+            GitCredential picked = creds.stream()
+                    .filter(c -> c.getGitHost() != null && c.getGitHost().equalsIgnoreCase(host))
+                    .findFirst()
+                    .orElse(creds.get(0));
+            String credValue = cryptoService.decrypt(picked.getCredValue());
+            if (credValue == null || credValue.isBlank()) {
+                return repoUrl;
+            }
+            return repoUrl.replaceFirst("https://", "https://x-access-token:" + credValue + "@");
+        } catch (Exception e) {
+            log.warn("凭证注入失败，按原始地址克隆: {}", e.getMessage());
+            return repoUrl;
+        }
+    }
+
+    /** ssh 形式仓库地址规范化为 https(scp-like 与 ssh:// 两种);https/其他原样返回 */
+    private String normalizeGitUrl(String repoUrl) {
+        if (repoUrl == null) {
+            return repoUrl;
+        }
+        String t = repoUrl.trim();
+        if (t.startsWith("git@")) {
+            int colon = t.indexOf(':');
+            if (colon > 4) {
+                return "https://" + t.substring(4, colon) + "/" + t.substring(colon + 1);
+            }
+        }
+        if (t.startsWith("ssh://git@")) {
+            return "https://" + t.substring("ssh://git@".length());
+        }
+        return t;
     }
 
     /** 项目列表 */
@@ -303,11 +445,18 @@ public class DevWorkspaceService {
         String sandboxId = ensureRunningSandbox();
 
         String dir = "/workspace/" + sanitizeWorkspaceRel(project.getLocalPath());
-        sandboxClient.execCommand(sandboxId,
-                "git -C " + shellQuote(dir) + " pull origin " + shellQuote(project.getRepoBranch()), 60);
+        ExecCommandResponse pullResp = sandboxClient.execCommand(sandboxId,
+                "GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes\""
+                + " git -C " + shellQuote(dir) + " pull origin " + shellQuote(project.getRepoBranch()), 60);
+        // 失败不静默：认证失败/冲突等此前被误报为成功（用户实报"拉取失败"无详情的姊妹问题）
+        if (pullResp.getExitCode() == null || pullResp.getExitCode() != 0) {
+            String stderr = pullResp.getStderr() != null ? pullResp.getStderr().trim() : pullResp.getStdout();
+            throw BusinessException.of(ResultCode.SYSTEM_ERROR,
+                    "Pull 失败: " + (stderr.length() > 300 ? stderr.substring(0, 300) : stderr));
+        }
 
-        ExecCommandResponse headResp = sandboxClient.execCommand(
-                sandboxId, "git -C " + shellQuote(dir) + " rev-parse HEAD", 10);
+        ExecCommandResponse headResp = sandboxClient.execCommand(sandboxId,
+                "git -C " + shellQuote(dir) + " rev-parse HEAD", 10);
         project.setHeadCommit(headResp.getStdout().trim());
         project.setLastSyncAt(System.currentTimeMillis());
         workspaceProjectMapper.updateById(project);
@@ -328,7 +477,8 @@ public class DevWorkspaceService {
                 "git -C " + shellQuote(dir) + " commit -m " + shellQuote(message != null ? message : ""), 30);
         String branch = project.getRepoBranch() != null ? project.getRepoBranch() : "main";
         ExecCommandResponse pushResp = sandboxClient.execCommand(
-                sandboxId, "git -C " + shellQuote(dir) + " push origin " + shellQuote(branch), 60);
+                sandboxId, "GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes\""
+                + " git -C " + shellQuote(dir) + " push origin " + shellQuote(branch), 60);
 
         return pushResp.getStdout() + (pushResp.getStderr().isEmpty() ? "" : "\n" + pushResp.getStderr());
     }
@@ -604,6 +754,7 @@ public class DevWorkspaceService {
                 .repoBranch(p.getRepoBranch())
                 .localPath(p.getLocalPath())
                 .cloneStatus(p.getCloneStatus())
+                .cloneError(p.getCloneError())
                 .lastSyncAt(p.getLastSyncAt())
                 .headCommit(p.getHeadCommit())
                 .createdAt(p.getCreatedAt())

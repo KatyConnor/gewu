@@ -121,7 +121,7 @@ public class OrchestrationController {
     @DeleteMapping("/graphs/{graphId}")
     @Operation(summary = "删除编排图")
     public Result<Void> deleteGraph(@PathVariable String graphId) {
-        orchestrationService.deleteGraph(graphId);
+        orchestrationService.deleteGraph(graphId, UserContext.currentUserId());
         return Result.success();
     }
 
@@ -234,7 +234,7 @@ public class OrchestrationController {
     @Operation(summary = "查询编排图 Webhook 配置", description = "未配置返回 null；只含哈希不含明文")
     public Result<com.gewu.domain.orchestration.OrchestrationWebhookEntity> getWebhook(
             @PathVariable String graphId) {
-        return Result.success(orchestrationService.getWebhook(graphId));
+        return Result.success(orchestrationService.getWebhook(graphId, UserContext.currentUserId()));
     }
 
     /**

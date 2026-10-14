@@ -12,9 +12,11 @@ import com.gewu.common.result.BusinessException;
 import com.gewu.common.result.PageResult;
 import com.gewu.common.result.ResultCode;
 import com.gewu.domain.session.Session;
+import com.gewu.domain.session.SessionMember;
 import com.gewu.domain.session.SessionMessage;
 import com.gewu.domain.user.UserAccount;
 import com.gewu.infrastructure.mapper.SessionMapper;
+import com.gewu.infrastructure.mapper.SessionMemberMapper;
 import com.gewu.infrastructure.mapper.SessionMessageMapper;
 import com.gewu.infrastructure.mapper.UserAccountMapper;
 import lombok.RequiredArgsConstructor;
@@ -36,6 +38,7 @@ public class MessageService {
 
     private final SessionMessageMapper messageMapper;
     private final SessionMapper sessionMapper;
+    private final SessionMemberMapper sessionMemberMapper;
     private final UserAccountMapper userMapper;
     private final ObjectMapper objectMapper;
     private final SseEventManager sseEventManager;
@@ -51,6 +54,8 @@ public class MessageService {
         if (session == null) {
             throw BusinessException.of(ResultCode.SESSION_NOT_FOUND);
         }
+        // 成员校验（UCSS H-3/SEC-AUTH-04）：仅会话成员可发送
+        checkMembership(sessionId, userId);
 
         // clientId 幂等：同一次发送动作重复请求（网络重试）直接返回已落库消息
         SessionMessage existing = messageAppender.findByIdempotentKey(sessionId, command.getClientId());
@@ -89,6 +94,8 @@ public class MessageService {
      *              固定取第 1 页导致最新消息被截断的问题
      */
     public PageResult<MessageDTO> listMessages(String sessionId, PageQuery query, String order) {
+        // 成员校验（UCSS H-3）：仅会话成员可读消息历史
+        requireMember(sessionId);
         boolean latestWindow = "desc".equalsIgnoreCase(order);
         Page<SessionMessage> page = new Page<>(query.getPage(), query.getSize());
         LambdaQueryWrapper<SessionMessage> wrapper = new LambdaQueryWrapper<SessionMessage>()
@@ -111,10 +118,16 @@ public class MessageService {
     }
 
     public MessageDTO getMessage(String messageId) {
+        String userId = UserContext.currentUserId();
+        if (userId == null) {
+            throw BusinessException.of(ResultCode.UNAUTHORIZED);
+        }
         SessionMessage message = messageMapper.selectById(messageId);
         if (message == null) {
             throw BusinessException.of(ResultCode.MESSAGE_NOT_FOUND);
         }
+        // 成员校验（UCSS H-3）：按主键直查也必须绑定会话成员关系
+        checkMembership(message.getSessionId(), userId);
         return toDTO(message, getSenderName(message.getSenderId()));
     }
 
@@ -156,6 +169,8 @@ public class MessageService {
     }
 
     public PageResult<MessageDTO> searchMessages(String sessionId, String keyword, PageQuery query) {
+        // 成员校验（UCSS H-3）：仅会话成员可搜索消息
+        requireMember(sessionId);
         Page<SessionMessage> page = new Page<>(query.getPage(), query.getSize());
         Page<SessionMessage> result = messageMapper.selectPage(page,
                 new LambdaQueryWrapper<SessionMessage>()
@@ -170,6 +185,29 @@ public class MessageService {
                 .map(m -> toDTO(m, senderNames.get(m.getSenderId())))
                 .toList();
         return PageResult.of(dtos, result.getTotal(), query.getPage(), query.getSize());
+    }
+
+    /**
+     * 会话成员校验（UCSS H-3）：非成员一律 FORBIDDEN。与 SessionService.checkMembership 同型，
+     * 独立内联避免服务间耦合。
+     */
+    private void checkMembership(String sessionId, String userId) {
+        Long count = sessionMemberMapper.selectCount(
+                new LambdaQueryWrapper<SessionMember>()
+                        .eq(SessionMember::getSessionId, sessionId)
+                        .eq(SessionMember::getUserId, userId));
+        if (count == 0) {
+            throw BusinessException.of(ResultCode.FORBIDDEN);
+        }
+    }
+
+    /** 认证 + 成员二合一入口（消息读面统一走此守卫）。 */
+    private void requireMember(String sessionId) {
+        String userId = UserContext.currentUserId();
+        if (userId == null) {
+            throw BusinessException.of(ResultCode.UNAUTHORIZED);
+        }
+        checkMembership(sessionId, userId);
     }
 
     private String toJson(List<String> list) {

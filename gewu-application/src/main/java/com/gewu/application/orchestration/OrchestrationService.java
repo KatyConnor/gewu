@@ -103,15 +103,27 @@ public class OrchestrationService {
     }
 
     /**
+     * 属主校验（UCSS H-1/SEC-AUTH-04）：编排图写操作仅限创建者。
+     * 查询即校验存在性；非属主一律 FORBIDDEN（不区分"不存在/无权"避免枚举）。
+     */
+    private OrchestrationGraphEntity requireGraphOwner(String graphId, String userId) {
+        OrchestrationGraphEntity entity = graphMapper.selectById(graphId);
+        if (entity == null) {
+            throw new IllegalArgumentException("编排图不存在: " + graphId);
+        }
+        if (userId == null || userId.isBlank() || !userId.equals(entity.getCreatedBy())) {
+            throw BusinessException.of(ResultCode.FORBIDDEN, "无权操作他人编排图");
+        }
+        return entity;
+    }
+
+    /**
      * 更新编排图定义（docs/design/46 报告 B1）。仅 draft 状态可编辑；
      * 保存前执行图结构校验，ERROR 级问题阻断保存。
      */
     public OrchestrationGraphEntity updateGraph(String graphId, String name, String graphDefinitionJson,
                                                  String graphType, String mode, String userId) {
-        OrchestrationGraphEntity entity = graphMapper.selectById(graphId);
-        if (entity == null) {
-            throw new IllegalArgumentException("编排图不存在: " + graphId);
-        }
+        OrchestrationGraphEntity entity = requireGraphOwner(graphId, userId);
         if (!"draft".equals(entity.getStatus())) {
             throw BusinessException.of(ResultCode.PARAM_INVALID,
                     "仅草稿状态的编排图可编辑，当前状态: " + entity.getStatus());
@@ -161,10 +173,7 @@ public class OrchestrationService {
      * 再激活产生新版本不影响既有执行记录的回放一致性。
      */
     public void activateGraph(String graphId, String userId) {
-        OrchestrationGraphEntity entity = graphMapper.selectById(graphId);
-        if (entity == null) {
-            throw new IllegalArgumentException("编排图不存在: " + graphId);
-        }
+        OrchestrationGraphEntity entity = requireGraphOwner(graphId, userId);
         if (entity.getGraphDefinition() == null || entity.getGraphDefinition().isBlank()) {
             throw BusinessException.of(ResultCode.PARAM_INVALID,
                     "编排图定义为空，不能激活。请先编辑保存编排图: " + graphId);
@@ -263,7 +272,8 @@ public class OrchestrationService {
     /**
      * 删除编排图（逻辑删除），并级联逻辑删除其执行实例与审批请求。
      */
-    public void deleteGraph(String graphId) {
+    public void deleteGraph(String graphId, String userId) {
+        requireGraphOwner(graphId, userId);
         List<OrchestrationExecutionEntity> executions = executionMapper.selectList(
                 new LambdaQueryWrapper<OrchestrationExecutionEntity>()
                         .eq(OrchestrationExecutionEntity::getGraphId, graphId));
@@ -286,6 +296,7 @@ public class OrchestrationService {
      */
     public OrchestrationExecutionEntity executeGraph(String graphId, String userId,
                                                       String sessionId, String input) {
+        requireGraphOwner(graphId, userId);
         return executeGraphInternal(graphId, userId, sessionId, input, "MANUAL");
     }
 
@@ -295,8 +306,8 @@ public class OrchestrationService {
      */
     public OrchestrationExecutionEntity executeGraphForAgentTool(String graphId, String userId,
                                                                   String sessionId, String input) {
-        OrchestrationGraphEntity graphEntity = graphMapper.selectById(graphId);
-        if (graphEntity == null || !"active".equals(graphEntity.getStatus())) {
+        OrchestrationGraphEntity graphEntity = requireGraphOwner(graphId, userId);
+        if (!"active".equals(graphEntity.getStatus())) {
             throw new IllegalArgumentException("编排图不存在或未激活，无法通过 Agent 工具运行: " + graphId);
         }
         return executeGraphInternal(graphId, userId, sessionId, input, "AGENT_TOOL");
@@ -719,10 +730,8 @@ public class OrchestrationService {
      * 明文仅本次响应返回，库内只存 SM3 哈希。
      */
     public WebhookCredential upsertWebhook(String graphId, boolean enabled, boolean regenerate, String userId) {
+        requireGraphOwner(graphId, userId);
         OrchestrationGraphEntity graph = graphMapper.selectById(graphId);
-        if (graph == null) {
-            throw new IllegalArgumentException("编排图不存在: " + graphId);
-        }
         com.gewu.domain.orchestration.OrchestrationWebhookEntity entity = webhookMapper.selectList(
                         new LambdaQueryWrapper<com.gewu.domain.orchestration.OrchestrationWebhookEntity>()
                                 .eq(com.gewu.domain.orchestration.OrchestrationWebhookEntity::getGraphId, graphId))
@@ -753,8 +762,9 @@ public class OrchestrationService {
         return new WebhookCredential(entity.getId(), graphId, enabled, plainToken);
     }
 
-    /** 查询 Webhook 配置（未配置返回 null；实体只含哈希不含明文）。 */
-    public com.gewu.domain.orchestration.OrchestrationWebhookEntity getWebhook(String graphId) {
+    /** 查询 Webhook 配置（未配置返回 null；实体只含哈希不含明文）。属主校验防凭证哈希横向读取。 */
+    public com.gewu.domain.orchestration.OrchestrationWebhookEntity getWebhook(String graphId, String userId) {
+        requireGraphOwner(graphId, userId);
         return webhookMapper.selectList(
                         new LambdaQueryWrapper<com.gewu.domain.orchestration.OrchestrationWebhookEntity>()
                                 .eq(com.gewu.domain.orchestration.OrchestrationWebhookEntity::getGraphId, graphId))
