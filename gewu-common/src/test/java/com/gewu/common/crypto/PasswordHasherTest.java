@@ -15,14 +15,32 @@ class PasswordHasherTest {
     }
 
     @Test
-    @DisplayName("hash 格式包含 $ 分隔符（3 部分）")
-    void hashFormatContainsThreePartsSeparatedByDollar() {
+    @DisplayName("hash 产出 PBKDF2 新格式（4 段：PBKDF2$迭代$盐B64$哈希B64）")
+    void hashProducesPbkdf2Format() {
+        // M-6 行为升级同步（原断言为旧格式 3 段/10000/hex64）：新哈希一律 PBKDF2 格式
         String hashed = PasswordHasher.hash("myPassword123");
         String[] parts = hashed.split("\\$");
-        assertThat(parts).hasSize(3);
-        assertThat(parts[0]).isEqualTo("10000");
-        assertThat(parts[1]).hasSize(64);
-        assertThat(parts[2]).hasSize(64);
+        assertThat(parts).hasSize(4);
+        assertThat(parts[0]).isEqualTo("PBKDF2");
+        assertThat(Integer.parseInt(parts[1])).isGreaterThanOrEqualTo(100_000);
+        assertThat(java.util.Base64.getDecoder().decode(parts[2])).hasSize(32);
+        assertThat(java.util.Base64.getDecoder().decode(parts[3])).hasSize(32);
+    }
+
+    @Test
+    @DisplayName("verify 兼容旧格式（SM3 加盐后串接迭代，配合登录渐进升级）")
+    void verifySupportsLegacyFormat() {
+        // 旧格式本体与 PasswordHasher.legacySm3Chain 同型：hashWithSalt 一轮 + hashHex 串接迭代
+        String saltHex = "aabb".repeat(16);
+        String current = com.gewu.common.crypto.SM3Util.hashWithSalt("legacyPwd",
+                java.util.HexFormat.of().parseHex(saltHex));
+        for (int i = 1; i < 10000; i++) {
+            current = com.gewu.common.crypto.SM3Util.hashHex(current);
+        }
+        String legacy = "10000$" + saltHex + "$" + current;
+        assertThat(PasswordHasher.verify("legacyPwd", legacy)).isTrue();
+        assertThat(PasswordHasher.verify("wrongPwd", legacy)).isFalse();
+        assertThat(PasswordHasher.needsUpgrade(legacy)).isTrue();
     }
 
     @Test

@@ -49,10 +49,19 @@ public class AuthService {
                 new LambdaQueryWrapper<UserAccount>().eq(UserAccount::getUsername, command.getUsername()));
 
         if (user == null) {
-            throw BusinessException.of(ResultCode.USER_NOT_FOUND);
+            // M-3（UCSS SEC-AUTH-06）：与密码错误同响应，防用户名枚举
+            throw BusinessException.of(ResultCode.PASSWORD_INCORRECT, "用户名或密码错误");
         }
         if (user.getStatus() == UserStatus.LOCKED.getCode()) {
-            throw BusinessException.of(ResultCode.USER_LOCKED);
+            // M-2（UCSS SEC-AUTH-05）：锁定到期自动复位（lockedUntil 此前从未被读取，形成永久锁定 DoS）
+            if (user.getLockedUntil() != null && Instant.now().toEpochMilli() > user.getLockedUntil()) {
+                user.setStatus(UserStatus.ENABLED.getCode());
+                user.setLoginFailCount(0);
+                user.setLockedUntil(null);
+                userMapper.updateById(user);
+            } else {
+                throw BusinessException.of(ResultCode.USER_LOCKED);
+            }
         }
         if (user.getStatus() == UserStatus.DISABLED.getCode()) {
             throw BusinessException.of(ResultCode.USER_DISABLED);
@@ -67,12 +76,16 @@ public class AuthService {
             }
             userMapper.updateById(user);
             log.warn("登录失败: username={}", com.gewu.common.util.LogMasking.maskUsername(command.getUsername()));
-            throw BusinessException.of(ResultCode.PASSWORD_INCORRECT);
+            throw BusinessException.of(ResultCode.PASSWORD_INCORRECT, "用户名或密码错误");
         }
 
         user.setLoginFailCount(0);
         user.setLockedUntil(null);
         user.setLastLoginAt(Instant.now().toEpochMilli());
+        // M-6 渐进迁移：旧格式（SM3 串接）验证成功即透明升级为 PBKDF2 新格式
+        if (PasswordHasher.needsUpgrade(user.getPasswordHash())) {
+            user.setPasswordHash(PasswordHasher.hash(command.getPassword()));
+        }
         userMapper.updateById(user);
 
         List<String> roleCodes = getRoleCodes(user.getId());
