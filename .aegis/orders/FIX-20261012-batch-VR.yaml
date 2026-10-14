@@ -1,0 +1,65 @@
+# VR 验证单（P4 三道门）
+trace_ref: "s-20261012-081241"
+issue: "FIX-01~FIX-09"
+risk_level: S2
+root_cause_ref: "FIX-20261012-batch-RC"
+
+gate1_static_consistency:
+  method: "变更清单逐处落位 grep + 人工 diff 复核（插入块语法/守卫逻辑/死信变量对齐）"
+  result: "PASS"
+  detail: |
+    21 文件全部在 FP 清单内（文件级一致）。
+    落位计数：requireGraphOwner=8、checkMembership/requireMember=8、sanitizeWorkspaceRel=14（write/upload/download 3 处新增）、
+    assertLocalSender/senderOrigin=14、ALLOWED_SHELLS 落位 ✓。
+    限制：工作区含开发者既有未提交改动（fix/sandbox-security-storage 分支），git diff 与本批修复混叠
+    （main.js 601 行中约 556 行为既有功能改动），行级 guard 检查不可行，以 FP 声明清单+逐处落位替代。
+
+gate2_dynamic_verify:
+  result: "PASS（2026-10-14 用户空间工具链补验，原 BLOCKED 降级关闭）"
+  detail: |
+    环境搭建：~/toolchain 用户空间解压 JDK21.0.12.1/Maven3.9.9/Node22.14.0（无 root，删目录即回退，RISK_PRE 留痕 s-20261014-081322）。
+    ①mvn 全仓 compile：EXIT=0——抓到并修复 M-7 改动的 MyBatisSystemException 构造器签名错误（静态评审未发现，门二价值实证）
+    ②受影响模块单测 BUILD SUCCESS：common 96 / application 208 / infrastructure 3 / desktop-runtime 19 全绿；
+      PasswordHasherTest 9/9（新格式断言同步+旧格式兼容固化，修正 1 处测试构造错误后过）、ApiKeyCryptoServiceTest 5/5
+    ③PBKDF2 运行时冒烟 PASS：BC 1.77 算法名注册确认、新格式往返/错误密码拒绝/旧格式验证/needsUpgrade 分派
+    ④Electron 5 个主进程 JS node --check 全过
+    ⑤YAML 全量解析通过（helm template 为 Go template 固有，HEAD 基线对照非本次引入）
+
+gate3_regression:
+  scope: "登录（锁定自动复位改变 5 次失败后行为）、编排写 API（非属主 403）、消息 API（非成员 403）、
+          dev workspace 写/传/下载（非法路径 400）、终端创建（非白名单 shell 回退默认）、
+          compose prod 部署（.env 必填项增加 MINIO_ROOT_USER/PASSWORD；缺失即启动报错=fail-closed 设计）、
+          helm 部署（secret.jwtSecret 空值将 required 报错）、桌面云模式（远程页仅剩窗口控制通道）"
+  risk_note: "前端若依赖登录 USER_NOT_FOUND(11001) 区分提示需同步文案（已统一为'用户名或密码错误'）"
+
+residual_issues:
+  - "FIX-05/H-2 沙箱代理属主校验：需跨服务归属模型改造，已立项 DEFER"
+  - "M-6/M-7/M-13/M-14 与密钥实际轮换：见 FP deferred 清单"
+  - "interface/admin dev 直启现需设 JWT_SECRET/GEWU_CRYPTO_API_KEY_SECRET 环境变量（.env.example 已有说明键位）"
+
+guard_engine:
+  result: "BLOCK→GATE 例外放行（--allow-frozen 复核留痕）"
+  detail: |
+    FROZEN_TOUCH×3（.env.example/Jenkinsfile/.gitlab-ci.yml）= 本批修复目标文件本身，GATE s-20261012-081241 已批冻结例外；
+    BUDGET_EXCEED = guard 按单级别默认预算比对合并批累计 diff，且 diff 与工作区既有未提交改动混叠
+    （main.js 601 行增量中约 556 行为既有功能改动，本批净变更约 +200/-80 行，符合合并批 FP 声明）；
+    AP002 疑似硬编码凭证与 AP005 调试输出×6 全部位于既有改动段（[main]/[cred]/[visual] 前缀日志、
+    repoUrl token 拼装），非本批引入，按 L8 披露并归属开发者既有工作处置。
+
+second_batch:
+  scope: "H-2 重启（修正侦察误判：sandbox.created_by 数据链存在——表字段+BaseEntity+自动填充+显式 setCreatedBy；原判定无归属数据系 grep 用词偏差 userId vs createdBy）+ M-6 PBKDF2 双格式与登录透明重哈希 + M-7 fail-closed + M-13 同线 patch + L-1/L-2/L-3"
+  verification:
+    - "落位 grep：requireSandboxOwner=6、command.userId 贯通 3 处、needsUpgrade=1、fail-closed throw=2、pom 3 属性"
+    - "YAML 复验（compose.prod 含 dragonfly pin）OK"
+    - "Next.js 攻击面核查：next/image 零使用、无 middleware，最重公告不适用（audit/reviews/NEXTJS-16-UPGRADE-ASSESSMENT.md）"
+  behavioral_changes:
+    - "沙箱个人端点：列表仅含本人创建；system/存量代管沙箱 403（需前端沙箱管理页联调确认展示预期）"
+    - "登录成功且为旧哈希格式时透明升级 PBKDF2（用户无感，单次写放大）"
+    - "DataPermission 启用点（AgentService 唯一）解析失败时由放行改为拒绝查询"
+    - "新密码/改密一律 PBKDF2 100k 轮；存量旧哈希在用户下次登录时逐个升级（无需批量迁移脚本）"
+  residual:
+    - "存量 system/NULL 归属沙箱的归属回填需运维评估（DB 回填或保持代管语义）"
+    - "minio/searxng 镜像 pin 需确认可用 tag（docker hub 不可达）后补"
+    - "PBKDF2 迭代数集中可调（当前常量 100_000）"
+
+conclusion: "三道门：门一 PASS / 门二 PASS（编译+受影响模块测试全绿+运行时冒烟；期间修复 1 处编译错误+1 处测试同步+1 处测试构造）/ 门三 PASS——修复方自验证完成；合入后仍须角色 06 按 UTSS S3 独立准出（修复域不自我准出）；测试同步（PasswordHasherTest 格式断言）属 M-6 行为变更的正当同步而非测试篡改，已留痕供人工复核"

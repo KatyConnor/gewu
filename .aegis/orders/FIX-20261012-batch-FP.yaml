@@ -1,0 +1,134 @@
+# FP 方案单（合并批——文件级清单；工作区含既有未提交改动，本次变更以本清单逐处落位为准）
+trace_ref: "s-20261012-081241"
+issue: "FIX-01~FIX-09（见 .aegis/orders/INTAKE-20261012-UCSS.md 拆单映射）"
+risk_level: S2
+root_cause_ref: "FIX-20261012-batch-RC"
+test_defect_approval: false
+changes:
+  # FIX-01 JWT（C-1）
+  - file: gewu-gateway/src/main/resources/application.yml
+    symbol: gewu.gateway.jwt.secret
+    intent: "去默认值，改 ${JWT_SECRET} 无回退（fail-closed）"
+  - file: gewu-interface/src/main/resources/application.yml
+    symbol: security.jwt.secret
+    intent: 同上
+  - file: gewu-admin-server/src/main/resources/application.yml
+    symbol: security.jwt.secret
+    intent: 同上
+  - file: gewu-interface/src/main/resources/application-prod.yml
+    symbol: security.jwt.secret
+    intent: 同上
+  - file: docker-compose.prod.yml
+    symbol: "env JWT_SECRET（原 GEWU_SECURITY_JWT_SECRET 死信变量）"
+    intent: 变量名对齐代码消费侧 + 去 compose 回退
+  - file: deploy/helm/gewu-platform/templates/config.yaml
+    symbol: JWT_SECRET
+    intent: required 强制显式提供
+  - file: deploy/helm/gewu-platform/values.yaml
+    symbol: secret.jwtSecret
+    intent: 公开默认清空
+  # FIX-02 SM4/沙箱 key（C-2+H-8）
+  - file: gewu-common/src/main/java/com/gewu/common/crypto/ApiKeyCryptoService.java
+    symbol: init
+    intent: "prod 命中公开默认值 warn→throw（视为已泄露）"
+  - file: gewu-interface/src/main/resources/application.yml
+    symbol: crypto.api-key-secret
+    intent: 去默认
+  - file: gewu-admin-server/src/main/resources/application.yml
+    symbol: crypto.api-key-secret
+    intent: 去默认
+  - file: gewu-sandbox/src/main/resources/application.yml
+    symbol: crypto.api-key-secret
+    intent: 去默认
+  - file: .env.example
+    symbol: GEWU_CRYPTO_API_KEY_SECRET + MINIO 键位
+    intent: 真实值→占位符 + 补 prod 必填键
+  # FIX-03 compose（C-3）
+  - file: docker-compose.prod.yml
+    symbol: "credentials/ports/dragonfly command（12 处）"
+    intent: 弱口令回退清零 + prod DB/Redis/MinIO 端口移除 + Dragonfly requirepass + Spring redis password
+  # FIX-04 编排属主（H-1）
+  - file: gewu-application/src/main/java/com/gewu/application/orchestration/OrchestrationService.java
+    symbol: "requireGraphOwner(新) + updateGraph/activateGraph/deleteGraph/executeGraph/executeGraphForAgentTool/upsertWebhook/getWebhook"
+    intent: 属主校验统一守卫
+  - file: gewu-interface/src/main/java/com/gewu/interfaceapi/controller/OrchestrationController.java
+    symbol: deleteGraph/getWebhook
+    intent: 补传 UserContext.currentUserId()
+  # FIX-06 消息成员（H-3）
+  - file: gewu-application/src/main/java/com/gewu/application/session/MessageService.java
+    symbol: "sendMessage/listMessages/getMessage/searchMessages + checkMembership/requireMember(新)"
+    intent: 成员校验
+  # FIX-07 DevWorkspace 路径（H-4）
+  - file: gewu-application/src/main/java/com/gewu/application/workspace/DevWorkspaceService.java
+    symbol: writeFile/uploadFile/downloadFile
+    intent: 客户端净化（服务端 validatePath 为既有第二道防线）
+  # FIX-08 Electron（H-5/H-6 + M-9/M-10）
+  - file: gewu-desktop/electron/main.js
+    symbol: "isRemoteSender/assertLocalSender/senderOrigin(新) + engine/secret/creds/terminal/saveLaunchConfig 10 通道"
+    intent: 来源分级 + 凭据源绑定 + http 告警
+  - file: gewu-desktop/electron/terminal-manager.js
+    symbol: create
+    intent: shell 白名单
+  # FIX-09 P2 批
+  - file: gewu-interface/src/main/resources/application-prod.yml
+    symbol: management.endpoint.health + springdoc
+    intent: "show-details never + swagger 生产关闭"
+  - file: gewu-application/src/main/java/com/gewu/application/auth/AuthService.java
+    symbol: login
+    intent: 锁定到期自动复位 + 统一登录错误文案
+  - file: gewu-desktop-runtime/src/main/resources/application.yml
+    symbol: server.address
+    intent: 127.0.0.1 回环监听
+  - file: Jenkinsfile
+    symbol: Security Scan
+    intent: 去 || true 恢复强制
+  - file: .gitlab-ci.yml
+    symbol: security-scan.allow_failure
+    intent: true→false
+  - file: docker-compose.prod.yml
+    symbol: build.dockerfile
+    intent: Dockerfile→Dockerfile.secure
+  - file: deploy/k8s/deployment.yaml
+    symbol: securityContext
+    intent: runAsNonRoot/1001/no-priv-esc/drop-ALL
+  # 第二批（FIX-05 重启 H-2 / M-6 / M-7 / M-13 同线 / L 系列批次）
+  - file: gewu-common/src/main/java/com/gewu/common/dto/sandbox/CreateSandboxCommand.java
+    symbol: userId
+    intent: 归属字段贯通（H-2 修正侦察：created_by 数据链实际存在，补真实 userId 注入）
+  - file: gewu-sandbox/src/main/java/com/gewu/sandbox/service/SandboxService.java
+    symbol: createSandbox/setCreatedBy ×2
+    intent: command.userId 优先
+  - file: gewu-interface/src/main/java/com/gewu/interfaceapi/controller/SandboxProxyController.java
+    symbol: requireSandboxOwner(新) + 6 端点 + list 过滤 + create 注入
+    intent: 属主校验（system/存量代管沙箱拒绝个人端点）
+  - file: gewu-common/src/main/java/com/gewu/common/crypto/PasswordHasher.java
+    symbol: 全文件（PBKDF2 双格式 + needsUpgrade）
+    intent: M-6 KDF 基线升级，旧格式保留验证
+  - file: gewu-application/src/main/java/com/gewu/application/auth/AuthService.java
+    symbol: login
+    intent: 旧哈希验证成功后透明重哈希
+  - file: gewu-infrastructure/src/main/java/com/gewu/infrastructure/interceptor/DataPermissionInnerInterceptor.java
+    symbol: rewriteSql 异常段 + JSqlParser catch
+    intent: M-7 fail-open→fail-closed
+  - file: pom.xml
+    symbol: tomcat/spring-security/netty version
+    intent: M-13 同线 patch（10.1.46 / 6.2.7 / 4.1.118.Final）
+  - file: gewu-application/src/main/java/com/gewu/application/workspace/DevWorkspaceService.java
+    symbol: uploadFile + BLOCKED_UPLOAD_EXTENSIONS(新)
+    intent: L-1 上传黑名单+大小校验
+  - file: gewu-desktop/electron/secret-vault.js
+    symbol: save
+    intent: L-2 明文降级告警
+  - file: docker-compose.prod.yml
+    symbol: dragonfly image
+    intent: L-3 latest→v1.27.1 pin
+budget: {files: 28, lines: 360, funcs: 20, deps: 0}
+verification:
+  red_baseline: "UCSS 报告各 finding 的 file:line 证据（攻击面代码原样存在）"
+  regression_set: "登录流程/编排 API 调用方/消息 API 调用方/dev workspace 前端/终端创建/compose 部署流程（.env 必填项）/helm 渲染"
+  rescan: "UCSS 复扫判据：C-1/C-2/C-3 弱口令 grep 零残留（gewu-dev-internal-key 为设计保留除外）+H-1/3/4 守卫落位"
+rollback: "git 工作区检查点 pre-aegis-fix-p0（protect）→ checkpoint.sh restore；逐单可独立 revert（变更互不耦合）"
+deferred:
+  - "M-6 密码哈希迁移（需存量迁移策略）/ M-7 DataPermission fail-closed（需兼容审计）/ M-13/14 SCA 大版本升级（Boot 3.4.x、Next 16、vite bump）"
+  - "密钥实际轮换属运维操作（无现网访问）：JWT_SECRET/GEWU_CRYPTO_API_KEY_SECRET 轮换需运维执行，代码侧已 fail-closed"
+approvals: ["GATE s-20261012-081241 approved（用户指令：按照计划优先级启动修复；冻结例外=安全凭证文件/CI 配置）"]

@@ -1,0 +1,13 @@
+# RC 根因单（合并批——8 修复单共用证据基线，逐单根因引用 UCSS 报告）
+trace_ref: "s-20261012-081241 (GATE) / s-20261012-081623 (P0 STEP_DONE)"
+issue: "UCSS-SCAN-20261012-framework: C-1,C-2,C-3,H-1,H-3,H-4,H-5,H-6,H-8 + M-1,M-2,M-3,M-4,M-5,M-8,M-9,M-10,M-11,M-12"
+risk_level: S3
+symptom: "扫描报告 3 Critical/8 High/14 Medium（凭证入库、横向越权、路径绕过、特权桥暴露、配置暴露、CI 门架空）"
+causal_chain:
+  why_exist: "开发期便利默认值（密钥/口令）被 prod 继承；服务层查询缺少属主/成员校验惯例（仅 2 处有正确范式）；远程内容与本地特权桥未分层"
+  why_undetected: "无 CI 凭证扫描门（trivy 门被 || true 架空）；D4-P1 授权推理未纳入评审 checklist"
+  why_now: "本轮 UCSS 全面扫描（ONLINE 模式）以 file:line 证据链检出"
+root_cause: "①凭证治理缺失（默认值贯穿 dev→prod）；②写路径属主/成员校验不成体系；③Electron 特权面未按内容来源分级"
+evidence: "audit/reports/UCSS-SCAN-20261012-framework.md（全部 finding 带 file:line 污点链，C1×21）"
+impact: "认证旁路（JWT 伪造）、数据横向泄露（消息/编排/沙箱）、本地 RCE 链（桌面云模式）、拖库解密（SM4）"
+confidence: "C1（与独立代理发现交叉印证一致）"
