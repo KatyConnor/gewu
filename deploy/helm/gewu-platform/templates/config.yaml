@@ -29,6 +29,6 @@ metadata:
 type: Opaque
 stringData:
   SPRING_DATASOURCE_PASSWORD: {{ .Values.secret.mysqlPassword | quote }}
-  GEWU_SECURITY_JWT_SECRET: {{ .Values.secret.jwtSecret | quote }}
+  JWT_SECRET: {{ required "secret.jwtSecret 必须显式提供（不得使用公开默认）" .Values.secret.jwtSecret | quote }}
   GEWU_CRYPTO_API_KEY_SECRET: {{ .Values.secret.sm4Key | quote }}
   AI_API_KEY: {{ .Values.secret.aiApiKey | quote }}

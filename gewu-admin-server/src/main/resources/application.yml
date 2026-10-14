@@ -51,12 +51,12 @@ gewu:
     # 认证透传目标：登录/注册/刷新/登出由主应用完成（账号体系唯一来源）
     main-api-base: ${GEWU_MAIN_API_BASE:http://localhost:8081}
   crypto:
-    api-key-secret: ${GEWU_CRYPTO_API_KEY_SECRET:13b4a0eab2f1f1093f87d0552fddca1f}
+    api-key-secret: ${GEWU_CRYPTO_API_KEY_SECRET:}
   security:
     jwt:
       # 与主应用同源：同一密钥签发/校验（登录在主应用 /v1/auth/login 完成）
       # 必须与主应用逐字一致：主应用签发的 token 由本服务校验
-      secret: ${JWT_SECRET:gewu-platform-jwt-secret-key-must-be-at-least-256-bits-long-for-hs256}
+      secret: ${JWT_SECRET}
       access-expiration: ${JWT_ACCESS_EXPIRATION:86400000}
       refresh-expiration: ${JWT_REFRESH_EXPIRATION:604800000}
 

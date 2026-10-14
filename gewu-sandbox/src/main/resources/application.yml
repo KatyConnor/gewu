@@ -80,8 +80,13 @@ gewu:
       network-enabled: true
       # dev 沙箱空闲阈值（SandboxScheduler 按 source 分档读取；误导性的 manual-ttl-days 死配置已移除）
       idle-timeout-minutes: 120
+    terminal:
+      # 网页终端 PTY 通道（设计文档 44）：仅 interface 反向代理可达（握手需内部密钥）
+      enabled: true
+      max-sessions-per-user: 3
+      idle-timeout-minutes: 30
   crypto:
-    api-key-secret: ${GEWU_CRYPTO_API_KEY_SECRET:13b4a0eab2f1f1093f87d0552fddca1f}
+    api-key-secret: ${GEWU_CRYPTO_API_KEY_SECRET:}
 
 logging:
   level:

@@ -49,7 +49,9 @@ public class ApiKeyCryptoService {
         }
         this.key = SM4Util.hexToBytes(secretHex);
         if (KNOWN_WEAK_SECRETS.contains(secretHex) && isProdProfile()) {
-            log.warn("GEWU_CRYPTO_API_KEY_SECRET 使用了公开的示例默认值，生产环境必须替换为随机生成的 32 位十六进制密钥");
+            throw new IllegalStateException(
+                    "GEWU_CRYPTO_API_KEY_SECRET 使用了已入库的公开默认值（视为已泄露）：生产环境必须轮换为随机生成的"
+                            + " 32 位十六进制密钥，并对存量密文执行重加密迁移");
         }
         log.info("API Key 加密服务已初始化");
     }

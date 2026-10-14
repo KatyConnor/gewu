@@ -153,6 +153,21 @@ gewu:
     # 阈值建议 ≈ 模型上下文窗口的 1/4，长程任务 32K 起；保留条数覆盖最近 12 轮对话
     context-compact-threshold-tokens: 32000
     context-compact-keep-recent: 24
+    # 跨轮回放注入（设计文档 42 项一）：文件清单 + 近期工具要点，补偿工具调用不落库回放
+    file-inventory-enabled: true
+    file-inventory-limit: 20
+    tool-brief-enabled: true
+    tool-brief-limit: 10
+  sync:
+    # 工作空间双向同步（设计文档 42 项三 V2 修订）：仅文档类文件。
+    # 项目代码不入 MinIO——① projects/**（Git 克隆区）与 .git 段硬排除；
+    # ② 文档扩展名白名单默认拒绝：无项目会话写在工作区根的代码、开发空间
+    # 直接创建的代码等一律不同步；代码由 Git 仓库 push/pull 管理
+    enabled: true
+    reconcile-enabled: true
+    batch-size: 50
+    max-file-size-mb: 100
+    doc-extensions: md,markdown,txt,pdf,doc,docx,xls,xlsx,ppt,pptx,csv,tsv,rtf,png,jpg,jpeg,gif,webp,svg
   project:
     name: 格物平台
     version: 1.0.0-SNAPSHOT
@@ -212,13 +227,13 @@ gewu:
 
   # 敏感数据加密（32 位十六进制 SM4 密钥，生产环境必须替换）
   crypto:
-    api-key-secret: ${GEWU_CRYPTO_API_KEY_SECRET:0123456789abcdef0123456789abcdef}
+    api-key-secret: ${GEWU_CRYPTO_API_KEY_SECRET:}
 
   # 安全配置
   security:
     jwt:
-      secret: ${JWT_SECRET:gewu-platform-jwt-secret-key-must-be-at-least-256-bits-long-for-hs256}
-      access-expiration: 72000000  # 30分钟
+      secret: ${JWT_SECRET}
+      access-expiration: 1800000  # 30分钟（M-4：修正 72000000=20h 的笔误，与 CommonConstants.expiresIn 一致）
       refresh-expiration: 604800000  # 7天
     password:
       min-length: 8

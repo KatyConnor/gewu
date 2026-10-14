@@ -77,7 +77,7 @@ config:
 
 secret:
   mysqlPassword: change-me-prod
-  jwtSecret: change-me-prod-jwt-secret-must-be-at-least-256-bits-long
+  jwtSecret: ""
   sm4Key: change-me-32-hex-chars-sm4-key-00000
   aiApiKey: ""
 
