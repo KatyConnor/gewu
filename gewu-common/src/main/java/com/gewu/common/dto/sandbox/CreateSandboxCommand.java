@@ -47,4 +47,10 @@ public class CreateSandboxCommand {
 
     /** 关联工作空间ID（非空时沙箱挂载工作空间卷到 /workspace） */
     private String workspaceId;
+
+    /**
+     * 归属用户ID（UCSS H-2）：代理层创建时由 interface 注入当前用户；
+     * 服务间调用（internal-key）不传时落 system 兜底——该类沙箱不归属任何个人。
+     */
+    private String userId;
 }

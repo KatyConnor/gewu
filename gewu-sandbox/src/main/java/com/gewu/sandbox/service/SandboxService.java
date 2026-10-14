@@ -79,7 +79,9 @@ public class SandboxService {
             throw e;
         }
         sandbox.setSandboxName(command.getSandboxName());
-        sandbox.setCreatedBy(UserContext.currentUserId());
+        // H-2：代理层显式传入的归属优先（internal-key 调用下 UserContext 为空，否则落 system）
+        sandbox.setCreatedBy(command.getUserId() != null && !command.getUserId().isBlank()
+                ? command.getUserId() : UserContext.currentUserId());
         sandbox.setSource(source);
         sandbox.setProjectId(command.getProjectId());
         sandbox.setAgentId(command.getAgentId());
@@ -222,10 +224,17 @@ public class SandboxService {
         command.setTimeout(timeout);
         command.setEnv(null);
         command.setCmd(null);
+        // 携带 workspaceId 时挂载用户持久卷（容器即焚但 /workspace 写入随卷保留，
+        // 使代码执行工具与会话文件工具共享同一工作空间视图）
+        if (request.getWorkspaceId() != null && !request.getWorkspaceId().isBlank()) {
+            command.setWorkspaceId(request.getWorkspaceId());
+        }
 
         SandboxProvider provider = providerFactory.getDefaultProvider();
         Sandbox sandbox = provider.create(command);
-        sandbox.setCreatedBy(UserContext.currentUserId());
+        // H-2：代理层显式传入的归属优先（internal-key 调用下 UserContext 为空，否则落 system）
+        sandbox.setCreatedBy(command.getUserId() != null && !command.getUserId().isBlank()
+                ? command.getUserId() : UserContext.currentUserId());
         sandbox.setSource("agent");
         sandbox.setAutoDestroy(1);
         sandboxMapper.insert(sandbox);

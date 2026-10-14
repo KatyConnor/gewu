@@ -1,6 +1,7 @@
 package com.gewu.interfaceapi.controller;
 
 import com.gewu.application.sandbox.SandboxClient;
+import com.gewu.common.context.UserContext;
 import com.gewu.common.dto.sandbox.CreateSandboxCommand;
 import com.gewu.common.dto.sandbox.RenewExpireRequest;
 import com.gewu.common.dto.sandbox.SandboxDTO;
@@ -38,39 +39,66 @@ public class SandboxProxyController {
 
     private final SandboxClient sandboxClient;
 
+    /**
+     * 沙箱属主校验（UCSS H-2/SEC-AUTH-04）：仅创建者可操作；system/null 归属
+     * （服务间代管或存量数据）不属于任何个人，拒绝经个人代理端点操作。
+     */
+    private void requireSandboxOwner(String id) {
+        String userId = UserContext.currentUserId();
+        if (userId == null || userId.isBlank()) {
+            throw com.gewu.common.result.BusinessException.of(com.gewu.common.result.ResultCode.UNAUTHORIZED);
+        }
+        SandboxDTO sandbox = sandboxClient.getSandbox(id);
+        if (sandbox == null || sandbox.getCreatedBy() == null || sandbox.getCreatedBy().isBlank()
+                || "system".equals(sandbox.getCreatedBy()) || !userId.equals(sandbox.getCreatedBy())) {
+            throw com.gewu.common.result.BusinessException.of(com.gewu.common.result.ResultCode.FORBIDDEN);
+        }
+    }
+
     @GetMapping
     @Operation(summary = "获取沙箱列表")
     public Result<List<SandboxDTO>> listSandboxes() {
-        return Result.success(sandboxClient.listSandboxes());
+        String userId = UserContext.currentUserId();
+        // H-2：列表仅返回本人创建的沙箱（system/存量代管沙箱不经个人端点暴露）
+        List<SandboxDTO> mine = sandboxClient.listSandboxes().stream()
+                .filter(s -> s.getCreatedBy() != null && userId != null && userId.equals(s.getCreatedBy()))
+                .toList();
+        return Result.success(mine);
     }
 
     @PostMapping
     @Operation(summary = "创建沙箱")
     public Result<SandboxDTO> createSandbox(@RequestBody CreateSandboxCommand command) {
+        // H-2：归属注入——经代理创建的沙箱归属当前用户
+        command.setUserId(UserContext.currentUserId());
         return Result.success(sandboxClient.createSandbox(command));
     }
 
     @GetMapping("/{id}")
     @Operation(summary = "获取沙箱详情")
     public Result<SandboxDTO> getSandbox(@PathVariable String id) {
+        requireSandboxOwner(id);
         return Result.success(sandboxClient.getSandbox(id));
     }
 
     @PostMapping("/{id}/start")
     @Operation(summary = "启动沙箱")
     public Result<SandboxDTO> startSandbox(@PathVariable String id) {
+        requireSandboxOwner(id);
         return Result.success(sandboxClient.startSandbox(id));
     }
 
     @PostMapping("/{id}/stop")
     @Operation(summary = "停止沙箱")
     public Result<SandboxDTO> stopSandbox(@PathVariable String id) {
+        requireSandboxOwner(id);
         return Result.success(sandboxClient.stopSandbox(id));
     }
 
     @DeleteMapping("/{id}")
     @Operation(summary = "销毁沙箱")
     public Result<Void> deleteSandbox(@PathVariable String id) {
+        requireSandboxOwner(id);
         sandboxClient.deleteSandbox(id);
         return Result.success();
     }
@@ -82,6 +110,7 @@ public class SandboxProxyController {
     @PutMapping("/{id}/expire")
     @Operation(summary = "续期沙箱", description = "更新沙箱的过期时间")
     public Result<SandboxDTO> renewExpire(@PathVariable String id, @RequestBody Map<String, Object> body) {
+        requireSandboxOwner(id);
         RenewExpireRequest request = new RenewExpireRequest();
         if (body.get("expireSeconds") instanceof Number seconds) {
             request.setExpireAt(System.currentTimeMillis() + seconds.longValue() * 1000);
