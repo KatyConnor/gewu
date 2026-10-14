@@ -3,6 +3,7 @@ package com.gewu.application.orchestration;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gewu.agent.engine.orchestration.OrchestrationEngine;
 import com.gewu.domain.orchestration.OrchestrationExecutionEntity;
+import com.gewu.domain.orchestration.OrchestrationGraphEntity;
 import com.gewu.infrastructure.mapper.ApprovalRequestMapper;
 import com.gewu.infrastructure.mapper.OrchestrationExecutionMapper;
 import com.gewu.infrastructure.mapper.OrchestrationGraphMapper;
@@ -49,12 +50,18 @@ class OrchestrationGraphCascadeTest {
     @Test
     @DisplayName("删除编排图级联清理执行实例与审批请求")
     void deleteGraphCascades() {
+        // H-1 签名同步：deleteGraph 增加 userId 并前置属主校验（requireGraphOwner）
+        OrchestrationGraphEntity graph = new OrchestrationGraphEntity();
+        graph.setId("g-1");
+        graph.setCreatedBy("test-user");
+        when(graphMapper.selectById("g-1")).thenReturn(graph);
+
         OrchestrationExecutionEntity execution = new OrchestrationExecutionEntity();
         execution.setId("exec-1");
         execution.setGraphId("g-1");
         when(executionMapper.selectList(any())).thenReturn(List.of(execution));
 
-        service.deleteGraph("g-1");
+        service.deleteGraph("g-1", "test-user");
 
         verify(approvalMapper).delete(any());
         verify(executionMapper).delete(any());
