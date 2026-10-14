@@ -78,8 +78,10 @@ public class DataPermissionInnerInterceptor implements InnerInterceptor {
                 setBoundSql(boundSql, rewritten);
             }
         } catch (Exception e) {
-            log.warn("数据权限 SQL 改写失败，跳过: mappedStatementId={}, error={}",
+            // M-7 fail-closed（UCSS SEC-AUTH-03）：行级权限改写失败时拒绝查询，而非放行原 SQL
+            log.error("数据权限 SQL 改写失败，已阻断查询: mappedStatementId={}, error={}",
                     ms.getId(), e.getMessage());
+            throw new IllegalStateException("数据权限改写失败，查询被拒绝: " + ms.getId(), e);
         }
     }
 
@@ -173,8 +175,8 @@ public class DataPermissionInnerInterceptor implements InnerInterceptor {
             }
             return statement.toString();
         } catch (Exception e) {
-            log.warn("JSqlParser 解析失败: {}", e.getMessage());
-            return null;
+            // M-7 fail-closed：解析失败不返回 null（返回 null 会被上层当作“无需改写”而放行）
+            throw new IllegalStateException("数据权限 SQL 解析失败: " + e.getMessage(), e);
         }
     }
 

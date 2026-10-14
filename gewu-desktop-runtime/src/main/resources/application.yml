@@ -1,5 +1,7 @@
 server:
   port: 18081
+  # M-8（UCSS SEC-FILE-05）：本地引擎仅回环监听（EngineSecurityConfig 注释宣称的前提此前未落实）
+  address: 127.0.0.1
 
 spring:
   application:
@@ -9,7 +11,7 @@ spring:
       request-timeout: 300000
   datasource:
     # H2 文件库（ADR-006：纯 Java 零原生依赖；MODE=MySQL 对齐平台方言）
-    url: jdbc:h2:file:${gewu.desktop.data-dir:./data}/desktop-runtime;MODE=MySQL
+    url: jdbc:h2:file:${gewu.desktop.data-dir:./data}/gewu;MODE=MySQL
     driver-class-name: org.h2.Driver
     username: sa
     password: ""
@@ -22,6 +24,7 @@ gewu:
     history-limit: 50
     data-dir: ./data
     workspace-root: ./workspace
+    approval-timeout-minutes: 35
     permission-mode: WORKSPACE_WRITE
     # 开发态模型 Key（生产经 Electron stdin 注入 KeyVault，优先级更高）
     model-keys: {}
