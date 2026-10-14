@@ -21,7 +21,11 @@ class TerminalManager extends EventEmitter {
     const cwd = opts.cwd && fs.existsSync(opts.cwd) ? opts.cwd : undefined;
     const cols = opts.cols || 80;
     const rows = opts.rows || 24;
-    const shell = opts.shell || process.env.SHELL || 'bash';
+    // M-10（UCSS SEC-INJ-10）：shell 白名单——渲染层可控参数不得指向任意可执行文件
+    const ALLOWED_SHELLS = new Set(['bash', 'sh', 'zsh', 'fish', 'dash', 'ksh']);
+    let shell = opts.shell || process.env.SHELL || 'bash';
+    const shellBase = String(shell).split('/').pop();
+    if (!ALLOWED_SHELLS.has(shellBase)) shell = process.env.SHELL || 'bash';
 
     let proc = null;
     let backend = 'script';

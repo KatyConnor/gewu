@@ -27,9 +27,13 @@ class SecretVault {
 
   save(obj) {
     const json = JSON.stringify(obj);
-    const data = safeStorage.isEncryptionAvailable()
-      ? safeStorage.encryptString(json)
-      : Buffer.from(json, 'utf8');
+    const encrypted = safeStorage.isEncryptionAvailable();
+    if (!encrypted && !this._plaintextWarned) {
+      // L-2（UCSS SEC-CRY-04）：加密不可用降级明文时显式告警，提示配置系统钥匙环
+      console.warn('[secret-vault] safeStorage 不可用，密钥将以明文落盘（' + this.file + '）——请安装并解锁系统钥匙环');
+      this._plaintextWarned = true;
+    }
+    const data = encrypted ? safeStorage.encryptString(json) : Buffer.from(json, 'utf8');
     fs.writeFileSync(this.file, data);
   }
 
@@ -46,6 +50,35 @@ class SecretVault {
   /** 引擎引导用：{providerCode: apiKey} */
   getModelKeys() {
     return this.load().modelKeys || {};
+  }
+
+  /** 平台登录凭据（云模式「记住我」）：safeStorage 加密落盘,按平台地址隔离 */
+  saveWebCredential(siteKey, username, password) {
+    const all = this.load();
+    all.webCredentials = all.webCredentials || {};
+    const enc = safeStorage.isEncryptionAvailable();
+    all.webCredentials[siteKey] = {
+      username,
+      password: enc ? safeStorage.encryptString(password).toString('base64') : password,
+      encrypted: enc,
+      savedAt: Date.now(),
+    };
+    this.save(all);
+  }
+
+  /** 读取平台登录凭据;无记录返回 null */
+  getWebCredential(siteKey) {
+    const all = this.load();
+    const c = all.webCredentials?.[siteKey];
+    if (!c) return null;
+    try {
+      return {
+        username: c.username,
+        password: c.encrypted ? safeStorage.decryptString(Buffer.from(c.password, 'base64')) : c.password,
+      };
+    } catch {
+      return null;
+    }
   }
 
   /** 设置页列表（脱敏：不含明文） */
