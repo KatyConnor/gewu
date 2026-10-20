@@ -75,6 +75,10 @@ public class DebateModeHandler implements ModeHandler {
                                 .sessionId(ctx.getSessionId())
                                 .userId(ctx.getUserId())
                                 .message(topic)
+                                // 入口调度指令继承（设计文档 56 §12.6）
+                                .entryDirectives(ctx.getEntryDirectives())
+                                .entryDirectivesSource(ctx.getEntryDirectivesSource())
+                                .entryDirectivesMeta(ctx.getEntryDirectivesMeta())
                                 .build();
                         return executor.executeStream(task)
                                 .doOnNext(event -> {
@@ -141,6 +145,10 @@ public class DebateModeHandler implements ModeHandler {
                 .sessionId(ctx.getSessionId())
                 .userId(ctx.getUserId())
                 .message("以下是多个候选方案，请综合评估选出最优方案并说明理由：\n\n" + joined)
+                // 入口调度指令继承（设计文档 56 §12.6）
+                .entryDirectives(ctx.getEntryDirectives())
+                .entryDirectivesSource(ctx.getEntryDirectivesSource())
+                .entryDirectivesMeta(ctx.getEntryDirectivesMeta())
                 .build();
 
         var verdict = new StringBuilder();

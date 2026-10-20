@@ -100,6 +100,10 @@ public class SupervisorModeHandler implements ModeHandler {
                 .userId(ctx.getUserId())
                 .message(accumulated.length() > 0 ? accumulated.toString()
                         : (String) ctx.getVariable("input"))
+                // 入口调度指令继承（设计文档 56 §12.6）
+                .entryDirectives(ctx.getEntryDirectives())
+                .entryDirectivesSource(ctx.getEntryDirectivesSource())
+                .entryDirectivesMeta(ctx.getEntryDirectivesMeta())
                 .build();
 
         var nodeOutput = new StringBuilder();

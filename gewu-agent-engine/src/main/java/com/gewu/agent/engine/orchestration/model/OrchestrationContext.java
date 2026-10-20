@@ -33,6 +33,13 @@ public class OrchestrationContext {
     private String tenantId;
     /** 会话标识 */
     private String sessionId;
+    /** 入口调度指令（AGENTS.md/GEWU.md 裁决产物，编排发起时由应用层解析填充；
+     *  各模式处理器构建子任务时继承，子任务不重复解析——设计文档 56 §12.6） */
+    private String entryDirectives;
+    /** 入口调度指令来源标签（如 project:AGENTS.md@1.3.0） */
+    private String entryDirectivesSource;
+    /** 入口调度指令元数据 JSON（审计与前端展示用） */
+    private String entryDirectivesMeta;
     /** 图变量初始值（运行时读写统一经 {@link #putVariable}/{@link #getVariable} 版本化路径） */
     @Builder.Default
     private Map<String, Object> variables = new HashMap<>();

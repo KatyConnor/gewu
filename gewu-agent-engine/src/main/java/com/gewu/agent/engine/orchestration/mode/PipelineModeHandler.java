@@ -347,6 +347,10 @@ public class PipelineModeHandler implements ModeHandler {
                 .agentId(node.getRefId())
                 .sessionId(walk.ctx.getSessionId())
                 .userId(walk.ctx.getUserId())
+                // 入口调度指令继承（设计文档 56 §12.6）
+                .entryDirectives(walk.ctx.getEntryDirectives())
+                .entryDirectivesSource(walk.ctx.getEntryDirectivesSource())
+                .entryDirectivesMeta(walk.ctx.getEntryDirectivesMeta())
                 .message(message);
         // 模型回退：节点未绑定 Agent（refId 为空）时，允许图变量 modelProvider/modelName 兜底解析，
         // 使 GoalPlanner 动态生成的图无需预置 Agent 配置即可执行

@@ -56,7 +56,7 @@ class OrchestrationNodeExecutionPersistTest {
     @BeforeEach
     void setUp() {
         service = new OrchestrationService(orchestrationEngine, graphMapper, executionMapper,
-                approvalMapper, new ObjectMapper(), fourPhasePipeline, orchestrationTracer,
+                approvalMapper, new ObjectMapper(), fourPhasePipeline, null, orchestrationTracer,
                 new GraphDefinitionValidator(new ObjectMapper(), graphMapper), nodeExecutionMapper, versionMapper, scheduleMapper, webhookMapper);
         when(nodeExecutionMapper.insert(any())).thenAnswer(inv -> {
             // 模拟持久化：记录 insert 时刻的状态快照

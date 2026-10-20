@@ -57,6 +57,23 @@ public class OrchestrationService {
     private final ApprovalRequestMapper approvalMapper;
     private final ObjectMapper objectMapper;
     private final com.gewu.application.governance.FourPhasePipeline fourPhasePipeline;
+    private final com.gewu.application.entry.AgentEntryFileService entryFileService;
+
+    /** 编排发起时解析入口调度指令并填充 ctx（各模式处理器构建子任务时继承——设计文档 56 §12.6）。 */
+    private OrchestrationContext.OrchestrationContextBuilder applyEntryDirectives(
+            OrchestrationContext.OrchestrationContextBuilder builder, String userId, String sessionId) {
+        try {
+            var view = entryFileService.resolveForSession(userId, sessionId);
+            if (view != null && view.present()) {
+                builder.entryDirectives(view.content())
+                        .entryDirectivesSource(view.source())
+                        .entryDirectivesMeta(view.metaJson());
+            }
+        } catch (Exception ignored) {
+            // 解析失败降级为无入口指令，不阻塞编排
+        }
+        return builder;
+    }
     private final com.gewu.infrastructure.trace.OrchestrationTracer orchestrationTracer;
     private final GraphDefinitionValidator graphValidator;
     private final OrchestrationNodeExecutionMapper nodeExecutionMapper;
@@ -343,11 +360,11 @@ public class OrchestrationService {
         ExecutableDefinition def = loadExecutableDefinition(graphEntity);
         OrchestrationGraph graph = def.graph();
         String executionId = Ulid.next();
-        OrchestrationContext ctx = OrchestrationContext.builder()
+        OrchestrationContext ctx = applyEntryDirectives(OrchestrationContext.builder()
                 .executionId(executionId)
                 .userId(userId)
                 .sessionId(sessionId)
-                .variables(buildContextVariables(graph, input))
+                .variables(buildContextVariables(graph, input)), userId, sessionId)
                 .build();
 
         // 创建执行记录
@@ -399,11 +416,11 @@ public class OrchestrationService {
         ExecutableDefinition def = loadExecutableDefinition(graphEntity);
         OrchestrationGraph graph = def.graph();
         String executionId = Ulid.next();
-        OrchestrationContext ctx = OrchestrationContext.builder()
+        OrchestrationContext ctx = applyEntryDirectives(OrchestrationContext.builder()
                 .executionId(executionId)
                 .userId(userId)
                 .sessionId(sessionId)
-                .variables(buildContextVariables(graph, input))
+                .variables(buildContextVariables(graph, input)), userId, sessionId)
                 .build();
 
         // 创建执行记录

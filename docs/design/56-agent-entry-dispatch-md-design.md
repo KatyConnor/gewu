@@ -250,7 +250,8 @@ EntryResolution resolve(String projectDirectory /*可空*/):
 | **P0 引擎底座** | `EntryFileSelector` 纯函数 + semver 比较（gewu-common，表驱动单测）；`AgentTask.entryDirectives/entryDirectivesMeta` 字段；`SystemPromptComposer` 追加段；`ToolContext.entryDirectives` 透传（子代理继承）；`LongTaskService` 长任务段继承 | gewu-common、gewu-agent-engine | 1~1.5d |
 | **P0 桌面端** | `EntryFileResolver`；DesktopChatController 注入；ProjectContextTool 复用 resolver；设置面板编辑器；contract test 扩展 | gewu-desktop-runtime、gewu-desktop | 1d |
 | **P1 平台端** | `AgentEntryFileService`（MinIO 全局 + 沙箱项目级 + 缓存 + 种子同步（对账自愈））；三个 REST API（PUT 复用 WorkspaceService 保存路径）；设置页编辑器 + 项目页签 + 模板初始化 + 升级通知（§6.4）；集成测试 | gewu-application、gewu-interface、gewu-web | 2~3d |
-| **P2 增强**（按需立项） | 子目录嵌套发现；merge 叠加模式（`layering: select\|merge` 配置）；`@path` import；密钥扫描；Wenshi 旁路注入；`/memory` 式会话内刷新 | 多模块 | 另评 |
+| **P2 增强**（批次一已实施·2026-10-20） | ✅ 编排路径接入（OrchestrationContext 继承载体 + 6 处 builder + OrchestrationService 发起解析；VeloflowAiBridge/AutonomousExecutor 为系统合成身份无用户绑定，按用户绑定语义 N/A）；✅ 密钥泄漏扫描（SecretScanUtil 特征集，平台保存/初始化 + 桌面保存入口命中即拒绝，§12 风险7 豁免期清偿）；✅ LongTaskService 长任务继承（随 P0 落地） | gewu-common、gewu-agent-engine、gewu-application、gewu-desktop-runtime | 1d |
+| **P2 增强**（后续批次） | 子目录嵌套发现；merge 叠加模式（`layering: select\|merge` 配置）；`@path` import；`/memory` 式会话内刷新；桌面端升级通知；Wenshi 旁路注入 | 多模块 | 另评 |
 
 ## 11. 测试与验收
 
@@ -270,5 +271,5 @@ EntryResolution resolve(String projectDirectory /*可空*/):
 | 4 | **项目级文件污染 Git 状态**：UI 初始化写入的是未跟踪文件 | 提示提交入库；`inRepo` 标记区分 |
 | 5 | **与既有 `project.context` 工具的关系**（桌面端） | 统一 Resolver 后工具降级为"补充装载 rules/skills"，入口文件以自动注入为准 |
 | 6 | **编排路径未覆盖（评审 F-203）**：VeloflowAiBridge:75、SupervisorModeHandler:97、SwarmModeHandler:107、DebateModeHandler:73/139、PipelineModeHandler:346、PlanExecuteRuntime:106 共 6 类 7 处 AgentTask 构建点，P0/P1 不注入——这些路径上入口指令与审计静默缺失；AgentRoleSpec.systemPromptTemplate 亦预留未填、Wenshi 旁路为硬编码提示词 | 继承载体（ToolContext.entryDirectives）在 P0 就位，编排路径接入复用同一字段；编排角色系统提示词模板填充时一并启用 |
-| 7 | **P1 密钥扫描缺位豁免期（评审 F-208）**：PUT/初始化 API 于 P1 上线，密钥特征扫描 P2 才有——期间密钥可经设置页进入 MinIO/Git | 豁免期明示登记；P1 若平台已有可复用的内容扫描能力则提前接入，否则 P2 清偿 |
+| 7 | **P1 密钥扫描缺位豁免期**：~~PUT/初始化 API 于 P1 上线，密钥特征扫描 P2 才有~~ **已清偿（P2 批次一）**：SecretScanUtil 特征扫描接入平台保存/初始化与桌面保存入口，命中即拒绝落库 | 已清偿 |
 | 8 | **多智能体/编排提示词改造**（Wenshi 推理引擎/多智能体协调器硬编码） | 另立专项，不随本设计分期 |

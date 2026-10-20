@@ -90,6 +90,24 @@ public class AgentEntryFileService {
     // ==================== 引擎注入 ====================
 
     /**
+     * 会话级入口指令解析（引擎注入与编排发起共用的公开入口）。
+     * 任何失败降级为返回 none 视图，不阻塞会话。
+     */
+    public EntryView resolveForSession(String userId, String sessionId) {
+        try {
+            if (userId == null) {
+                return noneView();
+            }
+            Session session = sessionId != null ? sessionMapper.selectById(sessionId) : null;
+            String directory = session != null ? session.getDirectory() : null;
+            return resolve(userId, directory);
+        } catch (Exception e) {
+            log.info("[entry] 会话入口指令解析降级: sessionId={}, err={}", sessionId, e.getMessage());
+            return noneView();
+        }
+    }
+
+    /**
      * 会话任务入口指令解析与填充（AgentExecutionEngine.buildTask / LongTaskService 段执行调用）。
      * 任何失败降级为不注入，不阻塞会话。
      */
@@ -98,9 +116,7 @@ public class AgentEntryFileService {
             if (task == null || task.getUserId() == null) {
                 return;
             }
-            Session session = task.getSessionId() != null ? sessionMapper.selectById(task.getSessionId()) : null;
-            String directory = session != null ? session.getDirectory() : null;
-            EntryView view = resolve(task.getUserId(), directory);
+            EntryView view = resolveForSession(task.getUserId(), task.getSessionId());
             if (view.present()) {
                 task.setEntryDirectives(view.content());
                 task.setEntryDirectivesSource(view.source());
@@ -188,6 +204,7 @@ public class AgentEntryFileService {
     public void saveGlobalFile(String userId, String name, String content) {
         requireAllowed(name);
         checkContentSize(content);
+        checkSecretLeak(content);
         Workspace ws = workspaceByUser(userId);
         if (ws == null) {
             throw new IllegalStateException("用户工作空间不存在，请先初始化");
@@ -266,6 +283,7 @@ public class AgentEntryFileService {
     public void initProjectFile(String projectId, String name, String content) {
         requireAllowed(name);
         checkContentSize(content);
+        checkSecretLeak(content);
         Project project = requireProjectAccess(projectId);
         Workspace ws = workspaceByUser(project.getOwnerId());
         if (ws == null || ws.getDevSandboxId() == null || project.getRepoLocalPath() == null) {
@@ -411,6 +429,15 @@ public class AgentEntryFileService {
         }
     }
 
+    /** 密钥泄漏扫描（§8.5 / P2 豁免期清偿）：命中即拒绝落库。 */
+    private static void checkSecretLeak(String content) {
+        var hit = com.gewu.common.security.SecretScanUtil.findSecret(content);
+        if (hit.isPresent()) {
+            throw new IllegalArgumentException(
+                    "内容疑似包含" + hit.get() + "，已拒绝保存——请移除凭据后重试（凭据应存放于密钥管理而非调度文件）");
+        }
+    }
+
     private String minioGet(String objectKey) {
         try {
             return storageService.getContent(objectKey);
@@ -431,6 +458,11 @@ public class AgentEntryFileService {
     }
 
     /** 按字节上限截断（不切半个多字节字符）。 */
+    /** none 视图工厂（解析降级/无入口文件的统一返回）。 */
+    private static EntryView noneView() {
+        return new EntryView(null, "none", "{\"source\":\"none\",\"reason\":\"no-entry\"}", null);
+    }
+
     private static String truncateToByteLimit(String content, int maxBytes) {
         byte[] bytes = content.getBytes(StandardCharsets.UTF_8);
         if (bytes.length <= maxBytes) {

@@ -77,6 +77,12 @@ public class EntryFileController {
         if (req == null || req.content() == null) {
             throw new IllegalArgumentException("content 不能为空");
         }
+        // 密钥泄漏扫描（§8.5 / P2 豁免期清偿）：命中即拒绝落盘
+        var hit = com.gewu.common.security.SecretScanUtil.findSecret(req.content());
+        if (hit.isPresent()) {
+            throw new IllegalArgumentException(
+                    "内容疑似包含" + hit.get() + "，已拒绝保存——请移除凭据后重试");
+        }
         Path file = fileFor(req.scope(), req.name(), req.project());
         try {
             if (file.getParent() != null) {

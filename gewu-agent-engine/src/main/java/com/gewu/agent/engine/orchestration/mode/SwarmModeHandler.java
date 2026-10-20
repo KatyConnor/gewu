@@ -109,6 +109,10 @@ public class SwarmModeHandler implements ModeHandler {
                 .sessionId(ctx.getSessionId())
                 .userId(ctx.getUserId())
                 .message(msg)
+                // 入口调度指令继承（设计文档 56 §12.6）
+                .entryDirectives(ctx.getEntryDirectives())
+                .entryDirectivesSource(ctx.getEntryDirectivesSource())
+                .entryDirectivesMeta(ctx.getEntryDirectivesMeta())
                 .build();
 
         final int currentDepth = depth;

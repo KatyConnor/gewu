@@ -108,6 +108,10 @@ public class PlanExecuteRuntime implements AgentRuntime {
                 .sessionId(task.getSessionId())
                 .userId(task.getUserId())
                 .message(message)
+                // 入口调度指令继承父任务（设计文档 56 §12.6）
+                .entryDirectives(task.getEntryDirectives())
+                .entryDirectivesSource(task.getEntryDirectivesSource())
+                .entryDirectivesMeta(task.getEntryDirectivesMeta())
                 .build();
 
         StringBuilder accumulated = new StringBuilder();

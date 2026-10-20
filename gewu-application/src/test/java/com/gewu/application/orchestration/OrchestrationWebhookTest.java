@@ -51,7 +51,7 @@ class OrchestrationWebhookTest {
     @BeforeEach
     void setUp() {
         service = new OrchestrationService(orchestrationEngine, graphMapper, executionMapper,
-                approvalMapper, new ObjectMapper(), fourPhasePipeline, orchestrationTracer,
+                approvalMapper, new ObjectMapper(), fourPhasePipeline, null, orchestrationTracer,
                 new GraphDefinitionValidator(new ObjectMapper(), graphMapper), nodeExecutionMapper,
                 versionMapper, scheduleMapper, webhookMapper);
     }
