@@ -52,6 +52,12 @@ public class ToolContext {
     private Long quotaTokenBudget;
     /** 子代理派生上下文：父任务配额熔断开关（继承传递） */
     private Boolean quotaBlockEnabled;
+    /** 子代理派生上下文：父任务入口调度指令（AGENTS.md/GEWU.md 裁决产物，子任务继承不重复解析） */
+    private String entryDirectives;
+    /** 子代理派生上下文：父任务入口调度指令来源标签 */
+    private String entryDirectivesSource;
+    /** 子代理派生上下文：父任务入口调度指令元数据 JSON */
+    private String entryDirectivesMeta;
 
     /**
      * 任务计划状态（S9 F5）：跨工具轮次持有最新任务清单，

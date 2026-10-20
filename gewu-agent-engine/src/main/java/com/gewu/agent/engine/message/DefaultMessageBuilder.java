@@ -22,9 +22,16 @@ public class DefaultMessageBuilder implements MessageBuilder {
     @Override
     public List<Message> buildMessages(AgentSpec agent, String userMessage, List<Message> history,
                                        String agentMode, String thinkingStyle) {
+        return buildMessages(agent, userMessage, history, agentMode, thinkingStyle, null, null);
+    }
+
+    @Override
+    public List<Message> buildMessages(AgentSpec agent, String userMessage, List<Message> history,
+                                       String agentMode, String thinkingStyle,
+                                       String entryDirectives, String entrySource) {
         List<Message> messages = new ArrayList<>();
 
-        String systemPrompt = composer.compose(agent, agentMode, thinkingStyle);
+        String systemPrompt = composer.compose(agent, agentMode, thinkingStyle, entryDirectives, entrySource);
         if (systemPrompt != null && !systemPrompt.isEmpty()) {
             messages.add(Message.builder().role("system").content(systemPrompt).build());
         }

@@ -14,6 +14,7 @@ import { chatStream } from '@/lib/chat';
 import { listActiveModels, type ModelConfig } from '@/lib/model-config';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import CustomSelect from '@/components/ui/Select';
+import ProjectEntryFilePanel from './ProjectEntryFilePanel';
 import AIProcessTimeline from './AIProcessTimeline';
 import { createProcessStreamHandler, type ProcessSnapshot, type ProcessItem } from '@/lib/agentProcess';
 
@@ -432,6 +433,9 @@ export default function ProjectDetailPage({ projectId, onBack }: { projectId: st
             </div>
           ))}
         </div>
+
+        {/* 调度文件（AGENTS.md/GEWU.md，设计文档 56 §6.2 项目页签 + §6.4 升级通知） */}
+        <ProjectEntryFilePanel projectId={projectId} />
       </div>
 
       {/* 中间：阶段详情 */}

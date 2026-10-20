@@ -25,6 +25,13 @@ public class AgentTask {
     private String agentId;
     /** 会话标识 */
     private String sessionId;
+    /**
+     * 工作空间绑定会话标识（可选）。文件工具的绑定与历史加载解耦：
+     * 非空时文件工具以该会话的 directory/sandbox 为工作空间（写入归属同会话），
+     * 历史加载仍只看 {@link #sessionId}。典型用途：spawn 子代理共享父会话
+     * 工作空间但不共享对话历史。为空时回退 {@link #sessionId}（兼容既有行为）。
+     */
+    private String workspaceSessionId;
     /** 操作用户 */
     private String userId;
     /** 用户消息 */
@@ -54,4 +61,14 @@ public class AgentTask {
     /** 子代理嵌套深度（0=顶层任务）：spawn_subagents 派生的子任务=父深度+1，达到上限不再注册派生工具 */
     @Builder.Default
     private int agentDepth = 0;
+    /** 显式工作区根（桌面本地形态：会话绑定目录，随任务透传给子代理——工作区继承与历史共享解耦；
+     *  null=引擎侧按会话 directory/全局默认解析，平台沙箱路由不受影响） */
+    private String workspaceRoot;
+    /** 入口调度指令内容（AGENTS.md/GEWU.md 跨层裁决产物，由运行时适配层解析填充；null=无，不注入）。
+     *  引擎不感知文件系统：发现/读取/裁决一律在运行时完成（设计文档 56 §5.3） */
+    private String entryDirectives;
+    /** 入口调度指令来源标签（system prompt 展示用，如 project:AGENTS.md@1.3.0 / user-global:GEWU.md / none） */
+    private String entryDirectivesSource;
+    /** 入口调度指令元数据 JSON（source/version/reason/sha256/truncated——审计与前端展示用，引擎不解析） */
+    private String entryDirectivesMeta;
 }

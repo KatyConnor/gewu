@@ -43,6 +43,8 @@ public class DesktopChatController {
     private final DesktopModelCatalog modelCatalog;
     private final ApprovalBroker approvalBroker;
     private final com.gewu.desktop.adapter.LocalFileService fileChangeService;
+    private final ActiveStreamRegistry activeStreams;
+    private final com.gewu.desktop.entry.EntryFileResolver entryFileResolver;
 
     public DesktopChatController(AgentEngine agentEngine, ObjectMapper objectMapper,
                                  DesktopSessionStore sessionStore,
@@ -50,7 +52,9 @@ public class DesktopChatController {
                                  com.gewu.agent.engine.llm.LlmProvider llmProvider,
                                  DesktopModelCatalog modelCatalog,
                                  ApprovalBroker approvalBroker,
-                                 com.gewu.desktop.adapter.LocalFileService fileChangeService) {
+                                 com.gewu.desktop.adapter.LocalFileService fileChangeService,
+                     ActiveStreamRegistry activeStreams,
+                     com.gewu.desktop.entry.EntryFileResolver entryFileResolver) {
         this.agentEngine = agentEngine;
         this.objectMapper = objectMapper;
         this.sessionStore = sessionStore;
@@ -59,6 +63,8 @@ public class DesktopChatController {
         this.modelCatalog = modelCatalog;
         this.approvalBroker = approvalBroker;
         this.fileChangeService = fileChangeService;
+        this.activeStreams = activeStreams;
+        this.entryFileResolver = entryFileResolver;
     }
 
     @GetMapping("/engine/health")
@@ -150,14 +156,19 @@ public class DesktopChatController {
                     .sessionId(sessionId)
                     .userId("local")
                     .message(request.message())
+                    // 显式工作区根:随任务透传(含 spawn_subagents 子代理),文件工具域指向会话绑定目录
+                    .workspaceRoot(sessionStore.getDirectory(sessionId))
                     .build();
             task.setModelProvider(pm[0]);
             task.setModelName(pm[1]);
+            applyEntryDirectives(task);
 
             StringBuilder content = new StringBuilder();
             final java.util.concurrent.atomic.AtomicReference<Object> doneStats =
                     new java.util.concurrent.atomic.AtomicReference<>();
             approvalBroker.registerEmitter(sessionId, emitter);
+            // 活动流登记:执行中转向(用户插话)的判定依据,引擎流终止时注销(与前端连接无关)
+            activeStreams.register(sessionId);
             agentEngine.executeStream(task).subscribe(
                     event -> {
                         try {
@@ -183,6 +194,7 @@ public class DesktopChatController {
                             // 忽略
                         }
                         emitter.complete();
+                        activeStreams.unregister(sessionId);
                     },
                     () -> {
                         try {
@@ -202,6 +214,7 @@ public class DesktopChatController {
                             approvalBroker.unregisterEmitter(sessionId);
                         }
                         emitter.complete();
+                        activeStreams.unregister(sessionId);
                     });
         } catch (Exception e) {
             // 同步段异常（会话/Agent 解析失败）：以 error 事件兜底，契约与平台一致
@@ -236,20 +249,29 @@ public class DesktopChatController {
                 .sessionId(sessionId)
                 .userId("local")
                 .message(request.message())
+                .workspaceRoot(sessionStore.getDirectory(sessionId))
                 .build();
         String[] pmSync = resolveModel(agent, request.model());
         task.setModelProvider(pmSync[0]);
         task.setModelName(pmSync[1]);
+        applyEntryDirectives(task);
 
         StringBuilder content = new StringBuilder();
-        com.gewu.agent.engine.llm.model.LlmResponse resp =
-                agentEngine.execute(task);
-        if (resp.getContent() != null) {
-            content.append(resp.getContent());
-        }
-        String finishReason = resp.getFinishReason();
-        if (content.length() > 0) {
-            sessionStore.appendMessage(sessionId, "assistant", content.toString(), null, null);
+        String finishReason = null;
+        // 同步路径同样登记活动流:引擎同步执行同样按轮次边界消费转向队列
+        activeStreams.register(sessionId);
+        try {
+            com.gewu.agent.engine.llm.model.LlmResponse resp =
+                    agentEngine.execute(task);
+            if (resp.getContent() != null) {
+                content.append(resp.getContent());
+            }
+            finishReason = resp.getFinishReason();
+            if (content.length() > 0) {
+                sessionStore.appendMessage(sessionId, "assistant", content.toString(), null, null);
+            }
+        } finally {
+            activeStreams.unregister(sessionId);
         }
         Map<String, Object> result = new LinkedHashMap<>();
         result.put("messageId", sessionId + ":last");
@@ -332,5 +354,22 @@ public class DesktopChatController {
     /** 供 SessionController 使用：按 ID 取 Agent（校验存在性） */
     AgentSpec requireAgent(@RequestParam(required = false) String agentId) {
         return resolveAgent(agentId);
+    }
+
+    /**
+     * 入口调度指令注入（设计文档 56 §5.3）：~/.gewu 全局层 + 会话绑定目录项目层，
+     * 跨层裁决产物填充任务字段；无入口文件时保持 null（引擎不注入，行为不变）。
+     */
+    private void applyEntryDirectives(AgentTask task) {
+        try {
+            var resolution = entryFileResolver.resolve(task.getWorkspaceRoot());
+            if (resolution.present()) {
+                task.setEntryDirectives(resolution.content());
+                task.setEntryDirectivesSource(resolution.source());
+                task.setEntryDirectivesMeta(resolution.metaJson());
+            }
+        } catch (Exception e) {
+            // 解析失败降级为无入口指令，不阻塞会话
+        }
     }
 }

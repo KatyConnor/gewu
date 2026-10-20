@@ -42,6 +42,7 @@ public class AgentExecutionEngine {
     private final AgentExecutionService agentExecutionService;
     private final com.gewu.application.ai.CostAccountingService costAccountingService;
     private final com.gewu.application.quota.UserQuotaService userQuotaService;
+    private final com.gewu.application.entry.AgentEntryFileService entryFileService;
 
     /**
      * 同步执行：委托 ReactAgentExecutor 全链路（安全/记忆/预算/路由），映射回 legacy 响应结构。
@@ -229,6 +230,8 @@ public class AgentExecutionEngine {
                 .modelRouteEnabled(request.getModelRouteEnabled())
                 .build();
         applyUserQuota(task);
+        // 入口调度指令注入（AGENTS.md/GEWU.md 跨层裁决；失败降级为不注入，设计文档 56 §5.3）
+        entryFileService.applyToTask(task);
         return task;
     }
 

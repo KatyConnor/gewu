@@ -7,7 +7,7 @@ import { ThemeType } from '@/types';
 import { useToast } from '@/components/ui/Toast';
 import CustomSelect from '@/components/ui/Select';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
-import { Plus, X, Edit3, Eye } from 'lucide-react';
+import { Plus, X, Edit3, Eye, Check } from 'lucide-react';
 import {
   listProviders, createProvider, updateProvider, toggleProviderStatus, deleteProvider,
   listModels, createModel, updateModel, toggleModelStatus, deleteModel,
@@ -17,12 +17,16 @@ import {
   getMyPreferences, updateMyPreferences, getMyQuota,
   type UserPreference, type QuotaPreflightResult,
 } from '@/lib/quota';
+import {
+  readGlobalEntryFile, saveGlobalEntryFile, resolveGlobalEntry,
+  type EntryFileName, type EntryView,
+} from '@/lib/entry-file';
 
 const themes: { id: ThemeType; label: string; color: string }[] = [
-  { id: 'ink', label: '墨韵', color: '#00b894' },
-  { id: 'deepsea', label: '深海', color: '#0ea5e9' },
-  { id: 'jade', label: '玉蕴', color: '#0d9488' },
-  { id: 'celadon', label: '青瓷', color: '#2ea087' },
+  { id: 'ink', label: '墨韵·深色东方', color: '#00b894' },
+  { id: 'deepsea', label: '深海·Logo原色', color: '#0ea5e9' },
+  { id: 'jade', label: '玉蕴·浅色专业', color: '#0d9488' },
+  { id: 'celadon', label: '青瓷·科技融合', color: '#2ea087' },
 ];
 
 export default function SettingsPage() {
@@ -46,6 +50,12 @@ export default function SettingsPage() {
   // 用量偏好（配额提醒阈值/熔断开关）与套餐余量
   const [preference, setPreference] = useState<UserPreference | null>(null);
   const [quotaStatus, setQuotaStatus] = useState<QuotaPreflightResult | null>(null);
+  // 调度入口文件（AGENTS.md/GEWU.md，设计文档 56 §6.2）
+  const [entryName, setEntryName] = useState<EntryFileName>('GEWU.md');
+  const [entryContent, setEntryContent] = useState('');
+  const [entryExists, setEntryExists] = useState(false);
+  const [entryView, setEntryView] = useState<EntryView | null>(null);
+  const [entryLoading, setEntryLoading] = useState(false);
 
   const loadData = useCallback(async () => {
     try {
@@ -68,6 +78,33 @@ export default function SettingsPage() {
 
   useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => { loadPreference(); }, [loadPreference]);
+
+  const loadEntry = useCallback(async (name: EntryFileName) => {
+    setEntryLoading(true);
+    try {
+      const [file, view] = await Promise.all([
+        readGlobalEntryFile(name),
+        resolveGlobalEntry().catch(() => null),
+      ]);
+      setEntryExists(file.exists);
+      setEntryContent(file.content);
+      setEntryView(view);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '调度入口文件读取失败', 'error');
+    } finally {
+      setEntryLoading(false);
+    }
+  }, [toast]);
+
+  const handleSaveEntry = async () => {
+    try {
+      await saveGlobalEntryFile(entryName, entryContent);
+      toast('调度入口文件已保存（即时生效于下一个会话）', 'success');
+      await loadEntry(entryName);
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '保存失败', 'error');
+    }
+  };
 
   const num = (v: string): number | undefined => (v.trim() === '' ? undefined : Number(v));
 
@@ -254,6 +291,7 @@ export default function SettingsPage() {
           { id: 'notification', label: '通知' },
           { id: 'model', label: '模型' },
           { id: 'usage-pref', label: '用量与配额' },
+          { id: 'entry', label: '调度入口' },
         ].map(tab => (
           <button key={tab.id} onClick={() => setActiveTab(tab.id)}
             className={`px-4 py-2 text-sm rounded-md font-medium transition-all ${activeTab === tab.id ? 'bg-tech-500/15 text-tech-400' : 'text-ink-400 hover:text-ink-200'}`}>
@@ -300,7 +338,7 @@ export default function SettingsPage() {
                 <div><p className="text-sm text-ink-100">动画效果</p><p className="text-xs text-ink-500">启用页面过渡动画</p></div>
                 <div className="w-10 h-6 bg-tech-500/30 rounded-full relative cursor-pointer"><div className="w-4 h-4 bg-tech-400 rounded-full absolute top-1 right-1" /></div>
               </div>
-              <div className="border-t border-glass-border pt-4"><label className="block text-xs text-ink-400 mb-2">配色方案</label><div className="flex gap-2 flex-wrap">{themes.map(t => <button key={t.id} onClick={() => { dispatch(setTheme(t.id)); toast('主题已切换', 'success'); }} className={`w-8 h-8 rounded-full ring-2 transition-all ${currentTheme === t.id ? 'ring-offset-2 ring-offset-ink-900 ring-white/50' : 'ring-transparent hover:ring-white/20'}`} style={{ background: t.color }} title={t.label} />)}</div></div>
+              <div className="border-t border-glass-border pt-4"><label className="block text-xs text-ink-400 mb-2">主题配色</label><div className="grid grid-cols-2 gap-2">{themes.map(t => <button key={t.id} onClick={() => { dispatch(setTheme(t.id)); toast('主题已切换', 'success'); }} className={`flex items-center gap-2.5 p-2.5 rounded-lg border transition-all ${currentTheme === t.id ? 'border-tech-500/30 bg-tech-500/10' : 'border-transparent hover:border-tech-500/15'}`}><div className="w-4 h-4 rounded-full flex-shrink-0 border border-white/10" style={{ background: t.color }} /><span className={`text-xs ${currentTheme === t.id ? 'text-ink-100' : 'text-ink-300'}`}>{t.label}</span>{currentTheme === t.id && <Check className="w-3.5 h-3.5 text-tech-400 ml-auto" />}</button>)}</div></div>
               <div className="border-t border-glass-border pt-4"><label className="block text-xs text-ink-400 mb-2">主题</label><div className="grid grid-cols-3 gap-2">
                 <button className="flex items-center gap-2 p-2.5 rounded-lg border border-tech-500/30 bg-tech-500/10"><div className="w-4 h-4 rounded-full bg-[#081211] border border-tech-500/30" /><span className="text-xs text-ink-100">深色</span></button>
                 <button className="flex items-center gap-2 p-2.5 rounded-lg border border-transparent hover:border-tech-500/15"><div className="w-4 h-4 rounded-full bg-[#f8fafc] border border-ink-600/20" /><span className="text-xs text-ink-300">浅色</span></button>
@@ -445,6 +483,58 @@ export default function SettingsPage() {
               ) : (
                 <p className="text-xs text-ink-500">当前未绑定配额套餐，不限制用量（仍受模型上下文窗口约束）。如需配额请联系管理员。</p>
               )}
+            </CardContent>
+          </Card>
+        </div>
+      )}
+
+      {/* 调度入口（AGENTS.md/GEWU.md，设计文档 56 §6.2） */}
+      {activeTab === 'entry' && (
+        <div className="space-y-6">
+          <Card>
+            <CardHeader>
+              <CardTitle>全局调度入口文件</CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-ink-400 text-xs mb-3">
+                会话启动时自动注入智能体 system prompt。每层按 GEWU.md → AGENTS.md 顺序发现；
+                默认项目级优先（导入外部 AGENTS.md 零修改生效），全局与项目两侧都声明 version 时版本高者生效。
+              </p>
+              <div className="flex items-center gap-2 mb-3">
+                {(['GEWU.md', 'AGENTS.md'] as EntryFileName[]).map(n => (
+                  <button key={n} onClick={() => { setEntryName(n); loadEntry(n); }}
+                    className={`px-3 py-1.5 text-xs rounded-md border transition-all ${entryName === n
+                      ? 'border-tech-500/40 bg-tech-500/10 text-tech-300'
+                      : 'border-tech-500/10 text-ink-400 hover:text-ink-200'}`}>
+                    {n}
+                  </button>
+                ))}
+                {entryView?.present && (
+                  <span className="text-[11px] text-ink-500">当前生效：{entryView.source}</span>
+                )}
+              </div>
+              <textarea
+                value={entryContent}
+                onChange={e => setEntryContent(e.target.value)}
+                placeholder={'---\nversion: 1.0.0\n---\n\n# 全局调度入口\n\n## 协作规范\n- …'}
+                rows={16}
+                className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none font-mono resize-none"
+              />
+              <div className="flex items-center justify-between mt-3">
+                <span className="text-[11px] text-ink-500">
+                  {entryLoading ? '加载中…' : entryExists ? '已存在' : '尚未创建（保存后生效）'}
+                  {entryContent.length > 0 && ` · ${new Blob([entryContent]).size} 字节`}
+                </span>
+                <button
+                  onClick={handleSaveEntry}
+                  disabled={entryLoading}
+                  className="px-4 py-2 text-sm btn-primary text-white rounded-lg disabled:opacity-50">
+                  保存
+                </button>
+              </div>
+              <p className="text-[11px] text-ink-500 mt-2">
+                凭证三禁等平台安全红线独立于本文件执行；文件内容经审计留痕（source/version/sha256）。
+              </p>
             </CardContent>
           </Card>
         </div>

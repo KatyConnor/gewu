@@ -44,7 +44,7 @@ class AgentExecutionEnginePauseTest {
     @BeforeEach
     void setUp() {
         engine = new AgentExecutionEngine(agentExecutor, messageBuilder, agentMapper,
-                sessionMapper, agentExecutionService, null, null);
+                sessionMapper, agentExecutionService, null, null, null);
     }
 
     private Agent agentOf(Integer status) {

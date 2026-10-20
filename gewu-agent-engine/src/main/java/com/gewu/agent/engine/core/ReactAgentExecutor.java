@@ -86,6 +86,9 @@ public class ReactAgentExecutor implements AgentExecutor {
     /** 用户交互网关（HITL 问答）：ask_user 工具的挂起-恢复后端；未装配时交互通道降级 */
     private final com.gewu.agent.engine.hitl.UserInteractionGateway userInteractionGateway;
 
+    /** 执行中转向队列（用户插话补充指令）：轮次边界排水注入，null 时插话降级为纯落库 */
+    private final com.gewu.agent.engine.hitl.TurnSteeringQueue turnSteeringQueue;
+
     /** 推理模型截断自愈：finish=length 时的最大重试次数（8192 起步 ×3 次翻倍可达 65536 硬顶） */
     private static final int MAX_TRUNCATION_RETRIES = 3;
     /** max_tokens 硬上限（自动扩大重试的封顶值） */
@@ -121,16 +124,16 @@ public class ReactAgentExecutor implements AgentExecutor {
     private static final String EDIT_FILE_TOOL = "edit_file";
     private static final String LIST_DIR_TOOL = "list_dir";
     private static final String READ_FILE_SCHEMA = """
-            {"type":"object","properties":{"path":{"type":"string","description":"文件相对路径（相对当前工作空间根目录）"}},"required":["path"]}
+            {"type":"object","properties":{"path":{"type":"string","description":"文件相对路径，相对当前工作空间根目录（如 src/main.go、docs/plan.md）。不要以 / 开头，不要加 workspace/ 前缀"}},"required":["path"]}
             """;
     private static final String WRITE_FILE_SCHEMA = """
-            {"type":"object","properties":{"path":{"type":"string","description":"文件相对路径"},"content":{"type":"string","description":"完整文件内容（整体覆盖）"}},"required":["path","content"]}
+            {"type":"object","properties":{"path":{"type":"string","description":"文件相对路径，相对当前工作空间根目录。不要以 / 开头，不要加 workspace/ 前缀"},"content":{"type":"string","description":"完整文件内容（整体覆盖）"}},"required":["path","content"]}
             """;
     private static final String EDIT_FILE_SCHEMA = """
-            {"type":"object","properties":{"path":{"type":"string","description":"文件相对路径"},"old_text":{"type":"string","description":"要替换的原文（需唯一匹配）"},"new_text":{"type":"string","description":"替换后的新文本"}},"required":["path","old_text","new_text"]}
+            {"type":"object","properties":{"path":{"type":"string","description":"文件相对路径，相对当前工作空间根目录。不要以 / 开头，不要加 workspace/ 前缀"},"old_text":{"type":"string","description":"要替换的原文（需唯一匹配）"},"new_text":{"type":"string","description":"替换后的新文本"}},"required":["path","old_text","new_text"]}
             """;
     private static final String LIST_DIR_SCHEMA = """
-            {"type":"object","properties":{"path":{"type":"string","description":"目录相对路径，默认工作空间根目录"}},"required":[]}
+            {"type":"object","properties":{"path":{"type":"string","description":"目录相对路径，相对当前工作空间根目录。可省略（默认列出根目录）。不要以 / 开头，不要加 workspace/ 前缀"}},"required":[]}
             """;
 
     /** 内置子代理派生工具：模型动态派生多个独立 ReAct 会话并行执行，聚合结果回灌主循环 */
@@ -138,7 +141,8 @@ public class ReactAgentExecutor implements AgentExecutor {
     private static final String SPAWN_TOOL_DESCRIPTION =
             "并行派生多个独立子 Agent（各自拥有独立上下文、独立工具循环与预算）分头处理不同子任务，"
                     + "全部执行完成后汇总各子 Agent 结果返回。适用于可并行分解的调研、多方案对比、批量处理等场景。"
-                    + "每个子任务的 prompt 必须自包含（子 Agent 看不到当前对话历史）。";
+                    + "每个子任务的 prompt 必须自包含（子 Agent 看不到当前对话历史）。"
+                    + "子代理默认可读写当前工作空间中的文件（文件写入归属当前会话，可被回合撤销回滚）。";
     private static final String SPAWN_TOOL_SCHEMA_TEMPLATE = """
             {"type":"object","properties":{"agents":{"type":"array","description":"子代理任务清单（并行执行）","maxItems":%d,"items":{"type":"object","properties":{"name":{"type":"string","description":"子任务名称（用于结果标注）"},"agentId":{"type":"string","description":"可选，执行该子任务的 Agent 标识，缺省沿用当前 Agent"},"prompt":{"type":"string","description":"子任务的完整自包含提示词（含背景、目标与期望产出）"}},"required":["name","prompt"]}}},"required":["agents"]}
             """;
@@ -223,6 +227,9 @@ public class ReactAgentExecutor implements AgentExecutor {
                     .maxTokens(currentMaxTokens)
                     .stream(false)
                     .build();
+
+            // 执行中转向（用户插话）：轮次边界排水注入，与既有工具结果/原指令一并参与本轮推理
+            injectSteering(task.getSessionId(), task.getAgentDepth(), messages);
 
             // OTel 追踪：每轮 LLM 调用包装 Span（TraceService SPI 桥接）
             Object llmSpan = traceService.startSpan(task.getSessionId(), task.getAgentId(), "llm_call");
@@ -453,19 +460,87 @@ public class ReactAgentExecutor implements AgentExecutor {
                     log.error("Agent 流式执行异常: agentId={}", task.getAgentId(), e);
                     String reason = e.getMessage() != null ? e.getMessage() : "stream_error";
                     recordFailure(task, reason);
-                    return Flux.just(
-                            AgentEvent.builder()
-                                    .type(AgentEvent.FAILURE_RECORDED)
-                                    .content("失败已记录：" + reason)
-                                    .build(),
-                            AgentEvent.builder()
-                                    .type(AgentEvent.ERROR)
-                                    .errorMessage(e.getMessage() != null ? e.getMessage() : "AI 处理失败")
-                                    .build());
+                    // P0 降级（docs/design/43 路线）：失败前已有实质产出（子代理聚合结果/阶段正文）
+                    // 时交付阶段性成果，而非仅报错终止——17 分钟级多子智能体任务的工作成果不再全损
+                    List<AgentEvent> degraded = new ArrayList<>();
+                    String partial = extractPartialDeliverable(messages);
+                    if (!partial.isBlank()) {
+                        degraded.add(AgentEvent.builder()
+                                .type(AgentEvent.CONTENT)
+                                .content("\n\n---\n\n⚠️ 任务执行失败（" + reason + "），以下为已完成的阶段性成果：\n\n" + partial)
+                                .build());
+                    }
+                    degraded.add(AgentEvent.builder()
+                            .type(AgentEvent.FAILURE_RECORDED)
+                            .content("失败已记录：" + reason)
+                            .build());
+                    degraded.add(AgentEvent.builder()
+                            .type(AgentEvent.ERROR)
+                            .errorMessage(e.getMessage() != null ? e.getMessage() : "AI 处理失败")
+                            .build());
+                    return Flux.fromIterable(degraded);
                 });
     }
 
+    /** P0 降级提取：倒序找最后一条非空 tool 结果（子代理聚合/工具输出），供失败时作为阶段性成果交付 */
+    private String extractPartialDeliverable(List<Message> messages) {
+        if (messages == null) {
+            return "";
+        }
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            Message m = messages.get(i);
+            if (m != null && "tool".equals(m.getRole()) && m.getContent() != null && !m.getContent().isBlank()) {
+                return m.getContent();
+            }
+        }
+        return "";
+    }
+
+    /**
+     * 执行中转向（用户插话补充指令）：把运行期间入队的用户指令以 user 角色
+     * 并入当前上下文——与已有工具结果、原指令一起重组下一轮推理，不中断不重开。
+     * 仅顶层任务排水（agentDepth=0），子代理不消费父会话指令。
+     */
+    private void injectSteering(String sessionId, int agentDepth, List<Message> messages) {
+        if (turnSteeringQueue == null || sessionId == null || sessionId.isBlank() || agentDepth != 0) {
+            return;
+        }
+        List<String> steers = turnSteeringQueue.drain(sessionId);
+        for (String s : steers) {
+            messages.add(Message.builder().role("user")
+                    .content("【用户补充指令】" + s).build());
+        }
+        if (!steers.isEmpty()) {
+            log.info("已注入用户补充指令: sessionId={}, count={}", sessionId, steers.size());
+        }
+    }
+
+    /**
+     * 流式轮次包装：每个轮次边界排水用户补充指令（执行中转向）——
+     * 注入 user 角色消息并头发 STATUS 事件告知前端，随后进入常规轮。
+     */
     private Flux<AgentEvent> streamRound(LlmClient client, String model, List<Message> messages,
+                                         List<ToolDefinition> tools, Map<String, ToolConfig> toolConfigMap,
+                                         ToolContext toolContext, double temperature, int maxTokens, int round,
+                                         int truncationRetries, BudgetContext budget, ToolLoopDetector loopDetector) {
+        // 仅顶层任务消费父会话转向队列（子代理共享 workspaceSessionId，不抢父指令）
+        List<String> steers = turnSteeringQueue == null || toolContext.getAgentDepth() != 0
+                ? List.of() : turnSteeringQueue.drain(toolContext.getSessionId());
+        for (String s : steers) {
+            messages.add(Message.builder().role("user")
+                    .content("【用户补充指令】" + s).build());
+        }
+        if (!steers.isEmpty()) {
+            log.info("已注入用户补充指令(流式): sessionId={}, count={}", toolContext.getSessionId(), steers.size());
+        }
+        Flux<AgentEvent> head = steers.isEmpty() ? Flux.empty()
+                : Flux.just(AgentEvent.builder().type(AgentEvent.STATUS)
+                        .content("已收到 " + steers.size() + " 条补充指令，将整合既有结果继续执行").build());
+        return head.concatWith(doStreamRound(client, model, messages, tools, toolConfigMap, toolContext,
+                temperature, maxTokens, round, truncationRetries, budget, loopDetector));
+    }
+
+    private Flux<AgentEvent> doStreamRound(LlmClient client, String model, List<Message> messages,
                                          List<ToolDefinition> tools, Map<String, ToolConfig> toolConfigMap,
                                          ToolContext toolContext, double temperature, int maxTokens, int round,
                                          int truncationRetries, BudgetContext budget, ToolLoopDetector loopDetector) {
@@ -1027,14 +1102,18 @@ public class ReactAgentExecutor implements AgentExecutor {
         try {
             JsonNode root = objectMapper.readTree(args);
             String path = root.path("path").asText("");
-            if (path.isBlank()) {
+            // list_dir 的 path 可省略（默认工作空间根，与 LIST_DIR_SCHEMA required:[] 一致）
+            if (path.isBlank() && !LIST_DIR_TOOL.equals(name)) {
                 return ToolResult.builder().success(false).error("缺少 path 参数").build();
             }
             switch (name) {
                 case READ_FILE_TOOL -> {
                     String content = fileWorkspace.readFile(toolContext, path);
                     if (content == null) {
-                        return ToolResult.builder().success(false).error("文件不存在: " + path).build();
+                        return ToolResult.builder().success(false).error(
+                                "文件不存在: " + path
+                                        + "（path 应为相对当前工作空间根目录的路径，不要以 / 开头或加 workspace/ 前缀；"
+                                        + "可用 list_dir 查看根目录内容后重试）").build();
                     }
                     // 内容截断保护（与外发工具同款输出上限策略，默认 10KB）
                     return ToolResult.builder().success(true).output(truncate(content, 10 * 1024)).build();
@@ -1053,7 +1132,10 @@ public class ReactAgentExecutor implements AgentExecutor {
                     }
                     String current = fileWorkspace.readFile(toolContext, path);
                     if (current == null) {
-                        return ToolResult.builder().success(false).error("文件不存在: " + path).build();
+                        return ToolResult.builder().success(false).error(
+                                "文件不存在: " + path
+                                        + "（path 应为相对当前工作空间根目录的路径，不要以 / 开头或加 workspace/ 前缀；"
+                                        + "可用 list_dir 查看根目录内容后重试）").build();
                     }
                     int idx = current.indexOf(oldText);
                     if (idx < 0) {
@@ -1313,9 +1395,13 @@ public class ReactAgentExecutor implements AgentExecutor {
         boolean specHasModel = subSpec != null && subSpec.getModelProvider() != null
                 && subSpec.getModelName() != null;
         boolean shareHistory = sub != null && sub.isShareSessionHistory();
+        boolean shareWorkspace = sub == null || sub.isShareWorkspace();
         return AgentTask.builder()
                 .agentId(subAgentId)
                 .sessionId(shareHistory ? ctx.getSessionId() : null)
+                // 工作空间绑定与历史共享解耦：默认共享父会话工作空间（文件工具可读写、
+                // 写入归属父会话），历史是否共享由 shareSessionHistory 独立控制
+                .workspaceSessionId(shareWorkspace ? ctx.getSessionId() : null)
                 .userId(ctx.getUserId())
                 .message(spec.prompt())
                 .agentDepth(ctx.getAgentDepth() + 1)
@@ -1323,6 +1409,13 @@ public class ReactAgentExecutor implements AgentExecutor {
                 .modelName(specHasModel ? null : ctx.getModelName())
                 .quotaTokenBudget(ctx.getQuotaTokenBudget())
                 .quotaBlockEnabled(ctx.getQuotaBlockEnabled())
+                // 工作区继承与历史共享解耦：子代理文件工具必须指向父会话工作区
+                //（shareSessionHistory=false 时 sessionId 置空，若不同步透传会回落全局默认——子代理读错工作区实测）
+                .workspaceRoot(ctx.getWorkspaceRoot())
+                // 入口调度指令继承父任务裁决产物（不重复解析，设计文档 56 §5.3）
+                .entryDirectives(ctx.getEntryDirectives())
+                .entryDirectivesSource(ctx.getEntryDirectivesSource())
+                .entryDirectivesMeta(ctx.getEntryDirectivesMeta())
                 .build();
     }
 
@@ -1465,65 +1558,110 @@ public class ReactAgentExecutor implements AgentExecutor {
             long start = System.currentTimeMillis();
             AgentEngineConfig.Subagents sub = config.getSubagents();
             int timeoutSeconds = sub != null ? sub.getTimeoutSeconds() : 180;
-            List<AgentEvent> startEvents = new ArrayList<>();
-            List<Flux<AgentEvent>> branchFluxes = new ArrayList<>();
-            List<BranchRun> runs = new ArrayList<>();
-            int index = 0;
-            for (SubAgentSpec spec : request.agents) {
-                final int idx = index++;
-                final String subagentId = "sub-" + idx + "-" + java.util.UUID.randomUUID().toString().substring(0, 8);
-                final long branchStart = System.currentTimeMillis();
-                final AgentTask subTask = buildSubAgentTask(spec, toolContext);
-                // 分支现场：正文累积 / token（done 事件）/ 失败标记 / 结束时间；聚合时定格为 SubAgentResult
-                final BranchRun run = new BranchRun(idx, spec.name(), subTask.getAgentId(), branchStart);
-                // 派生开始事件：前端时间线立即出现"子智能体 … 执行中"行
-                startEvents.add(subagentStatusEvent(run.toResult(), subagentId, "running", null));
-                Flux<AgentEvent> branch = executeStream(subTask)
-                        .map(ev -> withSubagentTag(ev, subagentId, idx, spec.name()))
-                        .doOnNext(ev -> {
-                            if (AgentEvent.CONTENT.equals(ev.getType()) && ev.getContent() != null) {
-                                run.output.append(ev.getContent());
-                            }
-                            if (AgentEvent.DONE.equals(ev.getType()) && ev.getMetadata() != null
-                                    && ev.getMetadata().get("tokenEstimated") instanceof Number n) {
-                                run.tokens = n.longValue();
-                            }
-                        })
-                        .timeout(java.time.Duration.ofSeconds(timeoutSeconds))
-                        .onErrorResume(e -> {
-                            run.failed = true;
-                            Throwable cause = e.getCause() != null ? e.getCause() : e;
-                            String reason = cause instanceof java.util.concurrent.TimeoutException
-                                    ? "执行超时（" + timeoutSeconds + " 秒上限）"
-                                    : String.valueOf(cause.getMessage());
-                            log.warn("子代理[{}] {} 流式执行失败: {}", idx, spec.name(), reason);
-                            run.output.append("【执行失败】").append(reason);
-                            // 失败以分支内容事件透出（面板可见），同时计入聚合
-                            return Flux.just(withSubagentTag(AgentEvent.builder()
-                                    .type(AgentEvent.CONTENT)
-                                    .content("⚠️ 子代理执行失败：" + reason)
-                                    .build(), subagentId, idx, spec.name()));
-                        })
-                        .doFinally(sig -> run.endMs = System.currentTimeMillis());
-                // 分支完成：subagent_status（携带结果文本，供历史回放聚合结果展示）
-                branch = branch.concatWith(Flux.defer(() -> Flux.just(subagentStatusEvent(
-                        run.toResult(), subagentId, run.failed ? "failed" : "success", null))));
-                branchFluxes.add(branch);
-                runs.add(run);
+            boolean redeployOnce = sub != null && sub.isRedeployFailedOnce();
+            java.util.List<SubAgentResult> allResults = new java.util.concurrent.CopyOnWriteArrayList<>();
+
+            Flux<AgentEvent> waves = executeSubAgentWave(request.agents, toolContext, start, timeoutSeconds, allResults, 1);
+            // P2 失败自动重派（docs/design/43）：有失败分支时自动重跑一次，
+            // 防限流/瞬态导致整波成果全损；可经 agent.engine.subagents.redeploy-failed-once=false 关闭
+            if (redeployOnce) {
+                waves = waves.concatWith(Flux.defer(() -> {
+                    List<SubAgentSpec> failedSpecs = allResults.stream()
+                            .filter(r -> !r.success())
+                            .map(r -> request.agents.get(Math.min(Math.max(r.index() - 1, 0), request.agents.size() - 1)))
+                            .toList();
+                    if (failedSpecs.isEmpty()) {
+                        return Flux.empty();
+                    }
+                    log.info("子代理失败自动重派: {}/{} 个分支将重试一次", failedSpecs.size(), request.agents.size());
+                    return executeSubAgentWave(failedSpecs, toolContext, start, timeoutSeconds, allResults, 2);
+                }));
             }
-            // 分支事件合并（按发生顺序交错，前端按 subagentId 分桶）
-            Flux<AgentEvent> merged = Flux.merge(branchFluxes);
-            // 聚合：全部完成后子消耗折算入父预算，回灌 tool 消息并发 tool_result（runs 为
-            // 活引用，聚合时定格各分支最终状态）
-            Flux<AgentEvent> aggregate = Mono.fromCallable(() -> {
-                        List<SubAgentResult> results = runs.stream().map(BranchRun::toResult).toList();
-                        var aggregation = aggregateResults(toolContext, parentBudget, results, start);
+            // 终局聚合：全部波次完成后子消耗折算入父预算，回灌 tool 消息并发 tool_result
+            return Flux.concat(waves, Mono.fromCallable(() -> {
+                        var aggregation = aggregateResults(toolContext, parentBudget, allResults, start);
                         appendToolMessage(messages, tc, aggregation.getKey());
                         return toolResultEvent(tc, aggregation.getKey());
-                    })
-                    .flux();
-            return Flux.concat(Flux.fromIterable(startEvents), merged, aggregate);
+                    }).flux());
         });
+    }
+
+    /**
+     * 构建一波子代理分支（P2 重派复用）：开始事件 + 并行分支（含心跳维持/失败隔离）+ 批次统计。
+     * 结果写入 allResults（跨波累计）；批次内不做终局聚合/预算折算，由调用方在全部波次后统一执行。
+     */
+    private Flux<AgentEvent> executeSubAgentWave(List<SubAgentSpec> specs, ToolContext toolContext,
+                                                 long start, int timeoutSeconds,
+                                                 java.util.List<SubAgentResult> allResults, int waveNo) {
+        List<AgentEvent> startEvents = new ArrayList<>();
+        List<Flux<AgentEvent>> branchFluxes = new ArrayList<>();
+        List<BranchRun> runs = new ArrayList<>();
+        int index = 0;
+        for (SubAgentSpec spec : specs) {
+            final int idx = index++;
+            final String subagentId = "sub-" + waveNo + "-" + idx + "-" + java.util.UUID.randomUUID().toString().substring(0, 8);
+            final long branchStart = System.currentTimeMillis();
+            final AgentTask subTask = buildSubAgentTask(spec, toolContext);
+            // 分支现场：正文累积 / token（done 事件）/ 失败标记 / 结束时间；聚合时定格为 SubAgentResult
+            final BranchRun run = new BranchRun(idx, spec.name(), subTask.getAgentId(), branchStart);
+            // 派生开始事件：前端时间线立即出现"子智能体 … 执行中"行
+            startEvents.add(subagentStatusEvent(run.toResult(), subagentId, "running", null));
+            final java.util.concurrent.CompletableFuture<Void> branchDone = new java.util.concurrent.CompletableFuture<>();
+            Flux<AgentEvent> branchBase = executeStream(subTask)
+                    .map(ev -> withSubagentTag(ev, subagentId, idx, spec.name()))
+                    .doOnNext(ev -> {
+                        if (AgentEvent.CONTENT.equals(ev.getType()) && ev.getContent() != null) {
+                            run.output.append(ev.getContent());
+                        }
+                        if (AgentEvent.DONE.equals(ev.getType()) && ev.getMetadata() != null
+                                && ev.getMetadata().get("tokenEstimated") instanceof Number n) {
+                            run.tokens = n.longValue();
+                        }
+                    })
+                    .doFinally(sig -> branchDone.complete(null));
+            // P1 心跳（docs/design/43）：子代理内部长工具执行（如 mvn build >180s）期间
+            // 无事件输出，分支 timeout（事件间不活动超时）会把"正在干活"的分支误杀——
+            // 合并 60s 心跳维持活跃度，前端对未知事件类型自动忽略
+            Flux<AgentEvent> heartbeat = Flux.interval(java.time.Duration.ofSeconds(60))
+                    .map(i -> withSubagentTag(AgentEvent.builder()
+                            .type("tool_heartbeat").content("子任务执行中…")
+                            .build(), subagentId, idx, spec.name()))
+                    .takeUntilOther(Mono.fromFuture(branchDone));
+            Flux<AgentEvent> branch = branchBase.mergeWith(heartbeat)
+                    .timeout(java.time.Duration.ofSeconds(timeoutSeconds))
+                    .onErrorResume(e -> {
+                        run.failed = true;
+                        Throwable cause = e.getCause() != null ? e.getCause() : e;
+                        String reason = cause instanceof java.util.concurrent.TimeoutException
+                                ? "执行超时（" + timeoutSeconds + " 秒内无任何输出，可调整 agent.engine.subagents.timeout-seconds）"
+                                : String.valueOf(cause.getMessage());
+                        log.warn("子代理[{}] {} 流式执行失败: {}", idx, spec.name(), reason);
+                        run.output.append("【执行失败】").append(reason);
+                        // 失败以分支内容事件透出（面板可见），同时计入聚合
+                        return Flux.just(withSubagentTag(AgentEvent.builder()
+                                .type(AgentEvent.CONTENT)
+                                .content("⚠️ 子代理执行失败：" + reason)
+                                .build(), subagentId, idx, spec.name()));
+                    })
+                    .doFinally(sig -> run.endMs = System.currentTimeMillis());
+            // 分支完成：subagent_status（携带结果文本，供历史回放聚合结果展示）
+            branch = branch.concatWith(Flux.defer(() -> Flux.just(subagentStatusEvent(
+                    run.toResult(), subagentId, run.failed ? "failed" : "success", null))));
+            branchFluxes.add(branch);
+            runs.add(run);
+        }
+        // 分支事件合并（按发生顺序交错，前端按 subagentId 分桶）
+        Flux<AgentEvent> merged = Flux.merge(branchFluxes);
+        // 批次统计：结果写入 allResults（P2 重派判定数据源），不在此终局
+        Flux<AgentEvent> stats = Mono.fromCallable(() -> {
+            List<SubAgentResult> results = runs.stream().map(BranchRun::toResult).toList();
+            allResults.addAll(results);
+            long failed = results.stream().filter(r -> !r.success()).count();
+            return AgentEvent.builder().type(AgentEvent.STATUS)
+                    .content("子智能体批次 " + waveNo + " 完成：共 " + results.size() + "，失败 " + failed)
+                    .build();
+        }).flux();
+        return Flux.concat(Flux.fromIterable(startEvents), merged, stats);
     }
 
     /** 分支流式执行现场（结果在聚合时定格为 SubAgentResult） */
@@ -1790,8 +1928,11 @@ public class ReactAgentExecutor implements AgentExecutor {
         if (history == null && task.getSessionId() != null) {
             history = sessionContextService.buildContextMessages(task.getSessionId(), config.getDefaultHistoryLimit());
         }
+        // 入口调度指令（AGENTS.md/GEWU.md 裁决产物）随消息构建进入 system 段；
+        // 为空时与既有行为完全一致
         List<Message> messages = messageBuilder.buildMessages(agent, task.getMessage(), history,
-                task.getAgentMode(), task.getThinkingStyle());
+                task.getAgentMode(), task.getThinkingStyle(),
+                task.getEntryDirectives(), task.getEntryDirectivesSource());
         // 注入记忆上下文（记忆路由 SPI 按需注入相关记忆到 system 消息）
         String domain = task.getAgentId() != null ? task.getAgentId() : "default";
         return memoryRouter.inject(domain, messages, task.getMessage());
@@ -1838,16 +1979,18 @@ public class ReactAgentExecutor implements AgentExecutor {
         // 内置文件工具（S9 F3）：read/write/edit/list，经 FileWorkspaceSpi 在会话工作空间执行
         if (fileWorkspace != null && fileWorkspace.available()) {
             definitions.add(ToolDefinition.builder().name(READ_FILE_TOOL)
-                    .description("读取工作空间中的文件内容（相对路径）。")
+                    .description("读取工作空间中的文件内容。path 为相对当前工作空间根目录的相对路径（如 src/main.go），"
+                            + "严禁以 / 开头或加 workspace/ 前缀；不确定路径时先用 list_dir 探查。")
                     .parameters(READ_FILE_SCHEMA).build());
             definitions.add(ToolDefinition.builder().name(WRITE_FILE_TOOL)
-                    .description("创建或覆盖工作空间中的文件（整体写入）。")
+                    .description("创建或覆盖工作空间中的文件（整体写入）。path 为相对当前工作空间根目录的相对路径，"
+                            + "严禁以 / 开头或加 workspace/ 前缀。")
                     .parameters(WRITE_FILE_SCHEMA).build());
             definitions.add(ToolDefinition.builder().name(EDIT_FILE_TOOL)
-                    .description("精确编辑文件中的一段文本（old_text 需在文件中唯一匹配）。")
+                    .description("精确编辑文件中的一段文本（old_text 需在文件中唯一匹配）。path 为相对当前工作空间根目录的相对路径。")
                     .parameters(EDIT_FILE_SCHEMA).build());
             definitions.add(ToolDefinition.builder().name(LIST_DIR_TOOL)
-                    .description("列出工作空间目录中的文件与子目录。")
+                    .description("列出工作空间目录中的文件与子目录。path 可省略（默认根目录），为相对当前工作空间根目录的相对路径。")
                     .parameters(LIST_DIR_SCHEMA).build());
         }
         return definitions;
@@ -1873,18 +2016,35 @@ public class ReactAgentExecutor implements AgentExecutor {
 
         return ToolContext.builder()
                 .userId(task.getUserId())
-                .sessionId(task.getSessionId())
+                // 文件工具绑定（工作空间/写入归属/回合撤销）与历史加载解耦：
+                // 子代理默认绑定父会话工作空间，历史加载仍只看 task.sessionId
+                .sessionId(fileSessionIdOf(task))
                 .agentId(task.getAgentId())
                 .timeout(30)
                 .sandboxEnabled(sandboxEnabled)
                 .sandboxImage(sandboxImage)
+                // 显式工作区根透传（桌面本地形态：会话绑定目录；null=SPI 按会话/默认解析）
+                .workspaceRoot(task.getWorkspaceRoot())
                 // 子代理派生上下文：深度/已解析模型/配额继承（spawn_subagents 构建子任务用）
                 .agentDepth(task.getAgentDepth())
                 .modelProvider(provider)
                 .modelName(model)
                 .quotaTokenBudget(task.getQuotaTokenBudget())
                 .quotaBlockEnabled(task.getQuotaBlockEnabled())
+                // 入口调度指令继承（spawn_subagents 构建子任务用，子任务不重复解析）
+                .entryDirectives(task.getEntryDirectives())
+                .entryDirectivesSource(task.getEntryDirectivesSource())
+                .entryDirectivesMeta(task.getEntryDirectivesMeta())
                 .build();
+    }
+
+    /**
+     * 文件工具绑定的会话标识：workspaceSessionId 优先（子代理共享父会话工作空间），
+     * 为空回退 sessionId（顶层任务与既有行为一致）。
+     */
+    private static String fileSessionIdOf(AgentTask task) {
+        return task.getWorkspaceSessionId() != null && !task.getWorkspaceSessionId().isBlank()
+                ? task.getWorkspaceSessionId() : task.getSessionId();
     }
 
     private double resolveTemperature(AgentTask task) {
