@@ -368,3 +368,17 @@ curl -f http://<host>:<port>/actuator/health/readiness   # UP
 3. **压测基线未跑**：jmeter 脚本就绪（`deploy/jmeter/run-perf-test.sh`），首轮基线需部署后执行；
 4. **prod compose 的 MinIO bucket 需手工创建**（首次），或后续在应用侧加启动建桶；
 5. **OceanBase 兼容**：compose 注释提及生产切 OceanBase 4.4.2 的专项（docs/archive/SP-01）尚未执行，当前以 MySQL 8.0 为准。
+
+---
+
+## 16. 近期迁移注记（Flyway，按版本倒序）
+
+> 部署时 Flyway 自动执行；本节标注**非纯建表、需部署方知悉**的迁移。
+
+- **V80__workspace_file_sync_cols.sql**：`workspace_file` 补 `volume_mtime`/`sync_status` 两列（守卫式，列已存在则跳过）。
+  背景：`WorkspaceFile` 实体自 V75 同步功能起持有这两列，但历次迁移均未加列——任何 environment 上该表查询
+  都会因缺列失败（集成测试捕获的 schema 漂移）。升级后同步对账（5 分钟周期）自动恢复；
+- **V78__project_create_ext.sql**：`project` 补 7 列——`short_name`/`system_name`/`team_members`/`tech_lead`
+  （新建项目表单扩展）与 `repo_credential_type`/`repo_username`/`repo_credential`（项目级仓库凭证，
+  **SM4 加密落库，凭据内容不出 DTO**）。全部可空列，无需数据回填；
+- 两者均为可空列增量，不锁表不回填，停机窗口内随 Flyway 常规执行即可。

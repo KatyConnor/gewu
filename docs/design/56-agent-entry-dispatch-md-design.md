@@ -193,7 +193,7 @@ EntryResolution resolve(Long userId, String projectId /*可空*/):
 
 - **clone 与初始化时序**：项目级文件主来源是 Git 仓库自带（clone 即得）；UI 初始化模板只对"空仓库/无入口文件"项目开放，写入后提示"建议提交进仓库，团队共享"。
 - **`projects/{projectName}` 平行克隆路径**（DevWorkspaceService.java:331，无 /repo 后缀）：解析按 `session.directory` 实际值拼路径，不写死 `/repo`，避免双路径不一致踩坑。
-- **无沙箱用户**（纯对话/临时会话）：仅全局级生效，来源 MinIO；该用户后续首次创建 dev 沙箱时，由 `ensureDevSandboxForUser` 完成后执行一次**种子同步**（对该用户 workspace_file 已登记的 md 批量入队 M2V），保证卷内可见（评审 F-202 补）。
+- **无沙箱用户**（纯对话/临时会话）：仅全局级生效，来源 MinIO；该用户后续首次创建 dev 沙箱时无需额外动作——PUT 已建台账行并登记 M2V，对账兜底（reconcile M2V 遍历全部已登记行）在沙箱就绪后自动把已登记 md 种子进卷（评审 F-202 补；实现上不侵入 `ensureDevSandboxForUser`，避开 WorkspaceSyncService↔DevWorkspaceService 环依赖）。
 - **全局文件编辑建议走设置页**（直写 MinIO 即时生效）；沙箱内手动创建的文件经同步延迟（5 秒队列 + 5 分钟对账）后才对"无沙箱会话"可见。
 
 ### 6.4 升级通知（v1.2 新增·替代静默覆盖）
@@ -249,7 +249,7 @@ EntryResolution resolve(String projectDirectory /*可空*/):
 |---|---|---|---|
 | **P0 引擎底座** | `EntryFileSelector` 纯函数 + semver 比较（gewu-common，表驱动单测）；`AgentTask.entryDirectives/entryDirectivesMeta` 字段；`SystemPromptComposer` 追加段；`ToolContext.entryDirectives` 透传（子代理继承）；`LongTaskService` 长任务段继承 | gewu-common、gewu-agent-engine | 1~1.5d |
 | **P0 桌面端** | `EntryFileResolver`；DesktopChatController 注入；ProjectContextTool 复用 resolver；设置面板编辑器；contract test 扩展 | gewu-desktop-runtime、gewu-desktop | 1d |
-| **P1 平台端** | `AgentEntryFileService`（MinIO 全局 + 沙箱项目级 + 缓存 + 首建种子同步）；三个 REST API（PUT 复用 WorkspaceService 保存路径）；设置页编辑器 + 项目页签 + 模板初始化 + 升级通知（§6.4）；集成测试 | gewu-application、gewu-interface、gewu-web | 2~3d |
+| **P1 平台端** | `AgentEntryFileService`（MinIO 全局 + 沙箱项目级 + 缓存 + 种子同步（对账自愈））；三个 REST API（PUT 复用 WorkspaceService 保存路径）；设置页编辑器 + 项目页签 + 模板初始化 + 升级通知（§6.4）；集成测试 | gewu-application、gewu-interface、gewu-web | 2~3d |
 | **P2 增强**（按需立项） | 子目录嵌套发现；merge 叠加模式（`layering: select\|merge` 配置）；`@path` import；密钥扫描；Wenshi 旁路注入；`/memory` 式会话内刷新 | 多模块 | 另评 |
 
 ## 11. 测试与验收
