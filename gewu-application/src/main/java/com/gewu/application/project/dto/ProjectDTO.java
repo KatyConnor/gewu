@@ -10,6 +10,14 @@ public class ProjectDTO {
     private String projectId;
     private String projectName;
     private String projectCode;
+    /** 项目简称 */
+    private String shortName;
+    /** 所属系统 */
+    private String systemName;
+    /** 团队成员（逗号分隔姓名） */
+    private String teamMembers;
+    /** 技术负责人 */
+    private String techLead;
     private String description;
     private Integer visibility;
     private Integer status;

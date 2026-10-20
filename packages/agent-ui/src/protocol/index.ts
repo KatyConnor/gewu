@@ -253,6 +253,11 @@ export interface ProjectDTO {
   projectId: string;
   projectName: string;
   projectCode: string;
+  shortName?: string;
+  systemName?: string;
+  /** 团队成员（逗号分隔姓名） */
+  teamMembers?: string;
+  techLead?: string;
   description: string;
   visibility: number;
   status: number;

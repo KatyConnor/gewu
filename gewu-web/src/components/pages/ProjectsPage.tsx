@@ -6,6 +6,7 @@ import { setPage } from '@/store';
 import { useToast } from '@/components/ui/Toast';
 import { listMyProjects, deleteProject, type ProjectDTO } from '@/lib/project';
 import ProjectDetailPage from './ProjectDetailPage';
+import ProjectCreatePage from './ProjectCreatePage';
 
 // ==================== 常量定义 ====================
 
@@ -67,13 +68,6 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [showCreate, setShowCreate] = useState(false);
-  const [newName, setNewName] = useState('');
-  const [newDesc, setNewDesc] = useState('');
-  const [newVisibility, setNewVisibility] = useState(0);
-  const [newTechStack, setNewTechStack] = useState('');
-  const [newVcs, setNewVcs] = useState('');
-  const [newWorktree, setNewWorktree] = useState('');
-  const [newIconColor, setNewIconColor] = useState('#00b894');
   const [detailProjectId, setDetailProjectId] = useState<string | null>(null);
 
   // 编辑弹框
@@ -130,34 +124,6 @@ export default function ProjectsPage() {
     setSearchOwnerName('');
     setSearchStatus(undefined);
     setCurrentPage(1);
-  };
-
-  const handleCreate = async () => {
-    if (!newName.trim()) return;
-    try {
-      const { createProject } = await import('@/lib/project');
-      await createProject({
-        projectName: newName,
-        description: newDesc || undefined,
-        visibility: newVisibility,
-        techStack: newTechStack || undefined,
-        vcs: newVcs || undefined,
-        worktree: newWorktree || undefined,
-        iconColor: newIconColor,
-      });
-      toast('项目创建成功', 'success');
-      setShowCreate(false);
-      setNewName('');
-      setNewDesc('');
-      setNewVisibility(0);
-      setNewTechStack('');
-      setNewVcs('');
-      setNewWorktree('');
-      setNewIconColor('#00b894');
-      loadProjects();
-    } catch {
-      toast('创建失败', 'error');
-    }
   };
 
   const handleDelete = async (projectId: string, name: string) => {
@@ -225,6 +191,19 @@ export default function ProjectsPage() {
   const viewDetail = (projectId: string) => {
     setDetailProjectId(projectId);
   };
+
+  // 新建项目视图（整页，非弹框）
+  if (showCreate) {
+    return (
+      <ProjectCreatePage
+        onBack={() => setShowCreate(false)}
+        onCreated={() => {
+          setShowCreate(false);
+          loadProjects();
+        }}
+      />
+    );
+  }
 
   // 项目详情视图
   if (detailProjectId) {
@@ -325,108 +304,6 @@ export default function ProjectsPage() {
           </button>
         </div>
       </div>
-
-      {/* 创建项目弹框 */}
-      {showCreate && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowCreate(false)}>
-          <div className="glass-dark rounded-xl p-6 w-full max-w-lg border border-tech-500/20 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-ink-50 mb-4">新建项目</h3>
-            <div className="space-y-3">
-              <div>
-                <label className="text-xs text-ink-400 mb-1 block">项目名称 *</label>
-                <input
-                  value={newName}
-                  onChange={e => setNewName(e.target.value)}
-                  placeholder="请输入项目名称"
-                  className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-ink-400 mb-1 block">项目编号</label>
-                <input
-                  disabled
-                  placeholder="保存后自动生成"
-                  className="w-full px-3 py-2 bg-ink-800/30 border border-tech-500/10 rounded-lg text-sm text-ink-500 placeholder-ink-500 outline-none cursor-not-allowed"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-ink-400 mb-1 block">项目描述</label>
-                <textarea
-                  value={newDesc}
-                  onChange={e => setNewDesc(e.target.value)}
-                  placeholder="项目描述（可选）"
-                  rows={3}
-                  className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none resize-none"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-ink-400 mb-1 block">可见性</label>
-                  <select
-                    value={newVisibility}
-                    onChange={e => setNewVisibility(Number(e.target.value))}
-                    className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none"
-                  >
-                    <option value={0}>私有</option>
-                    <option value={1}>团队可见</option>
-                    <option value={2}>公开</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="text-xs text-ink-400 mb-1 block">图标颜色</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={newIconColor}
-                      onChange={e => setNewIconColor(e.target.value)}
-                      className="w-10 h-9 rounded border border-tech-500/10 bg-ink-800/50 cursor-pointer"
-                    />
-                    <input
-                      value={newIconColor}
-                      onChange={e => setNewIconColor(e.target.value)}
-                      placeholder="#00b894"
-                      className="flex-1 px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none"
-                    />
-                  </div>
-                </div>
-              </div>
-              <div>
-                <label className="text-xs text-ink-400 mb-1 block">技术栈</label>
-                <input
-                  value={newTechStack}
-                  onChange={e => setNewTechStack(e.target.value)}
-                  placeholder="如：React, Node.js, PostgreSQL"
-                  className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none"
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs text-ink-400 mb-1 block">版本控制</label>
-                  <input
-                    value={newVcs}
-                    onChange={e => setNewVcs(e.target.value)}
-                    placeholder="如：Git"
-                    className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-ink-400 mb-1 block">工作空间</label>
-                  <input
-                    value={newWorktree}
-                    onChange={e => setNewWorktree(e.target.value)}
-                    placeholder="如：/workspace/project"
-                    className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none"
-                  />
-                </div>
-              </div>
-            </div>
-            <div className="flex gap-2 justify-end mt-4 pt-3 border-t border-tech-500/10">
-              <button onClick={() => setShowCreate(false)} className="px-4 py-2 text-sm text-ink-400 hover:text-ink-200">取消</button>
-              <button onClick={handleCreate} disabled={!newName.trim()} className="px-4 py-2 text-sm btn-primary text-white rounded-lg disabled:opacity-50">创建</button>
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* 编辑项目弹框 */}
       {showEdit && (

@@ -117,12 +117,22 @@ export async function getProject(projectId: string): Promise<ProjectDTO> {
 
 export interface CreateProjectRequest {
   projectName: string;
+  shortName?: string;
+  systemName?: string;
+  teamMembers?: string;
+  techLead?: string;
   description?: string;
   visibility?: number;
   techStack?: string;
   vcs?: string;
   worktree?: string;
   iconColor?: string;
+  repoUrl?: string;
+  /** 仓库认证方式: token/ssh_key（访问凭证）或 password（用户名密码），二者二选一 */
+  repoCredentialType?: 'token' | 'ssh_key' | 'password';
+  repoUsername?: string;
+  /** 仓库访问凭证明文（令牌 / SSH 私钥 / 密码），后端 SM4 加密存储 */
+  repoCredential?: string;
 }
 
 export async function createProject(data: CreateProjectRequest): Promise<ProjectDTO> {

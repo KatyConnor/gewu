@@ -10,6 +10,7 @@ import com.gewu.application.project.dto.UpdateProjectCommand;
 import com.gewu.application.sandbox.SandboxClient;
 import com.gewu.application.workspace.DevWorkspaceService;
 import com.gewu.common.context.UserContext;
+import com.gewu.common.crypto.ApiKeyCryptoService;
 import com.gewu.common.dto.PageQuery;
 import com.gewu.common.result.BusinessException;
 import com.gewu.common.result.PageResult;
@@ -47,6 +48,7 @@ public class ProjectService {
     private final ProjectCodeGenerator projectCodeGenerator;
     private final MinioStorageService storageService;
     private final DevWorkspaceService devWorkspaceService;
+    private final ApiKeyCryptoService credentialCrypto;
 
     @Transactional
     public ProjectDTO createProject(CreateProjectCommand command) {
@@ -58,6 +60,10 @@ public class ProjectService {
         Project project = new Project();
         project.setProjectName(command.getProjectName());
         project.setProjectCode(projectCodeGenerator.generate());
+        project.setShortName(command.getShortName());
+        project.setSystemName(command.getSystemName());
+        project.setTeamMembers(command.getTeamMembers());
+        project.setTechLead(command.getTechLead());
         project.setDescription(command.getDescription());
         project.setVisibility(command.getVisibility() != null ? command.getVisibility() : 0);
         project.setStatus(1);
@@ -67,6 +73,8 @@ public class ProjectService {
         project.setVcs(command.getVcs());
         project.setIconUrl(command.getIconUrl());
         project.setIconColor(command.getIconColor());
+        project.setRepoUrl(command.getRepoUrl());
+        applyRepoCredential(project, command);
         project.setRepoLocalPath("projects/" + project.getId() + "/repo");
         projectMapper.insert(project);
 
@@ -80,6 +88,41 @@ public class ProjectService {
         projectPhaseService.initializePhases(project.getId());
 
         return toDTO(project);
+    }
+
+    /**
+     * 仓库凭证二选一校验与加密落库：
+     * 访问凭证（token/ssh_key）与用户名密码（password）只能选其一；
+     * 凭证明文经 SM4 加密后存 repo_credential，不回传 DTO。
+     */
+    private void applyRepoCredential(Project project, CreateProjectCommand command) {
+        String credential = command.getRepoCredential();
+        String username = command.getRepoUsername();
+        String type = command.getRepoCredentialType();
+
+        if (credential == null || credential.isBlank()) {
+            if (username != null && !username.isBlank()) {
+                throw BusinessException.of(ResultCode.PARAM_INVALID, "已填写仓库用户名，请同时填写密码");
+            }
+            return;
+        }
+        if (username != null && !username.isBlank() && !"password".equals(type)) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "访问凭证与用户名密码二选一，请勿同时填写");
+        }
+        String resolvedType = type;
+        if (resolvedType == null || resolvedType.isBlank()) {
+            // 未显式指定类型时按内容推断：PEM 私钥视为 ssh_key，其余视为访问令牌
+            resolvedType = credential.strip().startsWith("-----BEGIN") ? "ssh_key" : "token";
+        }
+        if (!Set.of("token", "ssh_key", "password").contains(resolvedType)) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "仓库凭证类型不合法: " + resolvedType);
+        }
+        if ("password".equals(resolvedType) && (username == null || username.isBlank())) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "用户名密码认证需同时填写用户名与密码");
+        }
+        project.setRepoCredentialType(resolvedType);
+        project.setRepoUsername(username);
+        project.setRepoCredential(credentialCrypto.encrypt(credential.strip()));
     }
 
     public ProjectDTO getProject(String projectId) {
@@ -234,6 +277,10 @@ public class ProjectService {
                 .projectId(project.getId())
                 .projectName(project.getProjectName())
                 .projectCode(project.getProjectCode())
+                .shortName(project.getShortName())
+                .systemName(project.getSystemName())
+                .teamMembers(project.getTeamMembers())
+                .techLead(project.getTechLead())
                 .description(project.getDescription())
                 .visibility(project.getVisibility())
                 .status(project.getStatus())
