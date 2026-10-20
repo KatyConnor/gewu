@@ -58,6 +58,9 @@ public class ProjectService {
         }
 
         Project project = new Project();
+        // 显式生成 ULID：repoLocalPath 等路径在 insert 前就要拼 ID，
+        // 依赖 MP insert 时赋值会让所有项目落库 projects/null/repo（E2E 冒烟捕获）
+        project.setId(com.gewu.common.ulid.Ulid.next());
         project.setProjectName(command.getProjectName());
         project.setProjectCode(projectCodeGenerator.generate());
         project.setShortName(command.getShortName());
