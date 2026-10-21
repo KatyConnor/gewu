@@ -2,7 +2,7 @@
 
 | 项 | 内容 |
 |---|---|
-| 状态 | 草案（待评审） |
+| 状态 | 草案 v1.2（评审闭环·RPT-004 终审通过放行实施；P3-1~P3-4 待排期） |
 | 上游 | docs/design/56（入口调度文件本体与层级裁决）、docs/design/57（项目内嵌套发现） |
 | 决策 | 2026-10-21 用户立项；可见性方案定为 **X（双根只读）** |
 | 日期 | 2026-10-21 |
@@ -29,7 +29,7 @@
 | 能力 | 现状 | 判定 |
 |---|---|---|
 | 单文件入口编写与生效 | 编辑器/API/注入全链路 | ✅ |
-| 单文件导入（上传外部 .md） | 平台仅文本编辑器粘贴；桌面可手动 cp | ❌ 缺导入入口 |
+| 单文件导入（上传外部 .md） | 入口文件 UX 为文本编辑器（无上传按钮）；"我的文件"上传可间接落同名对象但**无密钥扫描**（既有旁路，§6 挂账）；桌面可手动 cp | ❌ 缺正规导入入口（含扫描） |
 | **整包/整目录导入**（含目录树与脚本） | 无 | ❌ 未设计 |
 | 调度包资源对模型**可读** | **分层断裂**（见 §2） | ❌ 核心缺口 |
 | @import 单层文本内联 | 已实现（批次二） | ⚠️ 语义不匹配：规范库是"按需查阅的资源"，不是"拼进 prompt 的文本"，内联会撑爆上下文 |
@@ -62,24 +62,30 @@
 
 | 目标 | 平台落位 | 桌面落位 |
 |---|---|---|
-| 全局空间 | MinIO `workspaces/{uid}/`（入口文件 + 资源按相对路径平铺；资源目录与"我的文件"清单共存但标注 `source=entry-package`） | `~/.gewu/`（入口文件 + 资源平铺） |
+| 全局空间 | **保留前缀 `.entry-package/`**：MinIO `workspaces/{uid}/.entry-package/<包相对结构>`（资源）；入口文件本体例外——GEWU.md/AGENTS.md 仍落全局入口位（既有语义） | `~/.gewu/`（入口文件 + 资源平铺；桌面本地 FS 无同步链路，无需保留前缀） |
 | 项目仓库 | 沙箱卷 `projects/{id}/repo/`（写入后提示提交 Git） | 项目目录根 |
 
-- 全局层平铺语义：包内 `AGENTS.md` → 入口位；包内 `.standards/AETC.md` → `workspaces/{uid}/.standards/AETC.md`——**入口内引用相对路径无需改写**，@global 只读根（§5）与导入落位同源。
+- **全局资源隔离落位（F-402/F-403/F-404 裁决）**：包资源统一进保留前缀 `.entry-package/`，与用户文件命名空间物理分离——
+  ①**不建 workspace_file 台账**（"我的文件"不可见为明示取舍：治理资源非用户文档）；
+  ②**不入 M2V/对账 + 同步前缀排除（N-1 补强）**：`WorkspaceSyncService.excluded()` 增加 `.entry-package/` 前缀排除（P3-1 一行改动）——排除后对账 M2V（遍历台账行，本就不建行）与 V2M/对账补偿（卷扫描排除该前缀）均不触及保留前缀，"对账镜像进卷""卷回灌覆盖包资源""@import 内联死灰"三重风险消解；
+  ③不占用户文件配额（以导入总量上限承载）；④每次导入记结构化审计日志（来源/清单/覆盖项/操作者）；
+  ⑤@global 只读根与 @import 全局 reader 均直读 MinIO `.entry-package/`（与沙箱解耦，无沙箱会话可用）。
+- 项目落位走 Git 管理（模型文件工具直达资源，无需隔离）。
 
 ### 4.2 导入来源与 API
 
 | 来源 | 形态 | 处理 |
 |---|---|---|
-| 文件上传 | 单 .md / .zip（multipart） | zip 解包校验后落位（沙箱侧解压，平台）；桌面端 zip 本地解压 |
+| 文件上传 | 单 .md / .zip（multipart） | zip 解包校验后落位（**服务侧流式解压**，平台）；桌面端 zip 本地解压 |
 | 沙箱内目录 | 平台特有：用户先把包上传/克隆到卷内某目录 | `POST /entry-package/import {sourceDir, target: global\|project, projectId?}` 服务端遍历复制 |
 | 文本粘贴 | 单文件 | 既有编辑器/PUT 路径不变 |
 
 导入校验（顺序执行，任一失败整体拒绝，无部分落位）：
-1. **包结构**：根层存在 GEWU.md 或 AGENTS.md（恰好一个入口文件；两者并存拒绝并提示二选一）；
-2. **zip slip**：条目路径规范化，拒绝绝对路径与 `..`（L3-SEC-006）；条目数 ≤ 5000、解包总量 ≤ 200MB、单文件 ≤ 2MB；
-3. **密钥扫描**：逐文件 `SecretScanUtil`，任一命中整体拒绝（§8.5 同源）；
-4. **冲突策略**：与既有文件同名 → 默认**覆盖**并在导入报告中列出差异（显式动作 + 审计留痕；"跳过/合并"策略留后续）。
+1. **包结构**：根层存在 GEWU.md 或 AGENTS.md；两者并存**整体拒绝**并提示二选一——与 56 §5.1 运行时"并存容忍、GEWU 胜"的口径差异是有意为之（F-405 声明）：导入是批量动作，入口歧义的代价远高于单文件态；
+2. **zip 安全（服务侧流式解压，ZipInputStream 逐条目处理，F-406）**：条目路径规范化拒绝绝对路径与 `..`（L3-SEC-006 zip slip）；**符号链接条目拒绝**；嵌套 zip 不递归（按普通文件落位）；条目数 ≤ 5000、流式累计解包 ≤ 200MB、单文件 ≤ 2MB（三重限额流式即时生效，非解压后补查）；
+3. **密钥扫描**：解包出**每一个文件**均过 `SecretScanUtil`（服务侧字节在手，与解压同侧），任一命中整体拒绝；
+4. **冲突策略**：与既有文件同名 → 默认**覆盖**并在导入报告中列出差异（显式动作 + 审计留痕；"跳过/合并"策略留后续）；
+5. **扩展名策略声明（F-406）**：包内 `.sh`/`.py` 等脚本按普通文本落位、不保留可执行位（zip 不携带可靠 exec 位，沙箱执行需显式 bash 调用）——与单文件上传通道禁 `.sh` 的差异属导入语义（治理资源 vs 用户上传），风险接受并留痕。
 
 ### 4.3 API 与界面
 
@@ -88,6 +94,7 @@
 - 桌面：`POST /v1/entry-file/import-package`（zip 路径/目录经文件选择对话框）；
 - Web 设置页/项目详情：新增"导入入口包"按钮（上传 → 预览清单[文件数/入口文件/覆盖列表] → 确认导入）；
 - 导入报告（响应体）：落位文件数、覆盖清单、跳过原因。
+- **鉴权前置（F-408）**：target=project → 项目成员校验（requireProjectAccess 同源，L3-SEC-035 防水平越权）；target=global → 用户工作空间已初始化校验（沿用 saveGlobalFile 检查）；导入总量上限即配额承载（不占用户文件配额）。
 
 ## 5. 设计二：全局资源双根只读（方案 X）
 
@@ -98,7 +105,7 @@
 | 根 | 读写 | 路径表示 | 内容 |
 |---|---|---|---|
 | 主根 | 读写 | 既有相对路径（会话 directory） | 项目 repo / 卷根 |
-| 全局资源根 | **只读** | `@global/<相对路径>` | 用户全局空间（MinIO workspaces/{uid}/ 平台；~/.gewu/ 桌面），**排除入口文件本身**（GEWU.md/AGENTS.md 已注入 system，不重复暴露） |
+| 全局资源根 | **只读** | `@global/<相对路径>` | 平台=MinIO **`.entry-package/` 子空间**；桌面=`~/.gewu/` 平铺。入口文件本身（GEWU.md/AGENTS.md）已注入 system 不重复暴露——平台前缀内本无入口文件；桌面平铺落位由 @global 路由排除该两名（§5.2 桌面行） |
 
 - 模型寻址示例：`read_file @global/.standards/AETC.md`；
 - `list_dir @global/` → 列全局资源树；`write_file @global/...` → 明确报错"全局资源只读"；
@@ -108,47 +115,51 @@
 
 | 层 | 改动 |
 |---|---|
-| `FileWorkspaceSpi` | 不改接口；路由在实现层或统一装饰器完成 |
-| 平台 `SessionFileWorkspaceService` | path 以 `@global/` 开头 → 改读 MinIO `workspaces/{uid}/<rest>`（read/list）；write/edit/delete → PARAM_INVALID("全局资源只读") |
-| 桌面 `LocalFileWorkspaceSpi` | `@global/` → `~/.gewu/<rest>` 只读（复用 PathGuard 语义，根换为 .gewu） |
-| 系统提示 | `[工作空间状态]` 段补充一行："全局资源以 @global/ 前缀只读可访问" |
+| 引擎（F-401） | ①`appendNestedEntry` 对 `@global/` 前缀路径**跳过**（嵌套探测不覆盖 @global，与 §5.1 一致）；②read_file 工具 schema 描述与"path 应为相对…"错误文案补 @global 只读说明（模型引导主阵地） |
+| 平台 `SessionFileWorkspaceService`（F-412 按接口事实修订） | path 以 `@global/` 开头 → 改读 MinIO `.entry-package/<rest>`（read/list；list 为 MinIO 侧新增 listObjects 方法）；write/edit → PARAM_INVALID("全局资源只读")。FileWorkspaceSpi **无 delete 方法**（虚构面修正）；真实旁路（undoTurn 的 deleteFile）因 @global 写被拒不可达。编辑器旁路 readCurrentContent/saveContent 需同样识别 @global（P3-2 改动项）。**附加（N-1）**：①相对路径以 `.entry-package/` 开头 → 同款 PARAM_INVALID（堵 V2M 回灌覆盖包资源的残余通道）；②`AgentEntryFileService.loadGlobal` 的 @import 全局 reader 改 **MinIO `.entry-package/` 直读**（原卷内路径既有用法失效，§9-6 明示破坏性） |
+| 桌面 `LocalFileWorkspaceSpi` + `LocalFileService`（F-407 拦截点下沉） | `@global/` → `~/.gewu/<rest>` 只读，**@global 路由排除 GEWU.md/AGENTS.md 两名**（入口文件已注入 system 不重复暴露，§5.1 同源）；拦截点**下沉 LocalFileService 三方法入口**（Spi 与编辑器 saveContent/undoTurn/diff 的共同汇聚点，防编辑器 Ctrl+S 在工作区创建字面 `@global/` 目录）；PathGuard 以 root 参数化复用，换根 .gewu 后越界/符号链接防护保持 |
+| 系统提示（F-410 落点修正） | 资源访问说明统一挂**入口注入段**（entryDirectives 渲染处，与 56 §5.3 同点）："本入口包含资源目录，模型可用 read_file 以 @global/ 前缀按需读取（只读）"——不挂 [工作空间状态] 段（该段在无文件变更会话中不存在，而"刚导入零变更"恰是目标场景） |
 
 ### 5.3 注入协同与模型引导
 
-- 全局入口内容注入 system 时，若包内含资源（导入报告中资源数 > 0），附加一段**资源访问说明**：
+- 全局入口内容注入 system 时，若包内含资源（导入报告中资源数 > 0），在**入口注入段内**（entryDirectives 渲染处，与 56 §5.3 同一落点——[工作空间状态] 段在零变更会话不存在，F-410）附加**资源访问说明**：
   `本入口包含资源目录，模型可用 read_file 以 @global/ 前缀按需读取（只读）。`
 - 项目级包无需说明（资源在仓库内，文件工具直达）。
 
 ## 6. 安全
 
 1. zip slip / 路径穿越：解包逐条目规范化（L3-SEC-006）；
-2. 解包限额：条目数/总量/单文件三重上限（§4.2）；
+2. 解包限额：条目数/流式累计总量/单文件三重上限（§4.2）+ 符号链接条目拒绝 + 嵌套 zip 不递归（按普通文件落位）；
 3. 密钥扫描：包内**逐文件** `SecretScanUtil`，任一命中整体拒绝（与 56 §8.5 同源，P2 已建能力复用）；
 4. 全局只读：`@global/` 写路径硬拒绝——全局治理不被模型改写（收敛 56 §8.4 的 F-209 边界）；
-5. 导入审计：每次导入记录（来源、目标、文件清单、覆盖项、操作者）→ 结构化日志 + 审计留痕。
+5. 导入审计：每次导入记录（来源、目标、文件清单、覆盖项、操作者）→ 结构化日志 + 审计留痕；
+6. **既有通道密钥扫描缺口挂账（F-411）**："我的文件"上传通道无密钥扫描且可间接落全局入口对象键——P3-1 导入扫描落地后，该既有旁路补挂同一扫描（挂账清偿）；
+7. **卷根回灌豁免声明（F-404 延伸 + N-1 补强）**：无项目会话模型经卷根写入 `.standards/` 路径 → V2M 回灌落在用户命名空间键上——**经 `excluded()` 增加 `.entry-package/` 排除后（P3-1），对保留前缀内包资源不构成覆盖**；模型直接写 `.entry-package/` 相对路径的残余通道由 SessionFileWorkspaceService 同款 PARAM_INVALID 拒绝（P3-1 改动项）；成文接受。
 
 ## 7. 分期
 
 | 阶段 | 内容 | 估时 |
 |---|---|---|
-| P3-1 | 入口包导入：zip/单文件上传 → 全局与项目仓库（平台 API + Web 按钮）；密钥/限额/zip slip 校验 | 1.5d |
-| P3-2 | 双根只读：`@global/` 路由（平台 SessionFileWorkspaceService + 桌面 LocalFileWorkspaceSpi）+ 系统提示声明 + 注入协同说明段 | 1~1.5d |
+| P3-1 | 入口包导入：zip/单文件上传 → 全局与项目仓库（平台 API + Web 按钮）；服务侧流式解压 + 四重校验 + 保留前缀落位 + 审计；**同步排除（N-1）**：WorkspaceSyncService.excluded() 增 `.entry-package/` 前缀 + SessionFileWorkspaceService 拒绝 `.entry-package/` 相对路径；**既有通道补挂扫描（§6-6）**："我的文件"上传通道补挂密钥扫描 | 1.5d |
+| P3-2 | 双根只读：`@global/` 路由（平台 SessionFileWorkspaceService + 桌面 LocalFileWorkspaceSpi/LocalFileService 下沉）+ MinIO list 新方法 + **loadGlobal reader 切 MinIO 直读（N-2c）** + 引擎 appendNestedEntry 跳过与工具文案 + 入口注入段说明（F-409 估时上调） | 1.5~2.5d |
 | P3-3 | 桌面导入（文件选择对话框 + 本地解压落位）+ 导入报告 UI | 0.5~1d |
 | P3-4（后续） | 导入差异预览、跳过/合并策略、Git 仓库 URL 导入、全局包版本管理 | 另评 |
 
 ## 8. 测试与验收
 
-1. **导入**：合法包落位断言；无入口文件拒绝；双入口文件拒绝；zip slip 样本拒绝；超限拒绝；密钥样本拒绝；覆盖冲突报告；
+1. **导入**：合法包落位断言；无入口文件拒绝；双入口文件拒绝；zip slip 样本拒绝；符号链接条目拒绝；超限拒绝；密钥样本拒绝；覆盖冲突报告；
 2. **双根**：`read_file @global/.standards/x` 命中全局内容；`write_file @global/...` 被拒；`list_dir @global/` 列树；无 `@global/` 时零行为变化（向后兼容）；
-3. **端到端**：导入 STD-HUB 形态包（AGENTS.md + .standards/）→ 项目会话提问触发面相关问题 → 模型经 `@global/` 读取规范后按规范作答；
-4. **回归**：56/57 既有测试零破坏。
+3. **隔离不变量（N-1）**：模型写 `.entry-package/` 相对路径 → 被拒且不产生 MinIO 覆盖与台账行；
+4. **端到端**：导入 STD-HUB 形态包（AGENTS.md + .standards/）→ 项目会话提问触发面相关问题 → 模型经 `@global/` 读取规范后按规范作答；
+5. **回归**：56/57 既有测试零破坏。
 
 ## 9. 风险与开放问题
 
 | # | 问题 | 倾向 |
 |---|---|---|
 | 1 | `@global/` 前缀被模型滥用为任意路径穿越（`@global/../../`） | 路由层规范化 + 越界拒绝（与主根同级防护） |
-| 2 | 全局资源与"我的文件"清单混列 | 导入文件标 `source=entry-package`，前端可过滤 |
-| 3 | 项目会话无沙箱（纯对话）时 @global 是否可用 | 平台可经 MinIO 直读（无沙箱依赖）；桌面天然可用 |
+| 2 | ~~全局资源与"我的文件"清单混列~~ **已裁决（F-402/F-403）**：包资源入保留前缀 `.entry-package/`，不建台账不入对账，与用户文件命名空间物理隔离 | "我的文件"不可见为明示取舍（治理资源非用户文档）；前端无需过滤 |
+| 3 | ~~项目会话无沙箱（纯对话）时 @global 可用性~~ **已修正（F-409）**：@global 根在 MinIO，读链路天然与沙箱解耦；list_dir 为新增 MinIO listObjects 方法（P3-2 估时已含） | 无风险，表述已修正 |
 | 4 | 多入口包并存冲突（两包都有 .standards/） | 后导入覆盖 + 导入报告；多包隔离留后续 |
 | 5 | P3-2 改动面：SessionFileWorkspaceService 为会话关键路径 | 路由前置判断 + 无 @global/ 时零改动；回归兜底 |
+| 6 | **@import 全局 reader 切换的破坏性（N-2d）**：loadGlobal 改 MinIO `.entry-package/` 直读后，既有"全局入口 @import 指向卷内已 M2V 同步的用户文档"用法失效 | 实施 §5.2 平台行 reader 切换时同步评估 volume→`.entry-package/` 回退链读取，或在发布注记明示破坏性 |
