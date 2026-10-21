@@ -1,6 +1,8 @@
 package com.gewu.desktop.endpoint;
 
 import com.gewu.desktop.adapter.DesktopPersistenceService;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import com.gewu.agent.engine.spi.AgentSpec;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -26,6 +28,37 @@ import java.util.Map;
 public class DesktopAgentController {
 
     private final DesktopPersistenceService persistence;
+
+    /** 智能体定义文件目录(~/.gewu/agents,DB 为真源,文件为同步导出的可读副本) */
+    private Path agentsDir() throws java.io.IOException {
+        Path dir = Path.of(System.getProperty("user.home"), ".gewu", "agents");
+        java.nio.file.Files.createDirectories(dir);
+        return dir;
+    }
+
+    /** CRUD 后同步导出/删除定义文件(可读、可备份、可手工迁移) */
+    private void syncAgentFile(String agentId, String name, String description,
+                               String modelProvider, String modelName, String systemPrompt, Integer status) {
+        try {
+            Path file = agentsDir().resolve(agentId + ".json");
+            if (status != null && status == 0) {
+                java.nio.file.Files.deleteIfExists(file);
+                return;
+            }
+            String json = "{\n"
+                    + "  \"agentId\": \"" + agentId + "\",\n"
+                    + "  \"name\": \"" + (name == null ? "" : name.replace("\\", "\\\\").replace("\"", "\\\"\"")) + "\",\n"
+                    + "  \"description\": \"" + (description == null ? "" : description.replace("\"", "\\\"\"")) + "\",\n"
+                    + "  \"modelProvider\": \"" + (modelProvider == null ? "" : modelProvider) + "\",\n"
+                    + "  \"modelName\": \"" + (modelName == null ? "" : modelName) + "\",\n"
+                    + "  \"systemPrompt\": \"" + (systemPrompt == null ? "" : systemPrompt.replace("\n", "\\n")) + "\",\n"
+                    + "  \"status\": " + (status == null ? 1 : status) + "\n"
+                    + "}";
+            java.nio.file.Files.writeString(file, json);
+        } catch (Exception e) {
+            // 文件同步失败不影响 DB 真源(端点响应不暴露)
+        }
+    }
 
     public DesktopAgentController(DesktopPersistenceService persistence) {
         this.persistence = persistence;
@@ -69,6 +102,8 @@ public class DesktopAgentController {
         }
         String id = persistence.upsertAgent(null, req.name(), req.description(),
                 req.modelProvider(), req.modelName(), req.systemPrompt(), req.status());
+        syncAgentFile(id, req.name(), req.description(), req.modelProvider(), req.modelName(),
+                req.systemPrompt(), req.status() == null ? 1 : req.status());
         return toDTO(persistence.loadAgent(id));
     }
 
@@ -81,12 +116,21 @@ public class DesktopAgentController {
         }
         persistence.upsertAgent(agentId, req.name(), req.description(),
                 req.modelProvider(), req.modelName(), req.systemPrompt(), req.status());
+        syncAgentFile(agentId, req.name(), req.description(), req.modelProvider(), req.modelName(),
+                req.systemPrompt(), req.status() == null ? 1 : req.status());
         return toDTO(persistence.loadAgent(agentId));
     }
 
     @DeleteMapping("/{agentId}")
     public Map<String, Object> delete(@PathVariable String agentId) {
         int n = persistence.deleteAgent(agentId);
+        if (n > 0) {
+            try {
+                java.nio.file.Files.deleteIfExists(agentsDir().resolve(agentId + ".json"));
+            } catch (Exception ignored) {
+                // 文件清理失败不影响 DB 删除结果
+            }
+        }
         return Map.of("ok", n > 0);
     }
 

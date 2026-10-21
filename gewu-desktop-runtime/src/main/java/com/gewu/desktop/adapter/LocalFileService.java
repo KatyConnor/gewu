@@ -3,6 +3,7 @@ package com.gewu.desktop.adapter;
 import com.gewu.desktop.config.DesktopProps;
 import com.gewu.desktop.security.PathGuard;
 import com.gewu.desktop.store.Ids;
+import com.gewu.agent.engine.tool.ToolContext;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 
@@ -45,13 +46,26 @@ public class LocalFileService {
 
     /** 根解析：会话 directory ＞ 全局默认（gewu.desktop.workspace-root） */
     public Path rootFor(String sessionId) throws IOException {
-        String dir = sessionId == null ? null : sessionDirectory(sessionId);
+        return rootFor(null, sessionId);
+    }
+
+    /** 根解析（显式工作区版）：显式 workspaceRoot（引擎 ToolContext 透传，子代理工作区继承） ＞ 会话 directory ＞ 全局默认 */
+    public Path rootFor(String explicitWorkspaceRoot, String sessionId) throws IOException {
+        String dir = explicitWorkspaceRoot != null && !explicitWorkspaceRoot.isBlank()
+                ? explicitWorkspaceRoot
+                : (sessionId == null ? null : sessionDirectory(sessionId));
         if (dir == null || dir.isBlank()) {
             dir = props.getWorkspaceRoot();
         }
         Path root = Path.of(dir);
         Files.createDirectories(root);
         return root;
+    }
+
+    /** 根解析（ToolContext 统一版）：文件工具域的权威入口——子代理 sessionId 可能为空（不共享历史），
+     *  显式 workspaceRoot 是其唯一正确工作区来源（子代理读错工作区实测根修） */
+    public Path rootFor(ToolContext ctx) throws IOException {
+        return rootFor(ctx == null ? null : ctx.getWorkspaceRoot(), ctx == null ? null : ctx.getSessionId());
     }
 
     private String sessionDirectory(String sessionId) {
@@ -65,7 +79,24 @@ public class LocalFileService {
 
     /** 读文件；不存在返回 null */
     public String readFile(String sessionId, String path) throws IOException {
-        Path target = PathGuard.secureResolve(rootFor(sessionId), path);
+        return readFile((ToolContext) null, sessionId, path);
+    }
+
+    /** 读文件（ToolContext 版，SPI 专用）：根解析优先取 ctx 显式 workspaceRoot（子代理工作区继承） */
+    public String readFile(ToolContext ctx, String path) throws IOException {
+        return readFile(ctx, ctx == null ? null : ctx.getSessionId(), path);
+    }
+
+    private String readFile(ToolContext ctx, String sessionId, String path) throws IOException {
+        // @global 只读根路由（设计文档 58 §5.2 桌面行）：读 ~/.gewu/<rest>
+        if (isGlobalPath(path)) {
+            Path target = PathGuard.secureResolve(globalRoot(), path.substring("@global/".length()));
+            if (!Files.exists(target) || Files.isDirectory(target)) {
+                return null;
+            }
+            return Files.readString(target);
+        }
+        Path target = PathGuard.secureResolve(ctx != null ? rootFor(ctx) : rootFor(sessionId), path);
         if (!Files.exists(target) || Files.isDirectory(target)) {
             return null;
         }
@@ -75,12 +106,23 @@ public class LocalFileService {
 
     /** 写文件（整体覆盖）：授权 → 快照 → 落盘 → 变更记录 → 审计 */
     public void writeFile(String sessionId, String path, String content) throws IOException {
-        writeFile(sessionId, path, content, true);
+        writeFileRooted(rootFor(null, sessionId), sessionId, path, content, true);
     }
 
     /** 写文件（requireApproval=false 供编辑器人工保存路径，弹窗仅拦截模型写入） */
     public void writeFile(String sessionId, String path, String content, boolean requireApproval) throws IOException {
-        Path target = PathGuard.secureResolve(rootFor(sessionId), path);
+        writeFileRooted(rootFor(null, sessionId), sessionId, path, content, requireApproval);
+    }
+
+    /** 写文件（ToolContext 版，SPI 专用）：根解析优先取 ctx 显式 workspaceRoot */
+    public void writeFile(ToolContext ctx, String path, String content) throws IOException {
+        rejectGlobalWrite(path); // @global 只读（58 §5.2 桌面行）：写入拒绝在汇聚点统一拦截
+        writeFileRooted(rootFor(ctx), ctx == null ? null : ctx.getSessionId(), path, content, true);
+    }
+
+    private void writeFileRooted(Path root, String sessionId, String path, String content,
+                                 boolean requireApproval) throws IOException {
+        Path target = PathGuard.secureResolve(root, path);
         if (Files.isDirectory(target)) {
             throw new SecurityException("目标是目录，不能作为文件写入: " + path);
         }
@@ -96,7 +138,31 @@ public class LocalFileService {
 
     /** 列目录（返回文件/子目录名清单；目录加 / 后缀，对齐 ls -1 可读性） */
     public List<String> listDir(String sessionId, String path) throws IOException {
-        Path target = PathGuard.secureResolve(rootFor(sessionId), path);
+        return listDirRooted(rootFor(null, sessionId), sessionId, path);
+    }
+
+    /** 列目录（ToolContext 版，SPI 专用）：根解析优先取 ctx 显式 workspaceRoot */
+    public List<String> listDir(ToolContext ctx, String path) throws IOException {
+        if (isGlobalPath(path)) {
+            String rest = path.equals("@global") ? "" : path.substring("@global/".length());
+            Path target = PathGuard.secureResolve(globalRoot(), rest);
+            if (!Files.exists(target)) {
+                return List.of();
+            }
+            audit(ctx == null ? null : ctx.getSessionId(), "list_dir", "ALLOW", path, null);
+            try (Stream<Path> stream = Files.list(target)) {
+                return stream.map(p -> Files.isDirectory(p)
+                                ? p.getFileName().toString() + "/"
+                                : p.getFileName().toString())
+                        .sorted()
+                        .collect(Collectors.toList());
+            }
+        }
+        return listDirRooted(rootFor(ctx), ctx == null ? null : ctx.getSessionId(), path);
+    }
+
+    private List<String> listDirRooted(Path root, String sessionId, String path) throws IOException {
+        Path target = PathGuard.secureResolve(root, path);
         if (!Files.exists(target)) {
             return List.of();
         }
@@ -110,6 +176,26 @@ public class LocalFileService {
                             : p.getFileName().toString())
                     .sorted()
                     .collect(Collectors.toList());
+        }
+    }
+
+
+    // ==================== @global 只读根（设计文档 58 §5.2 桌面行） ====================
+
+    private static final String GLOBAL_PREFIX = "@global/";
+
+    private static boolean isGlobalPath(String path) {
+        return path != null && (path.equals("@global") || path.startsWith("@global/"));
+    }
+
+    private static Path globalRoot() {
+        return Path.of(System.getProperty("user.home"), ".gewu");
+    }
+
+    /** 写 @global 硬拒绝（SPI 与编辑器旁路共同汇聚点，F-407：防字面 @global/ 目录静默创建）。 */
+    private static void rejectGlobalWrite(String path) {
+        if (isGlobalPath(path)) {
+            throw new SecurityException("全局资源只读，不可写入（@global/）");
         }
     }
 
@@ -192,8 +278,9 @@ public class LocalFileService {
         return dto;
     }
 
-    /** 编辑保存（FileEditorPanel Ctrl+S 写回；人工动作免弹窗，变更记录同入口） */
+    /** 编辑保存（FileEditorPanel Ctrl+S 写回；人工动作免弹窗，变更记录同入口）。@global 只读路径拒绝。 */
     public void saveContent(String sessionId, String path, String content) throws IOException {
+        rejectGlobalWrite(path);
         writeFile(sessionId, path, content, false);
     }
 

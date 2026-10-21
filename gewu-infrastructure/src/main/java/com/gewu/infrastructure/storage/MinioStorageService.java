@@ -12,6 +12,8 @@ import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.security.GeneralSecurityException;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
 
@@ -93,6 +95,17 @@ public class MinioStorageService {
         } catch (Exception e) {
             log.error("MinIO read failed: {}", e.getMessage());
             throw new RuntimeException("文档读取失败: " + e.getMessage());
+        }
+    }
+
+    /** 读取对象原始字节（二进制安全，供工作空间同步 M2V 方向使用） */
+    public byte[] downloadBytes(String objectName) {
+        try (InputStream is = minioClient.getObject(GetObjectArgs.builder()
+                .bucket(bucketName).object(objectName).build())) {
+            return is.readAllBytes();
+        } catch (Exception e) {
+            log.error("MinIO download failed: {}", e.getMessage());
+            throw new RuntimeException("文档下载失败: " + e.getMessage());
         }
     }
 
@@ -187,7 +200,32 @@ public class MinioStorageService {
                 }
             }
         } catch (Exception e) {
-            log.warn("Workspace path delete failed: {}", pathPrefix);
+            log.error("MinIO batch delete failed: {}", e.getMessage());
         }
+    }
+
+    /**
+     * 前缀下的对象键列表（设计文档 58 §5.2：@global/ list_dir 数据源；递归、上限 maxKeys）。
+     */
+    public List<String> listObjectKeys(String pathPrefix, int maxKeys) {
+        List<String> keys = new ArrayList<>();
+        try {
+            Iterable<io.minio.Result<io.minio.messages.Item>> objects = minioClient.listObjects(
+                    ListObjectsArgs.builder().bucket(bucketName).prefix(pathPrefix).recursive(true).build());
+            for (var item : objects) {
+                keys.add(item.get().objectName());
+                if (keys.size() >= maxKeys) {
+                    break;
+                }
+            }
+        } catch (Exception e) {
+            log.error("MinIO list failed: {}", e.getMessage());
+        }
+        return keys;
+    }
+
+    /** 前缀下是否存在任一对象（入口包资源探测用）。 */
+    public boolean prefixHasObjects(String pathPrefix) {
+        return !listObjectKeys(pathPrefix, 1).isEmpty();
     }
 }

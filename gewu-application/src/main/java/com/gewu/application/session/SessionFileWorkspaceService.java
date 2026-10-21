@@ -9,6 +9,9 @@ import com.gewu.common.ulid.Ulid;
 import com.gewu.domain.session.Session;
 import com.gewu.domain.session.SessionFileChange;
 import com.gewu.domain.session.SessionFileChangeEvent;
+import com.gewu.domain.workspace.Workspace;
+import com.gewu.domain.workspace.WorkspaceSyncState;
+import com.gewu.infrastructure.mapper.WorkspaceMapper;
 import com.gewu.infrastructure.mapper.SessionFileChangeMapper;
 import com.gewu.infrastructure.mapper.SessionFileChangeEventMapper;
 import com.gewu.infrastructure.mapper.SessionMapper;
@@ -46,18 +49,79 @@ public class SessionFileWorkspaceService implements FileWorkspaceSpi {
     private final SessionFileChangeEventMapper fileChangeEventMapper;
     private final SandboxClient sandboxClient;
     private final DevWorkspaceService devWorkspaceService;
+    private final com.gewu.application.workspace.WorkspaceSyncService workspaceSyncService;
+    private final WorkspaceMapper workspaceMapper;
+    private final com.gewu.infrastructure.storage.MinioStorageService minioStorageService;
+
+    private static final String GLOBAL_PREFIX = "@global/";
+
+    /** @global 路径判定（设计文档 58 §5）：@global 与 @global/... */
+    private static boolean isGlobalPath(String path) {
+        return path != null && (path.equals("@global") || path.startsWith("@global/"));
+    }
+
+    /** @global 只读根：用户全局空间的 .entry-package/ 保留前缀（平台=MinIO 直读）。 */
+    private String globalRead(ToolContext ctx, String rest) {
+        Workspace ws = workspaceMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Workspace>()
+                        .eq(Workspace::getUserId, ctx.getUserId()).last("LIMIT 1"));
+        if (ws == null) {
+            return null;
+        }
+        // 入口文件两名排除（已随 system 注入，不重复暴露；§5.2 桌面行同源）
+        if (rest.equals("GEWU.md") || rest.equals("AGENTS.md")) {
+            return null;
+        }
+        try {
+            return minioStorageService.getContent(ws.getStoragePath() + ".entry-package/" + rest);
+        } catch (Exception e) {
+            log.debug("读取全局资源失败: rest={}, err={}", rest, e.getMessage());
+            return null;
+        }
+    }
+
+    /** @global list_dir：全局资源树（相对名去重）。 */
+    private List<String> globalList(ToolContext ctx, String rest) {
+        Workspace ws = workspaceMapper.selectOne(
+                new com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper<Workspace>()
+                        .eq(Workspace::getUserId, ctx.getUserId()).last("LIMIT 1"));
+        if (ws == null) {
+            return List.of();
+        }
+        String prefix = ws.getStoragePath() + ".entry-package/" + (rest.isBlank() ? "" : rest + "/");
+        List<String> names = new java.util.ArrayList<>();
+        for (String key : minioStorageService.listObjectKeys(prefix, 500)) {
+            String rel = key.substring(prefix.length());
+            int slash = rel.indexOf('/');
+            names.add(slash < 0 ? rel : rel.substring(0, slash + 1));
+        }
+        return names.stream().distinct().sorted().toList();
+    }
 
     /** 沙箱内工作空间根（ContainerFileService 的 WORKSPACE_ROOT） */
     private static final String WORKSPACE_ROOT = "/workspace";
     private static final Pattern UNSAFE_PATH = Pattern.compile("(^|/)\\.\\.($|/)");
 
+    /** 入口包保留前缀（设计文档 58 §4.1）：同步/对账均排除，模型写路径同样拒绝（N-1 隔离不变量） */
+    private static final String ENTRY_PACKAGE_PREFIX = ".entry-package/";
+
+    /** 保留前缀命中判定：路径本身或任一父段命中 .entry-package/ */
+    private static boolean isEntryPackagePath(String p) {
+        return p.equals(ENTRY_PACKAGE_PREFIX) || p.startsWith(ENTRY_PACKAGE_PREFIX + "/")
+                || p.contains("/" + ENTRY_PACKAGE_PREFIX + "/");
+    }
+
     // ==================== FileWorkspaceSpi（引擎文件工具执行后端） ====================
 
     @Override
     public String readFile(ToolContext ctx, String path) {
+        // @global 只读根路由（设计文档 58 §5.2，方案 X）
+        if (isGlobalPath(path)) {
+            return globalRead(ctx, path.equals("@global") ? "" : path.substring("@global/".length()));
+        }
         Binding b = resolveBinding(ctx);
         try {
-            return sandboxClient.readFile(b.sandboxId(), toSandboxPath(b.root(), path));
+            return sandboxClient.readFile(b.sandboxId(), toSandboxPath(b.root(), normalizeRelative(b.root(), path)));
         } catch (Exception e) {
             // 读取失败（不存在/不可读）统一按文件不存在处理，由调用方给出语义
             log.debug("读取沙箱文件失败: sandbox={}, path={}, err={}", b.sandboxId(), path, e.getMessage());
@@ -67,13 +131,30 @@ public class SessionFileWorkspaceService implements FileWorkspaceSpi {
 
     @Override
     public void writeFile(ToolContext ctx, String path, String content) {
+        // @global 只读硬拒绝（方案 X：全局治理不被模型改写）
+        if (isGlobalPath(path)) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "全局资源只读，不可写入（@global/）");
+        }
         Binding b = resolveBinding(ctx);
-        String safePath = sanitizeRelative(path);
-        String before = readFile(ctx, path);
+        // 变更记录与实际写入统一用规范化路径：模型误带 workspace/ 或会话根前缀时，
+        // 文件落到真实目标且变更列表不出现字面 workspace/ 幽灵目录
+        String safePath = normalizeRelative(b.root(), path);
+        if (safePath.isBlank()) {
+            // 形如 "workspace"、"/workspace" 的写入目标规范化后指向工作空间根本身，拒绝而非覆盖根
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "非法文件路径: " + path);
+        }
+        // 入口包保留前缀写拒绝（设计文档 58 §4.1 N-1）：包资源仅经导入通道管理
+        if (isEntryPackagePath(safePath)) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID,
+                    ".entry-package/ 为入口包保留目录，请使用导入功能管理");
+        }
+        String before = readFile(ctx, safePath);
         snapshotBeforeTurnWrite(ctx, safePath, before);
         recordChange(ctx, safePath, before, content);
         recordWriteEvent(ctx, safePath, before, content);
         sandboxClient.writeFile(b.sandboxId(), toSandboxPath(b.root(), safePath), content);
+        // V2M：会话写入的文档同步进"我的文件"（projects/** 代码目录由同步服务排除，走 Git）
+        workspaceSyncService.enqueue(b.workspaceId(), safePath, WorkspaceSyncState.DIRECTION_V2M);
     }
 
     /**
@@ -112,13 +193,24 @@ public class SessionFileWorkspaceService implements FileWorkspaceSpi {
 
     @Override
     public List<String> listDir(ToolContext ctx, String path) {
+        // @global 列树路由（方案 X）：@global 与 @global/<sub> 均支持
+        if (isGlobalPath(path)) {
+            String rest = path.equals("@global") ? "" : path.substring("@global/".length());
+            return globalList(ctx, rest);
+        }
         Binding b = resolveBinding(ctx);
-        String rel = path == null || path.isBlank() ? "" : sanitizeRelative(path);
+        String rel = path == null || path.isBlank() ? "" : normalizeRelative(b.root(), path);
+        String target = toSandboxPath(b.root(), rel);
+        // 无项目会话且省略 path 时 target 为空：落回容器工作目录（dev 镜像 WORKDIR=/workspace）
+        if (target.isBlank()) {
+            target = ".";
+        }
         com.gewu.common.dto.sandbox.ExecCommandResponse resp =
-                sandboxClient.execCommand(b.sandboxId(), "ls -1 " + quoteShell(toSandboxPath(b.root(), rel)), 15);
+                sandboxClient.execCommand(b.sandboxId(), "ls -1 " + quoteShell(target), 15);
         if (resp.getExitCode() == null || resp.getExitCode() != 0) {
             throw BusinessException.of(ResultCode.PARAM_INVALID,
-                    "目录不存在或不可读: " + rel);
+                    "目录不存在或不可读: " + (rel.isBlank() ? "(工作空间根)" : rel)
+                            + "（已尝试: " + target + "；path 应相对当前工作空间根，勿带 workspace/ 前缀）");
         }
         List<String> entries = new ArrayList<>();
         for (String line : resp.getStdout().split("\n")) {
@@ -176,6 +268,45 @@ public class SessionFileWorkspaceService implements FileWorkspaceSpi {
         return result;
     }
 
+    /**
+     * 文件清单摘要（供跨轮回放注入 LLM 上下文，见设计文档 42 项一）：
+     * 最近修改的前 N 个路径 + churn 增删统计，纯台账查询不回读文件内容。
+     */
+    public List<String> fileInventorySummary(String sessionId, int limit) {
+        List<SessionFileChange> records = fileChangeMapper.selectList(
+                new LambdaQueryWrapper<SessionFileChange>()
+                        .eq(SessionFileChange::getSessionId, sessionId)
+                        .eq(SessionFileChange::getDeleted, 0)
+                        .orderByDesc(SessionFileChange::getUpdatedAt)
+                        .last("LIMIT " + Math.max(1, limit)));
+        if (records.isEmpty()) {
+            return List.of();
+        }
+        Map<String, int[]> churnByPath = new java.util.HashMap<>();
+        for (SessionFileChangeEvent ev : fileChangeEventMapper.selectList(
+                new LambdaQueryWrapper<SessionFileChangeEvent>()
+                        .eq(SessionFileChangeEvent::getSessionId, sessionId))) {
+            int[] agg = churnByPath.computeIfAbsent(ev.getFilePath(), k -> new int[2]);
+            agg[0] += ev.getAdditions() != null ? ev.getAdditions() : 0;
+            agg[1] += ev.getDeletions() != null ? ev.getDeletions() : 0;
+        }
+        List<String> lines = new ArrayList<>();
+        for (SessionFileChange r : records) {
+            StringBuilder line = new StringBuilder("- ").append(r.getFilePath());
+            if ("DELETE".equals(r.getChangeType())) {
+                line.append("（已删除）");
+            } else {
+                int[] churn = churnByPath.get(r.getFilePath());
+                if (churn != null) {
+                    line.append("CREATE".equals(r.getChangeType()) ? "（新建" : "（修改")
+                            .append("，+").append(churn[0]).append("/-").append(churn[1]).append("）");
+                }
+            }
+            lines.add(line.toString());
+        }
+        return lines;
+    }
+
     /** 变更差异（before 快照 vs 当前内容，unified diff 文本） */
     public FileDiffDTO diff(String sessionId, String path) {
         SessionFileChange record = requireChange(sessionId, path);
@@ -200,7 +331,7 @@ public class SessionFileWorkspaceService implements FileWorkspaceSpi {
         Session session = requireSession(sessionId);
         Binding b = resolveBindingOf(session);
         try {
-            return sandboxClient.readFile(b.sandboxId(), toSandboxPath(b.root(), sanitizeRelative(path)));
+            return sandboxClient.readFile(b.sandboxId(), toSandboxPath(b.root(), normalizeRelative(b.root(), path)));
         } catch (Exception e) {
             throw BusinessException.of(ResultCode.PARAM_INVALID, "读取文件失败: " + path);
         }
@@ -488,7 +619,7 @@ public class SessionFileWorkspaceService implements FileWorkspaceSpi {
 
     // ==================== 工作空间路由 ====================
 
-    private record Binding(String sandboxId, String root) {
+    private record Binding(String sandboxId, String root, String workspaceId) {
     }
 
     private Binding resolveBinding(ToolContext ctx) {
@@ -499,7 +630,7 @@ public class SessionFileWorkspaceService implements FileWorkspaceSpi {
     private Binding resolveBindingOf(Session session) {
         String rootRel = directoryToRelative(session.getDirectory());
         String sandboxId = resolveSandboxId(session);
-        return new Binding(sandboxId, rootRel);
+        return new Binding(sandboxId, rootRel, session.getWorkspaceId());
     }
 
     /** 会话目录（/workspace/projects/{id}/repo）→ 工作空间内相对根（projects/{id}/repo） */
@@ -555,6 +686,33 @@ public class SessionFileWorkspaceService implements FileWorkspaceSpi {
                 .build();
     }
 
+    /**
+     * 相对路径规范化：兼容模型常见的几种路径形态，全部落到同一目标——
+     * 裸相对路径（规范形态）、带 workspace/ 前缀（沙箱挂载点名，模型高频误加，
+     * 见 S9 用户实报截图）、带会话根前缀（session.directory 下发的完整形态）、
+     * 绝对路径（sanitizeRelative 已剥前导 /，剩余 workspace/... 在此剥离）。
+     * <p>权衡：若仓库顶层真实存在名为 workspace 的目录，该前缀会被误剥；
+     * 相比"带前缀必失败且写入制造幽灵目录自我强化"的高频问题，取剥离策略。
+     */
+    private static String normalizeRelative(String root, String path) {
+        String p = sanitizeRelative(path);
+        if (root != null && !root.isBlank()) {
+            if (p.equals(root)) {
+                return "";
+            }
+            if (p.startsWith(root + "/")) {
+                p = p.substring(root.length() + 1);
+            }
+        }
+        if (p.equals("workspace")) {
+            return "";
+        }
+        if (p.startsWith("workspace/")) {
+            p = p.substring("workspace/".length());
+        }
+        return p;
+    }
+
     /** 相对路径净化：去首尾斜杠、拒绝 .. 越界 */
     private static String sanitizeRelative(String path) {
         if (path == null || path.isBlank()) {
@@ -573,8 +731,11 @@ public class SessionFileWorkspaceService implements FileWorkspaceSpi {
         return p;
     }
 
-    /** 工作空间相对路径拼接（root 为空=工作空间根） */
+    /** 工作空间相对路径拼接（root 为空=工作空间根；path 为空=根本身，供 list_dir 省略 path 使用） */
     private static String toSandboxPath(String root, String path) {
+        if (path == null || path.isBlank()) {
+            return root == null || root.isBlank() ? "" : root;
+        }
         String safe = sanitizeRelative(path);
         return root == null || root.isBlank() ? safe : root + "/" + safe;
     }

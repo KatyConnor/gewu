@@ -8,12 +8,18 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipInputStream;
 
 /**
  * 引擎 API Profile：入口调度文件读写（设计文档 56 §7.2）.
@@ -98,6 +104,105 @@ public class EntryFileController {
             throw new IllegalStateException("保存失败: " + e.getMessage(), e);
         }
         return Map.of("ok", true, "path", file.toString());
+    }
+
+    // ==================== 入口包导入（设计文档 58 §4，P3-3 桌面形态） ====================
+
+    public record ImportPackageRequest(String sourcePath) {}
+
+    private static final long IMPORT_MAX_FILE_BYTES = 2L * 1024 * 1024;
+    private static final long IMPORT_MAX_TOTAL_BYTES = 200L * 1024 * 1024;
+
+    /** 导入本地入口包（目录或 .zip）到 ~/.gewu/：入口文件平铺 + 资源平铺，逐文件密钥扫描。 */
+    @PostMapping("/import-package")
+    public Map<String, Object> importPackage(@RequestBody ImportPackageRequest req) throws Exception {
+        if (req == null || req.sourcePath() == null || req.sourcePath().isBlank()) {
+            throw new IllegalArgumentException("sourcePath 不能为空");
+        }
+        Path source = Path.of(req.sourcePath().trim());
+        if (!Files.exists(source)) {
+            throw new IllegalArgumentException("路径不存在: " + source);
+        }
+        Map<String, byte[]> entries = new LinkedHashMap<>();
+        if (source.toString().toLowerCase().endsWith(".zip")) {
+            try (ZipInputStream zis = new ZipInputStream(Files.newInputStream(source))) {
+                ZipEntry e;
+                long total = 0;
+                while ((e = zis.getNextEntry()) != null) {
+                    if (e.isDirectory()) {
+                        continue;
+                    }
+                    String rel = normalizeEntryName(e.getName());
+                    if (rel == null) {
+                        continue;
+                    }
+                    byte[] content = zis.readAllBytes();
+                    total += content.length;
+                    if (content.length > IMPORT_MAX_FILE_BYTES || total > IMPORT_MAX_TOTAL_BYTES) {
+                        throw new IllegalArgumentException("包超过大小上限（单文件 2MB / 总量 200MB）");
+                    }
+                    entries.put(rel, content);
+                }
+            }
+        } else if (Files.isDirectory(source)) {
+            try (Stream<Path> walk = Files.walk(source)) {
+                for (Path p : (Iterable<Path>) walk.filter(Files::isRegularFile)::iterator) {
+                    String rel = normalizeEntryName(source.relativize(p).toString());
+                    if (rel == null || rel.isBlank()) {
+                        continue;
+                    }
+                    if (Files.size(p) > IMPORT_MAX_FILE_BYTES) {
+                        throw new IllegalArgumentException("单文件超过上限（2MB）: " + rel);
+                    }
+                    entries.put(rel, Files.readAllBytes(p));
+                }
+            }
+        } else {
+            throw new IllegalArgumentException("sourcePath 须为目录或 .zip 文件");
+        }
+        String entryName = null;
+        for (var e : entries.entrySet()) {
+            var secret = com.gewu.common.security.SecretScanUtil.findSecret(
+                    new String(e.getValue(), StandardCharsets.UTF_8));
+            if (secret.isPresent()) {
+                throw new IllegalArgumentException("文件 " + e.getKey() + " 疑似包含" + secret.get() + "，已拒绝导入");
+            }
+            if (e.getKey().equals("GEWU.md") || e.getKey().equals("AGENTS.md")) {
+                entryName = e.getKey();
+            }
+        }
+        if (entryName == null) {
+            throw new IllegalArgumentException("包根层缺少入口文件（GEWU.md 或 AGENTS.md）");
+        }
+        Path home = Path.of(System.getProperty("user.home"), ".gewu");
+        for (var e : entries.entrySet()) {
+            Path target = home.resolve(e.getKey()).normalize();
+            if (!target.startsWith(home)) {
+                throw new IllegalArgumentException("非法路径: " + e.getKey());
+            }
+            Files.createDirectories(target.getParent());
+            Files.write(target, e.getValue());
+        }
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("fileCount", entries.size());
+        out.put("entryFile", entryName);
+        return out;
+    }
+
+    /** zip 条目名规范化：剥 ./ 前缀；绝对路径/.. /反斜杠返回 null（zip slip 拒绝）。 */
+    private static String normalizeEntryName(String raw) {
+        if (raw == null) {
+            return null;
+        }
+        String p = raw.trim().replace('\\', '/');
+        while (p.startsWith("./")) {
+            p = p.substring(2);
+        }
+        if (p.startsWith("/") || p.isBlank()
+                || java.util.Arrays.stream(p.split("/")).anyMatch(".."::equals)) {
+            return null;
+        }
+        return p;
     }
 
     private Path fileFor(String scope, String name, String project) {

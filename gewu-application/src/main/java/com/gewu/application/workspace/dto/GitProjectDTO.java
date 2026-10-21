@@ -17,6 +17,8 @@ public class GitProjectDTO {
     private String repoBranch;
     private String localPath;
     private String cloneStatus;
+    /** 最近一次 clone 失败的 stderr 摘要（ready 时为空） */
+    private String cloneError;
     private Long lastSyncAt;
     private String headCommit;
     private Long createdAt;

@@ -1,13 +1,15 @@
 'use client';
 import { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
-import { Loader2, FolderPlus, Upload, Trash2, ChevronRight, ChevronDown, Folder, FileText, Save, Play, HardDrive, Pencil, Undo2 } from 'lucide-react';
+import { Loader2, FolderPlus, Upload, Trash2, ChevronRight, ChevronDown, Folder, FileText, Save, SquareTerminal, HardDrive, Pencil, Undo2 } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import MarkdownReader from '@/components/ui/MarkdownReader';
+// 终端面板客户端专用（ssr:false）：@xterm/addon-fit UMD 顶层引用 self，SSR 预渲染会崩
+const TerminalPanel = dynamic(() => import('@/components/ui/TerminalPanel'), { ssr: false });
 import { isMarkdownPath, isProbablyBinary, monacoLangOf } from '@/lib/fileLanguage';
 import {
   getMyWorkspace, listFiles, createDirectory, uploadFile,
-  getFileContent, saveFileContent, deleteFile, createWorkspaceSandbox,
+  getFileContent, saveFileContent, deleteFile,
   type WorkspaceDTO, type FileNodeDTO,
 } from '@/lib/workspace';
 
@@ -189,13 +191,12 @@ export default function WorkspacePage() {
     }
   };
 
-  const handleCreateSandbox = async () => {
-    try {
-      const sb = await createWorkspaceSandbox('shell', '工作空间沙箱');
-      toast('沙箱已创建: ' + sb.sandboxId.substring(0, 8), 'success');
-    } catch (e) {
-      toast('沙箱创建失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
-    }
+  const [termOpen, setTermOpen] = useState(false);
+  const [termFullscreen, setTermFullscreen] = useState(false);
+
+  // 打开终端：面板内部自行申领 ticket 并连接（沙箱由后端惰性就绪）
+  const handleOpenTerminal = () => {
+    setTermOpen(true);
   };
 
   /** 递归渲染树节点：目录展开时懒加载并渲染其子节点 */
@@ -285,10 +286,10 @@ export default function WorkspacePage() {
             </div>
           )}
           <button
-            onClick={handleCreateSandbox}
+            onClick={handleOpenTerminal}
             className="flex items-center gap-2 px-4 py-2 btn-primary text-white text-sm rounded-lg"
           >
-            <Play className="w-4 h-4" /> 启动沙箱
+            <SquareTerminal className="w-4 h-4" /> 打开终端
           </button>
         </div>
       </header>
@@ -429,6 +430,16 @@ export default function WorkspacePage() {
           )}
         </div>
       </div>
+
+      {/* 网页终端抽屉（设计文档 44）：打开后与文件区共存，支持全屏 */}
+      {termOpen && (
+        <TerminalPanel
+          visible={termOpen}
+          onClose={() => setTermOpen(false)}
+          fullscreen={termFullscreen}
+          onToggleFullscreen={() => setTermFullscreen((v) => !v)}
+        />
+      )}
     </div>
   );
 }

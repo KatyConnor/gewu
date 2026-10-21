@@ -96,6 +96,8 @@ export default function SettingsPanel({ conn, initialTab = 'models', onClose, on
   const [entryPath, setEntryPath] = useState('');
   const [entryHint, setEntryHint] = useState<string | null>(null);
   const entryLoadSeq = useRef(0);
+  const [entryImportPath, setEntryImportPath] = useState('');
+  const entryLoadSeq = useRef(0);
 
   // ===== 模型设置状态：选中供应商 + 编辑表单 =====
   const [selected, setSelected] = useState<string | null>(null); // code 或 '__new__'
@@ -304,6 +306,15 @@ export default function SettingsPanel({ conn, initialTab = 'models', onClose, on
     });
     await loadEntry();
   }, `已保存 ${entryName}（${entryScope === 'global' ? '全局 ~/.gewu' : '项目根'}）`);
+
+  const importPackage = () => run(async () => {
+    if (!entryImportPath.trim()) throw new Error('请填写本地入口包路径');
+    await conn.fetch('/v1/entry-file/import-package', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sourcePath: entryImportPath.trim() }),
+    });
+    await loadEntry();
+  }, '入口包已导入 ~/.gewu/');
 
   // ==================== 渲染辅助 ====================
   const input = (placeholder: string, value: string, onChange: (v: string) => void, type = 'text') => (
@@ -605,6 +616,10 @@ export default function SettingsPanel({ conn, initialTab = 'models', onClose, on
                 <textarea placeholder={'入口调度指令（Markdown）\n---\nversion: 1.0.0\n---\n\n# 项目规范\n- 构建命令…'} value={entryContent}
                   onChange={(e) => setEntryContent(e.target.value)}
                   className="w-full bg-[#0a0f0d] text-[#c9d1d9] border border-[#21262d] rounded-md p-2 text-xs mb-2 outline-none font-mono" rows={12} />
+                <div className="row mb-2">
+                  {input('本地入口包路径（目录或 .zip，导入 ~/.gewu）', entryImportPath, setEntryImportPath)}
+                  {btn('导入入口包', importPackage, false)}
+                </div>
                 {btn('保存', saveEntry, true)}
                 <p className="hint">
                   会话启动自动注入 system prompt（AGENTS.md 生态兼容，GEWU.md 格物专属优先）。

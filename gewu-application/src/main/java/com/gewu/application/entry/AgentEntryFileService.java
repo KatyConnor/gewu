@@ -193,6 +193,10 @@ public class AgentEntryFileService {
             content = truncateToByteLimit(content, maxBytes) + "\n\n…（入口调度指令超限截断）";
             truncated = true;
         }
+        // 全局调度包资源访问说明（58 §5.3，F-410：挂入口注入段）：包资源存在时引导模型 @global/ 按需读取
+        if (ws != null && storageService.prefixHasObjects(ws.getStoragePath() + ".entry-package/")) {
+            content += "\n\n---\n【资源访问】本入口包含资源目录，可用 read_file 以 @global/ 前缀按需读取（只读）。";
+        }
         String meta = metaJson(sel.getSource(), sel.getVersion(), sel.getReason(),
                 sha256Hex(content.getBytes(StandardCharsets.UTF_8)),
                 content.getBytes(StandardCharsets.UTF_8).length, truncated);
@@ -333,9 +337,9 @@ public class AgentEntryFileService {
         for (String name : new String[]{NAME_GEWO, NAME_AGENTS}) {
             String content = minioGet(ws.getStoragePath() + name);
             if (content != null && !content.isEmpty()) {
-                String expanded = ws.getDevSandboxId() != null
-                        ? EntryImportExpander.expand(content, "", sandboxReader(ws.getDevSandboxId(), ""))
-                        : content;
+                // @import 全局 reader 切 MinIO 直读（N-2c：与沙箱解耦，无沙箱会话可用；既有卷内引用用法失效见 58 §9-6）
+                String expanded = EntryImportExpander.expand(content, "",
+                        (dir, rel) -> minioGet(ws.getStoragePath() + rel));
                 return candidate("user-global", "user-global:" + name, expanded);
             }
         }
@@ -448,7 +452,8 @@ public class AgentEntryFileService {
      * 项目访问权校验（CR L3-SEC-035 防 IDOR）：仅项目所有者或成员可读写调度文件。
      * 返回校验通过的项目实体。
      */
-    private Project requireProjectAccess(String projectId) {
+    /** 项目访问权校验（公开供导入服务复用）：仅项目所有者或成员可操作。 */
+    public Project requireProjectAccess(String projectId) {
         Project project = requireProject(projectId);
         String userId = com.gewu.common.context.UserContext.currentUserId();
         if (userId == null) {
@@ -506,7 +511,8 @@ public class AgentEntryFileService {
         return "merge".equalsIgnoreCase(raw) ? EntryFileSelector.Layering.MERGE : EntryFileSelector.Layering.SELECT;
     }
 
-    private void evictUser(String userId) {
+    /** 缓存清理（公开供导入服务写后失效复用）。 */
+    public void evictUser(String userId) {
         String prefix = userId + "|";
         cache.keySet().removeIf(k -> k.startsWith(prefix));
     }

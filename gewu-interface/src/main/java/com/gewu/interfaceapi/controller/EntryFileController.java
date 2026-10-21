@@ -1,6 +1,7 @@
 package com.gewu.interfaceapi.controller;
 
 import com.gewu.application.entry.AgentEntryFileService;
+import com.gewu.application.entry.EntryPackageService;
 import com.gewu.common.context.UserContext;
 import com.gewu.common.result.Result;
 import io.swagger.v3.oas.annotations.Operation;
@@ -17,7 +18,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.InputStream;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
@@ -33,10 +36,44 @@ import java.util.Map;
 public class EntryFileController {
 
     private final AgentEntryFileService entryFileService;
+    private final EntryPackageService entryPackageService;
 
     public record SaveCommand(@NotBlank String name, @NotBlank String content) {}
 
     public record InitCommand(@NotBlank String name, String content) {}
+
+    /** 入口包上传体积预检上限（210MB，细校验在服务内流式执行） */
+    private static final long UPLOAD_CAP_BYTES = 210L * 1024 * 1024;
+
+    @PostMapping(value = "/entry-package/import", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
+    @Operation(summary = "导入入口包", description = "zip（整包）或 .md（单文件）→ 全局空间或项目仓库根；返回导入报告")
+    public Result<Map<String, Object>> importPackage(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam(defaultValue = "global") String target,
+            @RequestParam(required = false) String projectId) throws Exception {
+        String userId = requireUserId();
+        if (file == null || file.isEmpty()) {
+            throw new IllegalArgumentException("上传文件不能为空");
+        }
+        byte[] bytes;
+        try (InputStream in = file.getInputStream()) {
+            bytes = in.readNBytes((int) Math.min(UPLOAD_CAP_BYTES + 1, Integer.MAX_VALUE));
+        }
+        if (bytes.length > UPLOAD_CAP_BYTES) {
+            throw new IllegalArgumentException("上传文件超过上限（200MB）");
+        }
+        String filename = file.getOriginalFilename() == null ? "" : file.getOriginalFilename();
+        var report = filename.toLowerCase().endsWith(".md")
+                ? entryPackageService.importSingleEntry(userId, target, projectId,
+                        filename.substring(filename.lastIndexOf('/') + 1), bytes)
+                : entryPackageService.importFromZip(userId, target, projectId, bytes);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("fileCount", report.fileCount());
+        out.put("entryFile", report.entryFile());
+        out.put("overwritten", report.overwritten());
+        out.put("target", report.target());
+        return Result.success(out);
+    }
 
     // ==================== 用户全局层 ====================
 

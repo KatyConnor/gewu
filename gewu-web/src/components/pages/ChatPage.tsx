@@ -1,7 +1,7 @@
 'use client';
 import React, { useState, useRef, useEffect, useCallback } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { Send, Settings, Share2, Clock, RefreshCw, Link2, Link2Off, AlertTriangle, FolderOpen, GitBranch, MessageSquare, FileDiff, Loader2, Bot, PanelRightClose } from 'lucide-react';
+import { Send, Settings, Share2, Clock, RefreshCw, Link2, Link2Off, AlertTriangle, FolderOpen, GitBranch, MessageSquare, FileDiff, Loader2, Bot, PanelRightClose, X } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import { setPage, setPendingAgentId, type RootState } from '@/store';
 import CustomSelect from '@/components/ui/Select';
@@ -27,7 +27,7 @@ import {
   listMySessions, createSession, updateSession,
   listMessages, pinSession, shareSession, unshareSession,
   archiveSession, unarchiveSession, getSession, getSessionRunStatus, answerSessionAsk,
-  getRunProcess, type SessionDTO, type RunStatusDTO, type CompactProcessEntry,
+  getRunProcess, steerSessionTurn, type SessionDTO, type RunStatusDTO, type CompactProcessEntry,
 } from '@/lib/session';
 import { listMyProjects, type ProjectDTO } from '@/lib/project';
 
@@ -53,7 +53,7 @@ const MessageItem = React.memo(function MessageItem({ msg, isStreaming, regenera
 }) {
   return (
     <div className={`group flex gap-4 ${msg.role === 'user' ? 'justify-end' : ''} animate-fade-up`}>
-      {msg.role === 'ai' && <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-xs font-bold text-white">AI</span></div>}
+      {msg.role === 'ai' && <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-[10px] font-bold text-white leading-none">格物</span></div>}
       {msg.role === 'ai' && msg.fromBackend && (
         <button
           onClick={() => onRegenerate(msg.id)}
@@ -171,7 +171,9 @@ export default function ChatPage() {
   useEffect(() => { pendingAskRef.current = pendingAsk; }, [pendingAsk]);
   // 子智能体子流（二期）：按 subagentId 分桶的流式时间线；点击行在右侧面板查看
   const [subProcesses, setSubProcesses] = useState<Record<string, { name: string; snapshot: ProcessSnapshot }>>({});
-  const [activeSubagent, setActiveSubagent] = useState<{ id: string; name: string; result?: string } | null>(null);
+  /** 子智能体多页签（用户实报图3）：可同时打开多个，点击切换，随时关闭 */
+  const [openSubagents, setOpenSubagents] = useState<{ id: string; name: string; result?: string }[]>([]);
+  const [activeSubagentId, setActiveSubagentId] = useState<string | null>(null);
   const [panelView, setPanelView] = useState<'files' | 'subagent'>('files');
   const subTrackersRef = useRef<Map<string, ProcessTracker>>(new Map());
   const subNamesRef = useRef<Map<string, string>>(new Map());
@@ -400,6 +402,12 @@ export default function ChatPage() {
     const raf = requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }));
     return () => cancelAnimationFrame(raf);
   }, [messages, streamText, process, liveRun]);
+
+  /** 发送动作强制跟随到底：发送/插话的语义即"关注最新"，绕过 160px 停留守卫
+   *（用户实报图1：发送后消息与回复不可见——用户停留在历史区时追加不触发跟随滚动） */
+  const forceScrollToBottom = useCallback(() => {
+    requestAnimationFrame(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }));
+  }, []);
 
   /** 拉取并解析会话消息（最新 100 条窗口，升序返回）：
    *  loadConversation / 重发回填 / 后台任务完成自动刷新 三处共用 */
@@ -807,16 +815,48 @@ export default function ChatPage() {
     return {};
   }
 
+  /**
+   * 执行中转向：把输入框内容作为补充指令注入当前运行中的任务。
+   * 后端将用户消息即时落库并入转向队列，Agent 在下一轮次边界把它
+   * 与既有工具结果、原指令重组继续执行（不中断不重开）。
+   */
+  const steerRunningTurn = async () => {
+    const text = input.trim();
+    if (!text || !currentSessionId) return;
+    try {
+      const res = await steerSessionTurn(currentSessionId, {
+        content: text,
+        clientId: generateClientId(),
+      });
+      if (res.accepted) {
+        const userMsg: Message = { id: Date.now().toString(), role: 'user', content: text, timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) };
+        setMessages(prev => [...prev, userMsg]);
+        setInput('');
+        forceScrollToBottom();
+        toast('已作为补充指令注入当前任务', 'success');
+      } else {
+        toast('任务已结束，请直接重新发送', 'error');
+      }
+    } catch {
+      toast('指令注入失败，请稍后重试', 'error');
+    }
+  };
+
   const sendMessage = async () => {
     if (isStreaming) {
-      // 流式进行中（可能在后台会话）：不允许发起第二个流
+      // 流式进行中且正在观看该会话：走执行中转向（补充指令注入当前任务）
+      if (streamingSessionId && streamingSessionId === currentSessionId) {
+        await steerRunningTurn();
+        return;
+      }
+      // 流式进行中（其他后台会话）：不允许发起第二个流
       toast('有会话正在生成中，请等待完成或回到该会话查看', 'error');
       return;
     }
-    // 后台运行防护（断连不中断修复）：该会话有任务仍在服务端执行，
-    // 后端同会话并发防护也会拒绝——此处提前拦截给出更明确的提示
+    // 后台运行防护（断连不中断修复）：该会话有任务仍在服务端执行——
+    // 支持执行中转向，输入内容作为补充指令注入后台任务
     if (activeRun && activeRun.sessionId === currentSessionId) {
-      toast('上一轮任务仍在后台执行中，完成后将自动刷新', 'error');
+      await steerRunningTurn();
       return;
     }
     if (!input.trim()) return;
@@ -842,6 +882,7 @@ export default function ChatPage() {
     const turnSid: string = sessionIdForTurn;
     const userMsg: Message = { id: Date.now().toString(), role: 'user', content: input, timestamp: new Date().toLocaleTimeString('zh-CN', { hour: '2-digit', minute: '2-digit' }) };
     setMessages(prev => [...prev, userMsg]);
+    forceScrollToBottom();
     const userMessage = input;
     setInput('');
     setIsStreaming(true);
@@ -858,7 +899,8 @@ export default function ChatPage() {
     subNamesRef.current.clear();
     subResultsRef.current.clear();
     setSubProcesses({});
-    setActiveSubagent(null);
+    setOpenSubagents([]);
+    setActiveSubagentId(null);
     setPanelView('files');
     setLiveRun(null);
 
@@ -924,7 +966,7 @@ export default function ChatPage() {
               const t = subTrackersRef.current.get(st.subagentId);
               if (t) t.finish();
               subResultsRef.current.set(st.subagentId, st.result || '');
-              setActiveSubagent(prev => prev && prev.id === st.subagentId ? { ...prev, result: st.result } : prev);
+              setOpenSubagents(prev => prev.map(s => s.id === st.subagentId ? { ...s, result: st.result } : s));
             }
             setProcess(proc.tracker.snapshot());
           },
@@ -1321,13 +1363,28 @@ export default function ChatPage() {
     }
   }, [currentSessionId, loadFileChanges, toast]);
 
-  /** 点击过程时间线的子智能体行（实时或历史）：右侧面板切换为该智能体的过程/聚合结果 */
+  /** 点击过程时间线的子智能体行（实时或历史）：以页签打开该智能体（已开则激活），右侧面板展示 */
   const handleProcessItemClick = useCallback((item: ProcessItem) => {
     if (item.kind !== 'subagent') return;
-    setActiveSubagent({ id: item.id, name: item.name, result: item.result });
+    setOpenSubagents(prev => prev.some(s => s.id === item.id)
+      ? prev
+      : [...prev, { id: item.id, name: item.name, result: item.result }]);
+    setActiveSubagentId(item.id);
     setPanelView('subagent');
     setFilePanelOpen(true);
   }, []);
+
+  /** 关闭子智能体页签：关的是当前激活页签时切换到相邻页签，全部关闭则回落文件面板 */
+  const closeSubagentTab = useCallback((id: string) => {
+    const idx = openSubagents.findIndex(s => s.id === id);
+    const next = openSubagents.filter(s => s.id !== id);
+    setOpenSubagents(next);
+    if (activeSubagentId === id) {
+      const neighbor = next[Math.max(0, idx - 1)] || next[0] || null;
+      setActiveSubagentId(neighbor ? neighbor.id : null);
+      if (!neighbor) setPanelView('files');
+    }
+  }, [openSubagents, activeSubagentId]);
 
   /** 汇总条「审查/打开」：展开文件面板并定位到对应 tab（openRequest 消费后自动清空） */
   const openTurnFile = useCallback((path: string, mode: 'diff' | 'edit') => {
@@ -1519,7 +1576,7 @@ export default function ChatPage() {
         })}
         {streamingVisible && process && hasProcessActivity(process.items) && (
           <div className="flex gap-4 animate-fade-up">
-            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-xs font-bold text-white">AI</span></div>
+            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-[10px] font-bold text-white leading-none">格物</span></div>
             <div className="flex-1 max-w-3xl">
               <AIProcessTimeline items={process.items} status={process.status} streaming startAt={process.startedAt} expanded onToggle={() => {}} onItemClick={handleProcessItemClick} />
               {streamingFiles.length > 0 && (
@@ -1532,7 +1589,7 @@ export default function ChatPage() {
         )}
         {streamingVisible && (!process || !hasProcessActivity(process.items)) && (
           <div className="flex gap-4 animate-fade-up">
-            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-xs font-bold text-white">AI</span></div>
+            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-[10px] font-bold text-white leading-none">格物</span></div>
             <div className="flex-1 max-w-3xl"><div className="chat-bubble-ai rounded-xl rounded-tl-sm p-4">
               <MarkdownRenderer content={streamText} isStreaming />
               {streamingFiles.length > 0 && (
@@ -1547,7 +1604,7 @@ export default function ChatPage() {
         {activeRun && activeRun.sessionId === currentSessionId && !streamingVisible
           && liveRun && liveRun.sessionId === currentSessionId && liveRun.items.length > 0 && (
           <div className="flex gap-4 animate-fade-up" data-testid="live-run-timeline">
-            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-xs font-bold text-white">AI</span></div>
+            <div className="w-8 h-8 rounded-md bg-gradient-to-br from-tech-400 to-tech-600 flex items-center justify-center flex-shrink-0 mt-1"><span className="text-[10px] font-bold text-white leading-none">格物</span></div>
             <div className="flex-1 max-w-3xl">
               <AIProcessTimeline
                 items={liveRun.items}
@@ -1578,9 +1635,9 @@ export default function ChatPage() {
           <button className="px-3 py-1.5 text-xs rounded-full text-ink-300 border border-tech-500/10 hover:border-tech-500/25 transition-all" aria-label="引用上下文">🔗 引用上下文</button>
         </div>
         <div className="relative">
-          <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }} rows={2} placeholder={runActiveHere ? '上一轮任务仍在后台执行中，完成后将自动刷新…' : '输入消息... (Enter 发送)'} className="w-full px-4 py-3 border rounded-xl text-ink-100 placeholder-ink-500 focus:outline-none input-ink resize-none scrollbar-thin transition-all" style={{ background: 'rgba(21,40,38,0.5)', borderColor: 'rgba(0,184,148,0.1)' }} disabled={streamingVisible || runActiveHere || !!pendingAsk} />
+          <textarea value={input} onChange={e => setInput(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }} rows={2} placeholder={streamingVisible || runActiveHere ? '任务执行中，输入内容将作为补充指令注入当前任务…' : '输入消息... (Enter 发送)'} className="w-full px-4 py-3 border rounded-xl text-ink-100 placeholder-ink-500 focus:outline-none input-ink resize-none scrollbar-thin transition-all" style={{ background: 'rgba(21,40,38,0.5)', borderColor: 'rgba(0,184,148,0.1)' }} disabled={!!pendingAsk} />
           <div className="absolute bottom-3 right-3 flex items-center gap-2">
-            <button onClick={sendMessage} disabled={streamingVisible || runActiveHere || !!pendingAsk || !input.trim()} className="p-2 btn-primary text-white rounded-lg disabled:opacity-50" aria-label="发送"><Send className="w-4 h-4" /></button>
+            <button onClick={sendMessage} disabled={!!pendingAsk || !input.trim()} className="p-2 btn-primary text-white rounded-lg disabled:opacity-50" aria-label="发送"><Send className="w-4 h-4" /></button>
           </div>
         </div>
         {/* 模型 / 智能体模式 / 思维方式 下拉选择 */}
@@ -1623,20 +1680,31 @@ export default function ChatPage() {
               panelDragging ? 'bg-tech-400/70' : 'bg-transparent group-hover/divider:bg-tech-400/40'
             }`} />
           </div>
-          {panelView === 'subagent' && activeSubagent ? (
-            /* ===== 子智能体模式：该分支的流式过程时间线（与主时间线同款效果）+ 完成后的聚合结果 ===== */
+          {panelView === 'subagent' && openSubagents.length > 0 ? (
+            /* ===== 子智能体多页签模式：页签栏可切换/可关闭，内容为该智能体的
+               流式过程时间线（与主时间线同款效果）+ 完成后的聚合结果 ===== */
             <div className="flex-shrink-0 border-l flex flex-col h-full" style={{ width: clampPanelWidth(filePanelWidth), borderColor: 'rgba(0,184,148,0.1)' }}>
-              <div className="flex items-center gap-2 px-3 py-2 border-b flex-shrink-0" style={{ borderColor: 'rgba(0,184,148,0.08)' }}>
-                <Bot className="w-3.5 h-3.5 text-cyber-400 flex-shrink-0" />
-                <span className="text-xs font-medium text-ink-200 flex-1 truncate" title={activeSubagent.name}>
-                  子智能体 · {activeSubagent.name}
-                </span>
-                <button onClick={() => setFilePanelOpen(false)} className="p-1.5 text-ink-500 hover:text-tech-400 rounded-md transition-all"
+              <div className="flex items-end gap-1 px-2 pt-1.5 border-b flex-shrink-0 overflow-x-auto scrollbar-thin" style={{ borderColor: 'rgba(0,184,148,0.08)' }}>
+                {openSubagents.map(s => (
+                  <div key={s.id}
+                    onClick={() => setActiveSubagentId(s.id)}
+                    className={`group/tab flex items-center gap-1.5 pl-2.5 pr-1.5 py-1.5 rounded-t-lg text-xs cursor-pointer whitespace-nowrap flex-shrink-0 transition-all ${activeSubagentId === s.id ? 'bg-tech-500/15 text-tech-300' : 'text-ink-400 hover:text-ink-200 hover:bg-tech-500/5'}`}
+                    title={s.name}>
+                    <Bot className="w-3 h-3 flex-shrink-0" />
+                    <span className="max-w-28 truncate">{s.name}</span>
+                    <button onClick={(e) => { e.stopPropagation(); closeSubagentTab(s.id); }}
+                      className="p-0.5 rounded text-ink-600 hover:text-cinnabar-400 opacity-0 group-hover/tab:opacity-100 transition-all"
+                      aria-label="关闭页签" title="关闭"><X className="w-3 h-3" /></button>
+                  </div>
+                ))}
+                <button onClick={() => setFilePanelOpen(false)} className="ml-auto p-1.5 mb-1 text-ink-500 hover:text-tech-400 rounded-md transition-all"
                   aria-label="关闭面板" title="收起面板"><PanelRightClose className="w-4 h-4" /></button>
               </div>
               <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-3 py-3">
                 {(() => {
-                  const live = subProcesses[activeSubagent.id];
+                  const activeTab = openSubagents.find(s => s.id === activeSubagentId);
+                  if (!activeTab) return null;
+                  const live = subProcesses[activeTab.id];
                   return (
                     <>
                       {live && hasProcessActivity(live.snapshot.items) && (
@@ -1649,13 +1717,13 @@ export default function ChatPage() {
                           onToggle={() => {}}
                         />
                       )}
-                      {!live && !activeSubagent.result && (
+                      {!live && !activeTab.result && (
                         <p className="text-xs text-ink-600 py-4">该子智能体的过程数据仅在其执行期间实时展示。</p>
                       )}
-                      {activeSubagent.result && (
+                      {activeTab.result && (
                         <div className={live ? 'mt-3 border-t pt-3' : ''} style={{ borderColor: 'rgba(0,184,148,0.08)' }}>
                           <p className="text-[11px] text-ink-500 mb-1.5">聚合结果</p>
-                          <MarkdownRenderer content={activeSubagent.result} />
+                          <MarkdownRenderer content={activeTab.result} />
                         </div>
                       )}
                     </>

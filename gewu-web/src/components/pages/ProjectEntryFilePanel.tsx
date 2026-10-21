@@ -1,10 +1,11 @@
 'use client';
 import { useCallback, useEffect, useState } from 'react';
+import type { ChangeEvent } from 'react';
 import { FileText, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import {
   resolveProjectEntry, readProjectEntryFile, readGlobalEntryFile,
-  initProjectEntryFile, type EntryFileName, type EntryView,
+  initProjectEntryFile, importEntryPackage, type EntryFileName, type EntryView,
 } from '@/lib/entry-file';
 
 /**
@@ -83,6 +84,22 @@ export default function ProjectEntryFilePanel({ projectId }: { projectId: string
     run(() => initProjectEntryFile(projectId, name), `已按平台模板初始化项目 ${name}`);
   };
 
+  const handleImportZip = (e: ChangeEvent<HTMLInputElement>) => {
+    const f = e.target.files?.[0];
+    e.target.value = ''; // 允许重复选择同一文件
+    if (!f) return;
+    setBusy(true);
+    try {
+      const r = await importEntryPackage(projectId, 'project', f);
+      toast(`入口包已导入项目（${r.fileCount} 个文件）`, 'success');
+      await load();
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '导入失败', 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <div className="p-3 border-t border-tech-500/10">
       <button onClick={() => setOpen(o => !o)}
@@ -125,6 +142,11 @@ export default function ProjectEntryFilePanel({ projectId }: { projectId: string
                     <button onClick={() => setEditing({ name, content: pf.content })}
                       className="px-1.5 py-0.5 text-[10px] text-tech-300 hover:bg-tech-500/10 rounded">编辑</button>
                   )}
+                  <label className="px-1.5 py-0.5 text-[10px] text-ink-300 hover:bg-ink-800/50 rounded cursor-pointer">
+                    导入 zip
+                    <input type="file" accept=".zip" className="hidden"
+                      onChange={handleImportZip} disabled={busy} />
+                  </label>
                   {!pf.exists && (
                     <button onClick={() => handleInitTemplate(name)} disabled={busy}
                       className="px-1.5 py-0.5 text-[10px] text-ink-300 hover:bg-ink-800/50 rounded disabled:opacity-50">模板初始化</button>

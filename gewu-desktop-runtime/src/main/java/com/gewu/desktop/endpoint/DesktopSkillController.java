@@ -39,8 +39,10 @@ public class DesktopSkillController {
     }
 
     private Path skillsDir(String sessionId) throws IOException {
+        // 技能库为全局目录:~/.gewu/skills(用户指定,不再嵌套于工作区内)
+        Path dir = Path.of(System.getProperty("user.home"), ".gewu", "skills");
+        Files.createDirectories(dir);
         Path root = fileService.rootFor(sessionId);
-        Path dir = PathGuard.secureResolve(root, ".gewu/skills");
         Files.createDirectories(dir);
         return dir;
     }

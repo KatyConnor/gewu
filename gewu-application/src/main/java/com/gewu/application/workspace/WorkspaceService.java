@@ -13,6 +13,7 @@ import com.gewu.domain.user.Role;
 import com.gewu.domain.user.UserRole;
 import com.gewu.domain.workspace.Workspace;
 import com.gewu.domain.workspace.WorkspaceFile;
+import com.gewu.domain.workspace.WorkspaceSyncState;
 import com.gewu.infrastructure.mapper.RoleMapper;
 import com.gewu.infrastructure.mapper.UserRoleMapper;
 import com.gewu.infrastructure.mapper.WorkspaceFileMapper;
@@ -47,6 +48,8 @@ public class WorkspaceService {
     private final RoleMapper roleMapper;
     private final UserRoleMapper userRoleMapper;
     private final SandboxClient sandboxClient;
+    /** 文档类文件双向同步（设计文档 42 项三；项目代码目录排除，代码走 Git） */
+    private final WorkspaceSyncService syncService;
 
     private static final long DEFAULT_QUOTA = 1L * 1024 * 1024 * 1024;       // 1GB
     private static final long DEV_QUOTA = 5L * 1024 * 1024 * 1024;           // 5GB
@@ -185,6 +188,21 @@ public class WorkspaceService {
         if (file.getSize() > MAX_FILE_SIZE) {
             throw BusinessException.of(ResultCode.PARAM_INVALID, "文件超过 100MB 限制");
         }
+        // 密钥泄漏扫描（58 号 §6-6 挂账清偿）：文本类上传命中凭据特征即拒绝
+        if (isTextLike(file.getOriginalFilename())) {
+            try {
+                var secret = com.gewu.common.security.SecretScanUtil.findSecret(
+                        new String(file.getBytes(), java.nio.charset.StandardCharsets.UTF_8));
+                if (secret.isPresent()) {
+                    throw BusinessException.of(ResultCode.PARAM_INVALID,
+                            "文件疑似包含" + secret.get() + "，已拒绝上传");
+                }
+            } catch (BusinessException e) {
+                throw e;
+            } catch (Exception ignored) {
+                // 读取失败不阻断上传主链路
+            }
+        }
 
         Workspace ws = getMyWorkspaceEntity();
         checkQuota(ws, file.getSize());
@@ -219,6 +237,9 @@ public class WorkspaceService {
         ws.setFileCount(ws.getFileCount() + 1);
         workspaceMapper.updateById(ws);
 
+        // M2V：用户上传的文档推送进 AI 工作区（代码目录由同步服务排除，走 Git）
+        syncService.enqueue(workspaceId, wf.getFilePath(), WorkspaceSyncState.DIRECTION_M2V);
+
         return toFileNodeDTO(wf);
     }
 
@@ -234,6 +255,16 @@ public class WorkspaceService {
      * @return 创建的文件节点 DTO（含 fileId）
      * @since 1.0.0
      */
+    /** 文本类扩展名（密钥扫描适用面，§6-6） */
+    private static final java.util.Set<String> TEXT_EXTENSIONS = java.util.Set.of(
+            "md", "txt", "yaml", "yml", "json", "xml", "html", "csv", "properties", "sh", "py", "js", "ts", "java");
+
+    private static boolean isTextLike(String filename) {
+        int dot = filename == null ? -1 : filename.lastIndexOf('.');
+        String ext = dot < 0 ? "" : filename.substring(dot + 1).toLowerCase();
+        return TEXT_EXTENSIONS.contains(ext) || !filename.contains(".");
+    }
+
     @Transactional
     public FileNodeDTO createFileFromContent(String fileName, String content, String mimeType) {
         String workspaceId = getMyWorkspaceId();
@@ -273,6 +304,9 @@ public class WorkspaceService {
         ws.setUsedBytes(ws.getUsedBytes() + fileSize);
         ws.setFileCount(ws.getFileCount() + 1);
         workspaceMapper.updateById(ws);
+
+        // M2V：AI 产物（ai-generated）同步进工作区卷
+        syncService.enqueue(workspaceId, wf.getFilePath(), WorkspaceSyncState.DIRECTION_M2V);
 
         log.info("AI 文件已创建: fileName={}, fileSize={}, fileId={}", fileName, fileSize, wf.getId());
         return toFileNodeDTO(wf);
@@ -322,6 +356,9 @@ public class WorkspaceService {
         ws.setUsedBytes(ws.getUsedBytes() + data.length);
         ws.setFileCount(ws.getFileCount() + 1);
         workspaceMapper.updateById(ws);
+
+        // M2V：AI 产物（二进制，如 docx）同步进工作区卷
+        syncService.enqueue(workspaceId, wf.getFilePath(), WorkspaceSyncState.DIRECTION_M2V);
 
         log.info("AI 二进制文件已创建: fileName={}, fileSize={}, fileId={}", fileName, data.length, wf.getId());
         return toFileNodeDTO(wf);
@@ -392,6 +429,9 @@ public class WorkspaceService {
         wf.setVersion(wf.getVersion() + 1);
         fileMapper.updateById(wf);
 
+        // M2V：在线编辑保存推送进 AI 工作区
+        syncService.enqueue(workspaceId, wf.getFilePath(), WorkspaceSyncState.DIRECTION_M2V);
+
         ws.setUsedBytes(ws.getUsedBytes() + (newSize - oldSize));
         workspaceMapper.updateById(ws);
 
@@ -458,6 +498,9 @@ public class WorkspaceService {
             }
             freedBytes += wf.getFileSize() != null ? wf.getFileSize() : 0;
         }
+
+        // DEL_M：MinIO 侧删除传播到工作区卷（目录路径一次 rm -rf 即可）
+        syncService.enqueue(workspaceId, wf.getFilePath(), WorkspaceSyncState.DIRECTION_DEL_M);
 
         fileMapper.deleteById(wf.getId());
         return new long[]{freedBytes, nodes};

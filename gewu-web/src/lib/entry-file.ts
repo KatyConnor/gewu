@@ -88,3 +88,20 @@ export async function initProjectEntryFile(
   });
   await handleResponse(res);
 }
+
+/** 导入入口包（zip 整包 / 单 .md）→ 全局空间或项目仓库根（设计文档 58 §4） */
+export async function importEntryPackage(
+  file: File, target: 'global' | 'project', projectId?: string,
+): Promise<{ fileCount: number; entryFile: string; overwritten: string[]; target: string }> {
+  const token = getAccessToken();
+  const fd = new FormData();
+  fd.append('file', file);
+  fd.append('target', target);
+  if (projectId) fd.append('projectId', projectId);
+  const res = await fetch(`${BASE}/entry-package/import`, {
+    method: 'POST',
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+    body: fd,
+  });
+  return handleResponse(res);
+}

@@ -56,6 +56,8 @@ export default function SettingsPage() {
   const [entryExists, setEntryExists] = useState(false);
   const [entryView, setEntryView] = useState<EntryView | null>(null);
   const [entryLoading, setEntryLoading] = useState(false);
+  const [entryImporting, setEntryImporting] = useState(false);
+  const [entryImportMsg, setEntryImportMsg] = useState('');
   const [entrySaving, setEntrySaving] = useState(false);
   const entryLoadSeq = useRef(0);
 
@@ -127,6 +129,19 @@ export default function SettingsPage() {
   }, [activeTab]);
 
   const num = (v: string): number | undefined => (v.trim() === '' ? undefined : Number(v));
+
+  const handleImportPackage = async (f: File) => {
+    setEntryImporting(true);
+    try {
+      const r = await importEntryPackage(f, 'global');
+      setEntryImportMsg(`已导入 ${r.fileCount} 个文件`);
+      await loadEntry(entryName);
+    } catch (err) {
+      setEntryImportMsg(err instanceof Error ? err.message : '导入失败');
+    } finally {
+      setEntryImporting(false);
+    }
+  };
 
   const handleCreateProvider = async () => {
     if (!providerForm.providerName || !providerForm.providerCode || !providerForm.baseUrl) {
@@ -540,6 +555,22 @@ export default function SettingsPage() {
                 rows={16}
                 className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none font-mono resize-none"
               />
+              <div className="flex items-center gap-3 mt-3">
+                <label className="px-3 py-1.5 text-xs rounded-md border border-tech-500/10 text-ink-300 hover:text-ink-100 cursor-pointer">
+                  导入入口包（.zip / .md）
+                  <input type="file" accept=".zip,.md" className="hidden"
+                    onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleImportPackage(f); }} />
+                </label>
+                {entryImportMsg && <span className="text-[11px] text-ink-400">{entryImportMsg}</span>}
+              </div>
+              <div className="flex items-center gap-3 mt-3">
+                <label className="px-3 py-1.5 text-xs rounded-md border border-tech-500/10 text-ink-300 hover:text-ink-100 cursor-pointer">
+                  导入入口包（.zip / .md）
+                  <input type="file" accept=".zip,.md" className="hidden"
+                    onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleImportPackage(f); }} />
+                </label>
+                {entryImportMsg && <span className="text-[11px] text-ink-400">{entryImportMsg}</span>}
+              </div>
               <div className="flex items-center justify-between mt-3">
                 <span className="text-[11px] text-ink-500">
                   {entryLoading ? '加载中…' : entryExists ? '已存在' : '尚未创建（保存后生效）'}

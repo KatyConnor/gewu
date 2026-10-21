@@ -1113,7 +1113,7 @@ public class ReactAgentExecutor implements AgentExecutor {
                         return ToolResult.builder().success(false).error(
                                 "文件不存在: " + path
                                         + "（path 应为相对当前工作空间根目录的路径，不要以 / 开头或加 workspace/ 前缀；"
-                                        + "可用 list_dir 查看根目录内容后重试）").build();
+                                        + "@global/ 前缀可只读访问全局资源；可用 list_dir 查看根目录内容后重试）").build();
                     }
                     // 内容截断保护（与外发工具同款输出上限策略，默认 10KB）
                     return ToolResult.builder().success(true)
@@ -1215,6 +1215,10 @@ public class ReactAgentExecutor implements AgentExecutor {
             // 探测/去重前统一路径口径（RPT-005 F-504：避免 SPI 剥前缀产生幽灵目录标签）
             String normalizedPath = com.gewu.agent.engine.entry.NestedEntryFinder.normalizePath(path);
             if (normalizedPath == null || normalizedPath.isBlank()) {
+                return output;
+            }
+            // @global 只读根不参与嵌套探测（58 号 §5.2 F-401：避免包内入口文件重复注入/绕层级裁决）
+            if (normalizedPath.startsWith("@global/") || normalizedPath.equals("@global")) {
                 return output;
             }
             var hit = com.gewu.agent.engine.entry.NestedEntryFinder.find("", normalizedPath, (dir, name) -> {
@@ -2059,21 +2063,24 @@ public class ReactAgentExecutor implements AgentExecutor {
                     .parameters(ASK_TOOL_SCHEMA)
                     .build());
         }
-        // 内置文件工具（S9 F3）：read/write/edit/list，经 FileWorkspaceSpi 在会话工作空间执行
+        // 内置文件工具（S9 F3）：read/write/edit/list，经 FileWorkspaceSpi 在会话工作空间执行；
+        // @global/ 前缀只读访问全局资源（设计文档 58 §5.2）
         if (fileWorkspace != null && fileWorkspace.available()) {
             definitions.add(ToolDefinition.builder().name(READ_FILE_TOOL)
                     .description("读取工作空间中的文件内容。path 为相对当前工作空间根目录的相对路径（如 src/main.go），"
-                            + "严禁以 / 开头或加 workspace/ 前缀；不确定路径时先用 list_dir 探查。")
+                            + "严禁以 / 开头或加 workspace/ 前缀；@global/ 前缀可只读访问全局资源（如 @global/.standards/x.md）；"
+                            + "不确定路径时先用 list_dir 探查。")
                     .parameters(READ_FILE_SCHEMA).build());
             definitions.add(ToolDefinition.builder().name(WRITE_FILE_TOOL)
                     .description("创建或覆盖工作空间中的文件（整体写入）。path 为相对当前工作空间根目录的相对路径，"
-                            + "严禁以 / 开头或加 workspace/ 前缀。")
+                            + "严禁以 / 开头或加 workspace/ 前缀；@global/ 为全局只读资源，不可写。")
                     .parameters(WRITE_FILE_SCHEMA).build());
             definitions.add(ToolDefinition.builder().name(EDIT_FILE_TOOL)
                     .description("精确编辑文件中的一段文本（old_text 需在文件中唯一匹配）。path 为相对当前工作空间根目录的相对路径。")
                     .parameters(EDIT_FILE_SCHEMA).build());
             definitions.add(ToolDefinition.builder().name(LIST_DIR_TOOL)
-                    .description("列出工作空间目录中的文件与子目录。path 可省略（默认根目录），为相对当前工作空间根目录的相对路径。")
+                    .description("列出工作空间目录中的文件与子目录。path 可省略（默认根目录），为相对当前工作空间根目录的相对路径；"
+                            + "@global/ 列出全局只读资源。")
                     .parameters(LIST_DIR_SCHEMA).build());
         }
         return definitions;

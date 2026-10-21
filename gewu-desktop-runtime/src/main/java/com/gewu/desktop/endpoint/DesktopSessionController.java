@@ -26,9 +26,45 @@ import java.util.Map;
 public class DesktopSessionController {
 
     private final DesktopSessionStore store;
+    private final com.gewu.desktop.adapter.DesktopProjectStore projectStore;
+    private final com.gewu.agent.engine.hitl.TurnSteeringQueue turnSteeringQueue;
+    private final ActiveStreamRegistry activeStreams;
 
-    public DesktopSessionController(DesktopSessionStore store) {
+    public DesktopSessionController(DesktopSessionStore store,
+                                    com.gewu.desktop.adapter.DesktopProjectStore projectStore,
+                                    com.gewu.agent.engine.hitl.TurnSteeringQueue turnSteeringQueue,
+                                    ActiveStreamRegistry activeStreams) {
         this.store = store;
+        this.projectStore = projectStore;
+        this.turnSteeringQueue = turnSteeringQueue;
+        this.activeStreams = activeStreams;
+    }
+
+    public record SteerCommand(String content, String clientId) {
+    }
+
+    /**
+     * 执行中转向（用户插话补充指令，对齐平台 /v1/sessions/{sessionId}/steer）：
+     * 用户消息即时落库 + 入队引擎转向队列，ReAct 循环在下一轮次边界以 user 角色
+     * 并入上下文，与既有工具结果、原指令重组继续执行（不中断不重开）。
+     * accepted=false 表示该会话当前没有活动执行流（前端应走正常发送链路）。
+     */
+    @org.springframework.web.bind.annotation.PostMapping("/{sessionId}/steer")
+    public Map<String, Object> steer(@PathVariable String sessionId,
+                                     @org.springframework.web.bind.annotation.RequestBody SteerCommand command) {
+        if (!activeStreams.isActive(sessionId)) {
+            return Map.of("accepted", false);
+        }
+        String content = command == null ? null : command.content();
+        if (content == null || content.isBlank()) {
+            return Map.of("accepted", false, "reason", "内容为空");
+        }
+        String clientId = command.clientId() == null || command.clientId().isBlank()
+                ? null : command.clientId() + ":u";
+        // 先落库（断连/降级均不丢），再入转向队列
+        store.appendMessage(sessionId, "user", content, clientId, null);
+        boolean queued = turnSteeringQueue.offer(sessionId, content);
+        return Map.of("accepted", queued);
     }
 
     public record CreateSessionRequest(String title, String agentId, String projectId,
@@ -37,12 +73,24 @@ public class DesktopSessionController {
 
     @PostMapping
     public Map<String, Object> create(@RequestBody(required = false) CreateSessionRequest req) {
+        String projectId = req == null ? null : req.projectId();
+        String directory = req == null ? null : req.directory();
+        if (projectId != null && !projectId.isBlank()) {
+            // 项目必须存在；目录缺省继承项目绑定目录（项目=目录即工作区语义）
+            Map<String, Object> project = projectStore.getProject(projectId);
+            if (project == null) {
+                throw new IllegalArgumentException("项目不存在: " + projectId);
+            }
+            if (directory == null || directory.isBlank()) {
+                directory = String.valueOf(project.get("directory"));
+            }
+        }
         Map<String, Object> created = store.createSession(
                 req == null ? null : req.title(),
                 req == null ? null : req.agentId(),
                 null, null,
-                req == null ? null : req.projectId(),
-                req == null ? null : req.directory(),
+                projectId,
+                directory,
                 req == null ? null : req.workspacePath());
         return store.toSessionDTO(created);
     }
