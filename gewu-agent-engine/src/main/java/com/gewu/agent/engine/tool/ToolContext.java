@@ -58,6 +58,9 @@ public class ToolContext {
     private String entryDirectivesSource;
     /** 子代理派生上下文：父任务入口调度指令元数据 JSON */
     private String entryDirectivesMeta;
+    /** 子目录嵌套入口已服务集合（设计文档 57）：本轮任务内已附加过的子目录（去重） */
+    @Builder.Default
+    private java.util.Set<String> nestedEntriesServed = new java.util.HashSet<>();
 
     /**
      * 任务计划状态（S9 F5）：跨工具轮次持有最新任务清单，

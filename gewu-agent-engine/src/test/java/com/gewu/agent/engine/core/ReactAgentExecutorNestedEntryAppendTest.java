@@ -1,0 +1,114 @@
+package com.gewu.agent.engine.core;
+
+import com.gewu.agent.engine.tool.FileWorkspaceSpi;
+import com.gewu.agent.engine.tool.ToolContext;
+import org.junit.jupiter.api.DisplayName;
+import org.junit.jupiter.api.Test;
+
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+
+import static org.assertj.core.api.Assertions.assertThat;
+
+/**
+ * {@link ReactAgentExecutor#appendNestedEntry} 附加逻辑直测（设计文档 57）：
+ * 就近触发 / 根不触发 / GEWU 优先 / 任务内去重 / 密钥省略 / 超限截断。
+ */
+class ReactAgentExecutorNestedEntryAppendTest {
+
+    /** 内存文件工作区（对齐引擎既有 Fake 惯例）。 */
+    static class FakeWs implements FileWorkspaceSpi {
+        final Map<String, String> files = new HashMap<>();
+
+        @Override
+        public String readFile(ToolContext ctx, String path) {
+            return files.get(path);
+        }
+
+        @Override
+        public void writeFile(ToolContext ctx, String path, String content) {
+            files.put(path, content);
+        }
+
+        @Override
+        public List<String> listDir(ToolContext ctx, String path) {
+            return List.of();
+        }
+    }
+
+    @Test
+    @DisplayName("read 触发：子目录入口文件附加进工具输出")
+    void readTriggersAppend() {
+        FakeWs ws = new FakeWs();
+        ws.files.put("packages/foo/AGENTS.md", "foo 子项目约定：测试命令 pytest -q");
+        ToolContext ctx = ToolContext.builder().build();
+        String out = ReactAgentExecutor.appendNestedEntry("文件内容", ctx, "packages/foo/src/X.java", ws);
+        assertThat(out).startsWith("文件内容")
+                .contains("## 子目录调度指令（packages/foo/）")
+                .contains("pytest -q");
+        // 任务内去重：同一子目录第二次读取不再附加
+        String again = ReactAgentExecutor.appendNestedEntry("再次读取", ctx, "packages/foo/src/Y.java", ws);
+        assertThat(again).isEqualTo("再次读取");
+    }
+
+    @Test
+    @DisplayName("根层文件不触发（根入口已随 system 注入）")
+    void rootNotServed() {
+        FakeWs ws = new FakeWs();
+        ws.files.put("AGENTS.md", "根约定");
+        String out = ReactAgentExecutor.appendNestedEntry("README 内容", ToolContext.builder().build(), "README.md", ws);
+        assertThat(out).isEqualTo("README 内容");
+    }
+
+    @Test
+    @DisplayName("同层 GEWU.md 优先")
+    void gewuPreferred() {
+        FakeWs ws = new FakeWs();
+        ws.files.put("packages/foo/GEWU.md", "格物专属约定");
+        ws.files.put("packages/foo/AGENTS.md", "通用约定");
+        String out = ReactAgentExecutor.appendNestedEntry("x", ToolContext.builder().build(), "packages/foo/a.java", ws);
+        assertThat(out).contains("格物专属约定").doesNotContain("通用约定");
+    }
+
+    @Test
+    @DisplayName("写入与编辑同样触发")
+    void writeAndEditTrigger() {
+        FakeWs ws = new FakeWs();
+        ws.files.put("packages/foo/AGENTS.md", "foo 约定");
+        ToolContext ctx = ToolContext.builder().build();
+        String w = ReactAgentExecutor.appendNestedEntry("已写入 a.java", ctx, "packages/foo/a.java", ws);
+        assertThat(w).contains("foo 约定");
+        ToolContext ctx2 = ToolContext.builder().build();
+        String e = ReactAgentExecutor.appendNestedEntry("已编辑 a.java", ctx2, "packages/foo/a.java", ws);
+        assertThat(e).contains("foo 约定");
+    }
+
+    @Test
+    @DisplayName("密钥命中省略内容并提示")
+    void secretOmitted() {
+        FakeWs ws = new FakeWs();
+        ws.files.put("packages/foo/AGENTS.md", "key=" + "AKIAIOSFODNN7EXAMPLE");
+        String out = ReactAgentExecutor.appendNestedEntry("x", ToolContext.builder().build(), "packages/foo/a.java", ws);
+        assertThat(out).contains("疑似包含").doesNotContain("AKIAIOSFODNN7EXAMPLE");
+    }
+
+    @Test
+    @DisplayName("16KB 超限截断并标注")
+    void oversizeTruncated() {
+        FakeWs ws = new FakeWs();
+        ws.files.put("packages/foo/AGENTS.md", "格".repeat(20_000));
+        String out = ReactAgentExecutor.appendNestedEntry("x", ToolContext.builder().build(), "packages/foo/a.java", ws);
+        assertThat(out).contains("子目录调度指令超限截断");
+        assertThat(out.length()).isLessThan(20_000);
+    }
+
+    @Test
+    @DisplayName("无命中原样返回；ws 为 null 安全")
+    void noHitAndNullWs() {
+        assertThat(ReactAgentExecutor.appendNestedEntry("原样", ToolContext.builder().build(), "a.md", null))
+                .isEqualTo("原样");
+        assertThat(ReactAgentExecutor.appendNestedEntry("原样", ToolContext.builder().build(), "a.md", new FakeWs()))
+                .isEqualTo("原样");
+    }
+}

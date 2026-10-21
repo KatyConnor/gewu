@@ -251,7 +251,7 @@ EntryResolution resolve(String projectDirectory /*可空*/):
 | **P0 桌面端** | `EntryFileResolver`；DesktopChatController 注入；ProjectContextTool 复用 resolver；设置面板编辑器；contract test 扩展 | gewu-desktop-runtime、gewu-desktop | 1d |
 | **P1 平台端** | `AgentEntryFileService`（MinIO 全局 + 沙箱项目级 + 缓存 + 种子同步（对账自愈））；三个 REST API（PUT 复用 WorkspaceService 保存路径）；设置页编辑器 + 项目页签 + 模板初始化 + 升级通知（§6.4）；集成测试 | gewu-application、gewu-interface、gewu-web | 2~3d |
 | **P2 增强**（批次二已实施·2026-10-21） | ✅ merge 叠加模式（`gewu.entry.layering`/`gewu.desktop.entry-layering: select\|merge`，项目 frontmatter `override: true` 时项目独占，reason=merged/project-override）；✅ `@path` import（EntryImportExpander：整行 @相对路径、单层展开、上限 5 处、防环防越界，两端接入）；✅ 桌面端升级提示（resolver 计算 + 设置面板横幅）；✅ Wenshi 旁路注入（reasonStream/steering/callLlm 共 15 处拼接点接入 entrySuffix）；✅ 会话内刷新（实现为逐轮解析，文档语义修正 §5.3） | 多模块 | 1d |
-| **P2 占位**（后续批次） | 子目录嵌套发现（monorepo）——已立项独立小设计 **docs/design/57-nested-entry-discovery-design.md**（工具访问感知/惰性就近方案，待评审后实施）；其余均已在批次一/二落地 | gewu-agent-engine | 另评 |
+| **P2 占位**（已实施·2026-10-21） | 子目录嵌套发现（monorepo）——已按 **docs/design/57-nested-entry-discovery-design.md** 落地：NestedEntryFinder 纯函数（引擎自包含，gewu-agent-engine.entry）+ executeFileTool 三案后置附加（ToolContext 任务内去重、16KB 截断、密钥省略）+ 21 项测试（finder 8 + append 7 + 回归） | gewu-agent-engine | 完成 |
 
 ## 11. 测试与验收
 

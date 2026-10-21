@@ -1116,13 +1116,16 @@ public class ReactAgentExecutor implements AgentExecutor {
                                         + "可用 list_dir 查看根目录内容后重试）").build();
                     }
                     // 内容截断保护（与外发工具同款输出上限策略，默认 10KB）
-                    return ToolResult.builder().success(true).output(truncate(content, 10 * 1024)).build();
+                    return ToolResult.builder().success(true)
+                            .output(appendNestedEntry(truncate(content, 10 * 1024), toolContext, path, fileWorkspace))
+                            .build();
                 }
                 case WRITE_FILE_TOOL -> {
                     String content = root.path("content").asText("");
                     fileWorkspace.writeFile(toolContext, path, content);
                     return ToolResult.builder().success(true)
-                            .output("已写入 " + path + "（" + content.length() + " 字符）").build();
+                            .output(appendNestedEntry("已写入 " + path + "（" + content.length() + " 字符）", toolContext, path, fileWorkspace))
+                            .build();
                 }
                 case EDIT_FILE_TOOL -> {
                     String oldText = root.path("old_text").asText("");
@@ -1155,7 +1158,8 @@ public class ReactAgentExecutor implements AgentExecutor {
                     }
                     int[] diff = diffLineCounts(oldText, newText);
                     return ToolResult.builder().success(true)
-                            .output("已编辑 " + path + "（第 " + startLine + " 行起，+" + diff[0] + " -" + diff[1] + "）").build();
+                            .output(appendNestedEntry("已编辑 " + path + "（第 " + startLine + " 行起，+" + diff[0] + " -" + diff[1] + "）", toolContext, path, fileWorkspace))
+                            .build();
                 }
                 case LIST_DIR_TOOL -> {
                     List<String> entries = fileWorkspace.listDir(toolContext, path);
@@ -1171,6 +1175,48 @@ public class ReactAgentExecutor implements AgentExecutor {
             }
         } catch (Exception e) {
             return ToolResult.builder().success(false).error("文件操作失败: " + e.getMessage()).build();
+        }
+    }
+
+    /**
+     * 子目录嵌套入口发现附加（设计文档 57）：读/写/编辑成功后，自被触碰文件目录向上
+     * 探测就近入口文件（至会话根、不含根），命中且本轮未服务过则附加进工具输出。
+     * 任何异常静默降级为原输出，不阻塞文件工具。
+     */
+    static String appendNestedEntry(String output, ToolContext toolContext, String path, com.gewu.agent.engine.tool.FileWorkspaceSpi ws) {
+        try {
+            if (ws == null || output == null || toolContext == null
+                    || toolContext.getNestedEntriesServed() == null) {
+                return output;
+            }
+            var hit = com.gewu.agent.engine.entry.NestedEntryFinder.find("", path, (dir, name) -> {
+                try {
+                    return ws.readFile(toolContext, dir + "/" + name);
+                } catch (Exception e) {
+                    return null;
+                }
+            });
+            if (hit == null || !toolContext.getNestedEntriesServed().add(hit.relativeDir())) {
+                return output;
+            }
+            String content = hit.content();
+            var secret = com.gewu.agent.engine.entry.EntrySecretScan.findSecret(content);
+            if (secret.isPresent()) {
+                content = "（该文件疑似包含" + secret.get() + "，已按安全策略省略内容）";
+            } else {
+                byte[] raw = content.getBytes(java.nio.charset.StandardCharsets.UTF_8);
+                if (raw.length > 16 * 1024) {
+                    int cut = 16 * 1024;
+                    while (cut > 0 && (raw[cut] & 0xC0) == 0x80) {
+                        cut--;
+                    }
+                    content = new String(raw, 0, cut, java.nio.charset.StandardCharsets.UTF_8)
+                            + "\n…（子目录调度指令超限截断）";
+                }
+            }
+            return output + "\n\n---\n## 子目录调度指令（" + hit.relativeDir() + "/）\n" + content;
+        } catch (Exception e) {
+            return output;
         }
     }
 
