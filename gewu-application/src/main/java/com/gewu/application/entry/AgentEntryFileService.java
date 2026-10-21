@@ -5,6 +5,7 @@ import com.gewu.application.sandbox.SandboxClient;
 import com.gewu.application.workspace.WorkspaceSyncService;
 import com.gewu.common.entry.EntryCandidate;
 import com.gewu.common.entry.EntryFileSelector;
+import com.gewu.common.entry.EntryImportExpander;
 import com.gewu.common.entry.EntrySelection;
 import com.gewu.domain.project.Project;
 import com.gewu.domain.project.ProjectMember;
@@ -72,6 +73,9 @@ public class AgentEntryFileService {
 
     @Value("${gewu.entry.max-bytes:32768}")
     private int maxBytes;
+    /** 叠加语义（P2）：select=单选（默认）；merge=全局段+项目段拼接，项目声明 override:true 时项目独占 */
+    @Value("${gewu.entry.layering:select}")
+    private String layering;
 
     /** 进程内裁决缓存：key=userId|base，TTL 60s；写路径主动失效 */
     private final Map<String, CacheEntry> cache = new ConcurrentHashMap<>();
@@ -162,7 +166,11 @@ public class AgentEntryFileService {
             sandboxId = ws.getDevSandboxId();
             project = loadProjectLayer(sandboxId, base);
         }
-        EntrySelection sel = EntryFileSelector.select(global, project);
+        // 叠加语义（P2 §12.1）：merge 下项目声明 override:true 则项目独占
+        EntryFileSelector.Layering mode = parseLayering(layering);
+        boolean projectOverride = project != null
+                && EntryFileSelector.extractOverride(project.getContent());
+        EntrySelection sel = EntryFileSelector.select(global, project, mode, projectOverride);
 
         if (sel.getContent() == null) {
             return new EntryView(null, "none", metaJson("none", null, sel.getReason(), "", 0, false), null);
@@ -297,18 +305,21 @@ public class AgentEntryFileService {
 
     // ==================== 内部工具 ====================
 
-    /** 全局层发现：MinIO storagePath/{GEWU,AGENTS}.md，命中即停。 */
+    /** 全局层发现：MinIO storagePath/{GEWU,AGENTS}.md，命中即停。@import 相对卷根展开（沙箱在线时）。 */
     private EntryCandidate loadGlobal(Workspace ws) {
         for (String name : new String[]{NAME_GEWO, NAME_AGENTS}) {
             String content = minioGet(ws.getStoragePath() + name);
             if (content != null && !content.isEmpty()) {
-                return candidate("user-global", "user-global:" + name, content);
+                String expanded = ws.getDevSandboxId() != null
+                        ? EntryImportExpander.expand(content, "", sandboxReader(ws.getDevSandboxId(), ""))
+                        : content;
+                return candidate("user-global", "user-global:" + name, expanded);
             }
         }
         return null;
     }
 
-    /** 项目层发现：沙箱卷 base/{GEWU,AGENTS}.md，命中即停；读取失败按层缺失降级。 */
+    /** 项目层发现：沙箱卷 base/{GEWU,AGENTS}.md，命中即停；读取失败按层缺失降级。@import 相对项目目录展开。 */
     private EntryCandidate loadProjectLayer(String sandboxId, String base) {
         for (String name : new String[]{NAME_GEWO, NAME_AGENTS}) {
             try {
@@ -317,6 +328,7 @@ public class AgentEntryFileService {
                     if (content.getBytes(StandardCharsets.UTF_8).length > READ_CAP_BYTES) {
                         content = truncateToByteLimit(content, READ_CAP_BYTES);
                     }
+                    content = EntryImportExpander.expand(content, base, sandboxReader(sandboxId, base));
                     return candidate("project", "project:" + name, content);
                 }
             } catch (Exception e) {
@@ -324,6 +336,19 @@ public class AgentEntryFileService {
             }
         }
         return null;
+    }
+
+    /** @import 沙箱读取回调（相对路径规范化；失败返回 null 由展开器标注）。 */
+    private com.gewu.common.entry.EntryImportExpander.ImportReader sandboxReader(String sandboxId, String baseDir) {
+        return (dir, rel) -> {
+            String effective = (dir != null && !dir.isBlank()) ? dir : baseDir;
+            String path = effective.isBlank() ? rel : effective + "/" + rel;
+            try {
+                return sandboxClient.readFile(sandboxId, path);
+            } catch (Exception e) {
+                return null;
+            }
+        };
     }
 
     private EntryCandidate candidate(String level, String label, String content) {
@@ -450,6 +475,10 @@ public class AgentEntryFileService {
         if (name == null || !ALLOWED_NAMES.contains(name)) {
             throw new IllegalArgumentException("文件名仅支持: " + ALLOWED_NAMES);
         }
+    }
+
+    private static EntryFileSelector.Layering parseLayering(String raw) {
+        return "merge".equalsIgnoreCase(raw) ? EntryFileSelector.Layering.MERGE : EntryFileSelector.Layering.SELECT;
     }
 
     private void evictUser(String userId) {

@@ -94,6 +94,7 @@ export default function SettingsPanel({ conn, initialTab = 'models', onClose, on
   const [entryProject, setEntryProject] = useState('');
   const [entryContent, setEntryContent] = useState('');
   const [entryPath, setEntryPath] = useState('');
+  const [entryHint, setEntryHint] = useState<string | null>(null);
 
   // ===== 模型设置状态：选中供应商 + 编辑表单 =====
   const [selected, setSelected] = useState<string | null>(null); // code 或 '__new__'
@@ -260,13 +261,21 @@ export default function SettingsPanel({ conn, initialTab = 'models', onClose, on
   // ==================== 调度入口文件（设计文档 56 §7.2） ====================
   const loadEntry = useCallback(async () => {
     if (section !== 'entry') return;
-    if (entryScope === 'project' && !entryProject.trim()) { setEntryContent(''); setEntryPath(''); return; }
+    if (entryScope === 'project' && !entryProject.trim()) { setEntryContent(''); setEntryPath(''); setEntryHint(null); return; }
     try {
       const qs = `scope=${entryScope}&name=${entryName}`
         + (entryScope === 'project' ? `&project=${encodeURIComponent(entryProject.trim())}` : '');
       const data = (await conn.data(`/v1/entry-file?${qs}`)) as { exists: boolean; content: string; path: string };
       setEntryContent(data.content || '');
       setEntryPath(data.path || '');
+      if (entryScope === 'project') {
+        try {
+          const r = (await conn.data('/v1/entry-file/resolve?project=' + encodeURIComponent(entryProject.trim()))) as { upgradeHint?: string | null };
+          setEntryHint(r.upgradeHint || null);
+        } catch { setEntryHint(null); }
+      } else {
+        setEntryHint(null);
+      }
     } catch { setMsg('调度入口文件读取失败'); }
   }, [section, entryScope, entryName, entryProject, conn]);
 
@@ -576,6 +585,12 @@ export default function SettingsPanel({ conn, initialTab = 'models', onClose, on
                   </select>
                 </div>
                 {entryScope === 'project' && input('项目目录（如 /home/me/projects/demo）', entryProject, setEntryProject)}
+                {entryPath && <p className="hint">当前文件：{entryPath}</p>}
+                {entryHint && (
+                  <div className="mb-2 rounded-md border border-[#8a6d1a] bg-[#2a2410] p-2 text-xs text-[#e3c567]">
+                    ⚠ {entryHint}（一键同步在项目详情/平台侧提供）
+                  </div>
+                )}
                 {entryPath && <p className="hint">当前文件：{entryPath}</p>}
                 <textarea placeholder={'入口调度指令（Markdown）\n---\nversion: 1.0.0\n---\n\n# 项目规范\n- 构建命令…'} value={entryContent}
                   onChange={(e) => setEntryContent(e.target.value)}

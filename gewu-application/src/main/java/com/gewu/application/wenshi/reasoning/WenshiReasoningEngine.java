@@ -73,6 +73,22 @@ public class WenshiReasoningEngine {
     /** 记忆注入器，将检索到的记忆注入推理上下文 */
     private final MemoryInjector memoryInjector;
 
+    /** 入口调度文件服务（Wenshi 旁路注入，设计文档 56 §10 P2） */
+    private final com.gewu.application.entry.AgentEntryFileService entryFileService;
+
+    /** 入口调度指令后缀：无入口文件返回空串，解析失败不阻塞 Wenshi 推理。 */
+    private String entrySuffix(WenshiReasoningRequest request) {
+        try {
+            var view = entryFileService.resolveForSession(request.getUserId(), request.getSessionId());
+            if (view != null && view.present()) {
+                return "\n\n## 调度入口指令\n\n" + view.content();
+            }
+        } catch (Exception ignored) {
+            // 解析失败不阻塞 Wenshi 推理
+        }
+        return "";
+    }
+
     /** 推理轨迹持久化映射器 */
     private final ReasoningTraceMapper traceMapper;
 
@@ -108,6 +124,9 @@ public class WenshiReasoningEngine {
 
     /** 文件输出服务，将复杂内容保存为文件并生成摘要 */
     private final FileOutputService fileOutputService;
+
+    /** 执行中转向队列（用户插话补充指令）：子目标边界排水注入后续推理 */
+    private final com.gewu.agent.engine.hitl.TurnSteeringQueue turnSteeringQueue;
 
     /** JSON 解析器，用于解析工具调用参数 */
     private static final ObjectMapper OBJECT_MAPPER = new ObjectMapper();
@@ -223,8 +242,8 @@ public class WenshiReasoningEngine {
         // 第三步：准备记忆注入
         MemoryInjector.InjectionPlan injection = memoryInjector.prepareInjection(routing);
 
-        // 构建系统提示
-        String systemPrompt = "你是格物知行 AI 助手。请根据以下知识上下文回答用户问题。";
+        // 构建系统提示（入口调度指令紧随人设——Wenshi 旁路注入，设计文档 56 §10 P2）
+        String systemPrompt = "你是格物知行 AI 助手。请根据以下知识上下文回答用户问题。" + entrySuffix(request);
         if (request.getMessage() != null && !request.getMessage().isBlank()) {
             systemPrompt += "\n\n【用户原始问题】" + request.getMessage()
                     + "\n请在回答中严格遵守用户原始问题中的所有技术约束（如编程语言、框架版本等）。";
@@ -236,6 +255,11 @@ public class WenshiReasoningEngine {
         // 逐个子目标流式输出
         List<WenshiReasoningResult.SubgoalNode> subgoals = plan.getSubgoals();
         StringBuilder accumulated = new StringBuilder();
+        // 执行中转向：用户插话的补充指令，注入后续子目标的 LLM 提示
+        StringBuilder steeringBuffer = new StringBuilder();
+        // FILE_OUTPUT 子目标 LLM 调用失败标记：失败文案只进对话框，不再参与
+        // 文件分类（否则报错信息会被误存为 ai-generated 文件，见用户实报截图）
+        boolean fileOutputLlmFailed = false;
 
         // 规划阶段输出
         Flux<WenshiReasoningChunk> planFlux = Flux.just(WenshiReasoningChunk.builder()
@@ -260,6 +284,14 @@ public class WenshiReasoningEngine {
 
         // 每个子目标的流式输出
         for (WenshiReasoningResult.SubgoalNode subgoal : subgoals) {
+            // 执行中转向（用户插话）：子目标边界排水，后续 LLM 调用带入补充指令
+            for (String s : turnSteeringQueue.drain(request.getSessionId())) {
+                steeringBuffer.append("【用户补充指令】").append(s).append('\n');
+                planFlux = planFlux.concatWith(Flux.just(WenshiReasoningChunk.builder()
+                        .type("content")
+                        .content("【收到补充指令】" + s + "\n")
+                        .build()));
+            }
             SolverRouter.Strategy strategy = solverRouter.selectStrategy(subgoal, request);
 
             // 发射策略选择思考过程
@@ -368,9 +400,13 @@ public class WenshiReasoningEngine {
                 // 更新 systemPrompt 以纳入新注入的网络知识（后续 LLM 子目标可复用）
                 MemoryInjector.InjectionPlan refreshedInjection = memoryInjector.prepareInjection(routing);
                 StringBuilder refreshedPrompt = new StringBuilder(
-                        "你是格物知行 AI 助手。请根据以下知识上下文回答用户问题。");
+                        "你是格物知行 AI 助手。请根据以下知识上下文回答用户问题。")
+                        .append(entrySuffix(request));
                 if (refreshedInjection.getSummary() != null && !refreshedInjection.getSummary().isBlank()) {
                     refreshedPrompt.append("\n\n").append(refreshedInjection.getSummary());
+                }
+                if (!steeringBuffer.isEmpty()) {
+                    refreshedPrompt.append("\n\n").append(steeringBuffer);
                 }
                 systemPrompt = refreshedPrompt.toString();
             } else if (strategy == SolverRouter.Strategy.FILE_OUTPUT) {
@@ -381,7 +417,7 @@ public class WenshiReasoningEngine {
                         .content("正在生成内容...")
                         .build()));
                 try {
-                    String fullContent = callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage());
+                    String fullContent = callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage(), entrySuffix(request));
                     accumulated.append(fullContent);
                     // 发射核心内容摘要到思考过程（让用户看到推理产出，但不占用对话框正文）
                     String coreSummary = extractCoreSummary(fullContent);
@@ -392,6 +428,7 @@ public class WenshiReasoningEngine {
                 } catch (Exception e) {
                     log.warn("reasonStream: FILE_OUTPUT LLM 调用失败: {}", e.getMessage());
                     accumulated.append("LLM 推理失败: ").append(e.getMessage());
+                    fileOutputLlmFailed = true;
                 }
             } else {
                 // LLM 推理：自动增强网络搜索上下文（若启用且本地知识不足）
@@ -401,7 +438,8 @@ public class WenshiReasoningEngine {
                 // 构建 systemPrompt，注入记忆摘要 + 用户原始问题约束
                 MemoryInjector.InjectionPlan refreshedInjection = memoryInjector.prepareInjection(routing);
                 StringBuilder llmPrompt = new StringBuilder(
-                        "你是格物知行 AI 助手。请根据以下知识上下文回答用户问题。");
+                        "你是格物知行 AI 助手。请根据以下知识上下文回答用户问题。")
+                        .append(entrySuffix(request));
                 if (request.getMessage() != null && !request.getMessage().isBlank()) {
                     llmPrompt.append("\n\n【用户原始问题】").append(request.getMessage())
                             .append("\n请在回答中严格遵守用户原始问题中的所有技术约束（如编程语言、框架版本等）。");
@@ -409,50 +447,63 @@ public class WenshiReasoningEngine {
                 if (refreshedInjection.getSummary() != null && !refreshedInjection.getSummary().isBlank()) {
                     llmPrompt.append("\n\n").append(refreshedInjection.getSummary());
                 }
+                if (!steeringBuffer.isEmpty()) {
+                    llmPrompt.append("\n\n").append(steeringBuffer);
+                }
                 systemPrompt = llmPrompt.toString();
                 // 流式调用 LLM
                 planFlux = planFlux.concatWith(streamLlmCall(systemPrompt, subgoal.getDescription(), accumulated, request.getModel(), request.getSessionId()));
             }
         }
 
-        // 内容分类：判定是否需要保存为文件
-        OutputDecision decision = contentClassifier.classify(accumulated.toString(), plan.getSubgoals());
-        if (decision.getType() == OutputDecision.DecisionType.FILE_OUTPUT) {
-            try {
-                // 生成文件
-                List<FileInfo> fileInfos = fileOutputService.generateFiles(
-                        decision.getFiles(), request.getProjectId(), request.getRequirementId());
-                // 发射文件卡片事件
-                for (FileInfo fi : fileInfos) {
+        // 内容分类：判定是否需要保存为文件。
+        // FILE_OUTPUT 子目标的 LLM 调用失败时跳过分类与落盘——错误文案没有文件价值，
+        // 且 plannerFlagged 会无条件判 FILE_OUTPUT，否则报错信息会被误存为 ai-generated 文件
+        if (fileOutputLlmFailed) {
+            // FILE_OUTPUT 分支未流式发射正文，失败文案在此补发进对话框
+            planFlux = planFlux.concatWith(Flux.just(WenshiReasoningChunk.builder()
+                    .type("content")
+                    .content(accumulated.toString())
+                    .build()));
+        } else {
+            OutputDecision decision = contentClassifier.classify(accumulated.toString(), plan.getSubgoals());
+            if (decision.getType() == OutputDecision.DecisionType.FILE_OUTPUT) {
+                try {
+                    // 生成文件
+                    List<FileInfo> fileInfos = fileOutputService.generateFiles(
+                            decision.getFiles(), request.getProjectId(), request.getRequirementId());
+                    // 发射文件卡片事件
+                    for (FileInfo fi : fileInfos) {
+                        planFlux = planFlux.concatWith(Flux.just(WenshiReasoningChunk.builder()
+                                .type("file")
+                                .file(WenshiReasoningChunk.FileInfo.builder()
+                                        .fileName(fi.getFileName())
+                                        .fileType(fi.getFileType())
+                                        .mimeType(fi.getMimeType())
+                                        .fileSize(fi.getFileSize())
+                                        .downloadUrl(fi.getDownloadUrl())
+                                        .previewContent(fi.getPreviewContent())
+                                        .source(fi.getSource())
+                                        .build())
+                                .build()));
+                    }
+                    // 生成摘要并替换对话框内容
+                    String summary = fileOutputService.generateSummary(decision.getFullContent(), request.getModel());
+                    accumulated.setLength(0);
+                    accumulated.append(summary);
                     planFlux = planFlux.concatWith(Flux.just(WenshiReasoningChunk.builder()
-                            .type("file")
-                            .file(WenshiReasoningChunk.FileInfo.builder()
-                                    .fileName(fi.getFileName())
-                                    .fileType(fi.getFileType())
-                                    .mimeType(fi.getMimeType())
-                                    .fileSize(fi.getFileSize())
-                                    .downloadUrl(fi.getDownloadUrl())
-                                    .previewContent(fi.getPreviewContent())
-                                    .source(fi.getSource())
-                                    .build())
+                            .type("content")
+                            .content(summary)
+                            .build()));
+                } catch (Exception e) {
+                    // 文件生成失败时回退为直接输出原始内容，确保会话内容不丢失
+                    log.warn("reasonStream: 文件生成失败，回退为直接输出: {}", e.getMessage(), e);
+                    // FILE_OUTPUT 子目标的内容未发射 content 事件，需补发
+                    planFlux = planFlux.concatWith(Flux.just(WenshiReasoningChunk.builder()
+                            .type("content")
+                            .content(accumulated.toString())
                             .build()));
                 }
-                // 生成摘要并替换对话框内容
-                String summary = fileOutputService.generateSummary(decision.getFullContent(), request.getModel());
-                accumulated.setLength(0);
-                accumulated.append(summary);
-                planFlux = planFlux.concatWith(Flux.just(WenshiReasoningChunk.builder()
-                        .type("content")
-                        .content(summary)
-                        .build()));
-            } catch (Exception e) {
-                // 文件生成失败时回退为直接输出原始内容，确保会话内容不丢失
-                log.warn("reasonStream: 文件生成失败，回退为直接输出: {}", e.getMessage(), e);
-                // FILE_OUTPUT 子目标的内容未发射 content 事件，需补发
-                planFlux = planFlux.concatWith(Flux.just(WenshiReasoningChunk.builder()
-                        .type("content")
-                        .content(accumulated.toString())
-                        .build()));
             }
         }
 
@@ -625,7 +676,7 @@ public class WenshiReasoningEngine {
                     return sb.toString().trim();
                 }
                 // 语义记忆为空时退化为 LLM 推理
-                return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage());
+                return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage(), entrySuffix(request));
             }
             case WEB_SEARCH:
                 return executeWebSearchForSubgoal(subgoal, routing, request);
@@ -633,7 +684,7 @@ public class WenshiReasoningEngine {
                 return executeToolForSubgoal(subgoal, request, routing);
             case FILE_OUTPUT:
                 // 同步调用 LLM 生成内容，后续由 reasonStream 统一分类+保存文件
-                return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage());
+                return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage(), entrySuffix(request));
             case EXPERIENCE_REUSE:
                 return executeExperienceReuse(subgoal, request, routing);
             case LLM_REASONING:
@@ -643,7 +694,7 @@ public class WenshiReasoningEngine {
                     autoEnhanceWithContext(subgoal.getDescription(), routing);
                 }
                 // 兜底策略：使用 LLM 进行推理（可能已注入网络相关知识）
-                return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage());
+                return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage(), entrySuffix(request));
         }
     }
 
@@ -674,7 +725,7 @@ public class WenshiReasoningEngine {
             if (!searchResult.isSuccess() || searchResult.getFragments() == null
                     || searchResult.getFragments().isEmpty()) {
                 log.warn("executeWebSearchForSubgoal: no results, fallback to LLM: {}", searchResult.getErrorMessage());
-                return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage());
+                return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage(), entrySuffix(request));
             }
 
             // 2. 四级漏斗正确性判断
@@ -707,10 +758,10 @@ public class WenshiReasoningEngine {
 
             // 5. 无采纳结果则回退 LLM（带空网络知识注入）
             log.warn("executeWebSearchForSubgoal: no adopted results, fallback to LLM");
-            return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage());
+            return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage(), entrySuffix(request));
         } catch (Exception e) {
             log.warn("executeWebSearchForSubgoal failed, fallback to LLM: {}", e.getMessage());
-            return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage());
+            return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage(), entrySuffix(request));
         }
     }
 
@@ -828,12 +879,12 @@ public class WenshiReasoningEngine {
             } else {
                 log.warn("executeToolForSubgoal: tool={}, failed: {}", toolName, result.getError());
                 // 工具执行失败，回退到 LLM 推理
-                return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage());
+                return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage(), entrySuffix(request));
             }
         } catch (Exception e) {
             log.warn("executeToolForSubgoal: tool={}, exception: {}", toolName, e.getMessage());
             // 工具不存在或执行异常，回退到 LLM 推理
-            return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage());
+            return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage(), entrySuffix(request));
         }
     }
 
@@ -853,7 +904,7 @@ public class WenshiReasoningEngine {
                                            MemoryRouter.RoutingResult routing) {
         String tenantId = request.getTenantId();
         if (tenantId == null) {
-            return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage());
+            return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage(), entrySuffix(request));
         }
         try {
             float[] queryVector = embeddingAdapter.embed(subgoal.getDescription());
@@ -871,7 +922,7 @@ public class WenshiReasoningEngine {
         } catch (Exception e) {
             log.warn("executeExperienceReuse: query failed, falling back to LLM: {}", e.getMessage());
         }
-        return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage());
+        return callLlm(subgoal.getDescription(), routing, request.getModel(), request.getMessage(), entrySuffix(request));
     }
 
     /**
@@ -901,7 +952,7 @@ public class WenshiReasoningEngine {
      * @return LLM 生成的回答文本
      * @since 1.0.0
      */
-    private String callLlm(String subgoalDescription, MemoryRouter.RoutingResult routing, String model, String originalMessage) {
+    private String callLlm(String subgoalDescription, MemoryRouter.RoutingResult routing, String model, String originalMessage, String entrySuffix) {
         try {
             String[] pm = resolveProviderAndModel(model);
             LlmClient client = llmClientFactory.getClient(pm[0]);
@@ -910,7 +961,8 @@ public class WenshiReasoningEngine {
 
             // 构建系统提示，注入记忆摘要和用户原始问题（确保 LLM 知道完整上下文和约束）
             MemoryInjector.InjectionPlan injection = memoryInjector.prepareInjection(routing);
-            String systemPrompt = "你是格物知行 AI 助手。请根据以下知识上下文回答用户问题。";
+            String systemPrompt = "你是格物知行 AI 助手。请根据以下知识上下文回答用户问题。"
+                    + (entrySuffix != null ? entrySuffix : "");
             if (originalMessage != null && !originalMessage.isBlank()) {
                 systemPrompt += "\n\n【用户原始问题】" + originalMessage
                         + "\n请在回答中严格遵守用户原始问题中的所有技术约束（如编程语言、框架版本等）。";

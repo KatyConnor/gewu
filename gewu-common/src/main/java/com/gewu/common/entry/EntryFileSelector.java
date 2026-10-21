@@ -18,18 +18,35 @@ package com.gewu.common.entry;
  */
 public final class EntryFileSelector {
 
+    /** 叠加语义（设计文档 56 §12.1）：SELECT=单选；MERGE=全局段+项目段拼接 */
+    public enum Layering { SELECT, MERGE }
+
     public static final String REASON_NO_ENTRY = "no-entry";
     public static final String REASON_ONLY_CANDIDATE = "only-candidate";
     public static final String REASON_VERSION_HIGHER = "version-higher";
     public static final String REASON_PROJECT_DEFAULT = "project-default";
+    public static final String REASON_MERGED = "merged";
+    public static final String REASON_PROJECT_OVERRIDE = "project-override";
 
     private EntryFileSelector() {
     }
 
     /**
-     * 跨层裁决。任一候选可为 null（该层无入口文件）。
+     * 跨层裁决（select 语义，向后兼容入口）。
      */
     public static EntrySelection select(EntryCandidate global, EntryCandidate project) {
+        return select(global, project, Layering.SELECT, false);
+    }
+
+    /**
+     * 跨层裁决（支持叠加语义，设计文档 56 §12.1 P2）.
+     *
+     * @param layering        SELECT=单选（默认，主流就近语义）；MERGE=双侧拼接
+     * @param projectOverride 项目文件 frontmatter 是否声明 override:true
+     *                        （仅 MERGE 下有意义：声明则退回单选、项目级独占）
+     */
+    public static EntrySelection select(EntryCandidate global, EntryCandidate project,
+                                        Layering layering, boolean projectOverride) {
         if (isEmpty(global) && isEmpty(project)) {
             return EntrySelection.builder()
                     .source("none").reason(REASON_NO_ENTRY).build();
@@ -39,6 +56,22 @@ public final class EntryFileSelector {
         }
         if (isEmpty(project)) {
             return chosen(global, REASON_ONLY_CANDIDATE);
+        }
+
+        boolean merge = layering == Layering.MERGE && !projectOverride;
+        if (merge) {
+            String merged = global.getContent() + "\n\n---\n\n" + project.getContent();
+            return EntrySelection.builder()
+                    .source(global.getPath() + " + " + project.getPath())
+                    .path(global.getPath())
+                    .version(project.getVersion())
+                    .reason(REASON_MERGED)
+                    .content(merged)
+                    .build();
+        }
+        if (layering == Layering.MERGE) {
+            // MERGE + override → 项目级独占（项目显式声明不受全局叠加影响）
+            return chosen(project, REASON_PROJECT_OVERRIDE);
         }
 
         String gv = global.getVersion();
@@ -55,6 +88,35 @@ public final class EntryFileSelector {
         }
         // 规则 2b：任一侧无版本，或双方版本相等 → 项目级胜（主流就近语义兜底）
         return chosen(project, REASON_PROJECT_DEFAULT);
+    }
+
+    /**
+     * 解析 frontmatter 的 override 声明（仅认可 true）。
+     * 解析失败或未声明返回 false。
+     */
+    public static boolean extractOverride(String content) {
+        if (content == null || content.isEmpty()) {
+            return false;
+        }
+        String[] lines = content.split("\n", -1);
+        int limit = Math.min(lines.length, 20);
+        boolean inFrontmatter = false;
+        for (int i = 0; i < limit; i++) {
+            String line = lines[i].trim();
+            if (i == 0 && "---".equals(line)) {
+                inFrontmatter = true;
+                continue;
+            }
+            if (inFrontmatter) {
+                if ("---".equals(line) || "...".equals(line)) {
+                    break;
+                }
+                if (line.startsWith("override:")) {
+                    return line.substring("override:".length()).trim().equalsIgnoreCase("true");
+                }
+            }
+        }
+        return false;
     }
 
     private static boolean isEmpty(EntryCandidate c) {

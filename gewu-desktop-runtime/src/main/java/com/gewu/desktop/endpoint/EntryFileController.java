@@ -40,7 +40,7 @@ public class EntryFileController {
     public record SaveRequest(String scope, String name, String project, String content) {
     }
 
-    /** 裁决预览：与系统提示词注入同源的 resolve 结果（含 source/meta）。 */
+    /** 裁决预览：与系统提示词注入同源的 resolve 结果（含 source/meta/升级提示）。 */
     @GetMapping("/resolve")
     public Map<String, Object> resolve(@RequestParam(required = false) String project) {
         var r = resolver.resolve(project);
@@ -49,6 +49,7 @@ public class EntryFileController {
         out.put("source", r.source());
         out.put("content", r.content());
         out.put("meta", r.metaJson());
+        out.put("upgradeHint", r.upgradeHint());
         return out;
     }
 

@@ -42,7 +42,7 @@ public class EntryFileResolver {
     /**
      * 裁决结果：content=null 表示无入口文件（source=none）.
      */
-    public record EntryResolution(String content, String source, String metaJson) {
+    public record EntryResolution(String content, String source, String metaJson, String upgradeHint) {
         public boolean present() {
             return content != null && !content.isEmpty();
         }
@@ -58,10 +58,17 @@ public class EntryFileResolver {
                 ? null
                 : load("project", Path.of(projectDirectory));
 
-        EntrySelection sel = EntryFileSelector.select(global, project);
+        com.gewu.common.entry.EntryFileSelector.Layering mode =
+                "merge".equalsIgnoreCase(props.getEntryLayering())
+                        ? com.gewu.common.entry.EntryFileSelector.Layering.MERGE
+                        : com.gewu.common.entry.EntryFileSelector.Layering.SELECT;
+        boolean projectOverride = project != null
+                && com.gewu.common.entry.EntryFileSelector.extractOverride(project.getContent());
+        EntrySelection sel = EntryFileSelector.select(global, project, mode, projectOverride);
         if (sel.getContent() == null) {
-            return new EntryResolution(null, "none", metaJson("none", null, sel.getReason(), "", 0, false));
+            return new EntryResolution(null, "none", metaJson("none", null, sel.getReason(), "", 0, false), null);
         }
+        String upgradeHint = buildUpgradeHint(global, project);
 
         // 注入总量上限（字节），超限截断并标记
         int maxBytes = Math.max(1, props.getEntryMaxBytes());
@@ -75,7 +82,7 @@ public class EntryFileResolver {
         String meta = metaJson(sel.getSource(), sel.getVersion(), sel.getReason(),
                 sha256Hex(content.getBytes(StandardCharsets.UTF_8)),
                 content.getBytes(StandardCharsets.UTF_8).length, truncated);
-        return new EntryResolution(content, sel.getSource(), meta);
+        return new EntryResolution(content, sel.getSource(), meta, upgradeHint);
     }
 
     /** 供 project.context 复用的裁决读取（不截断注入上限，由工具自身预算控制）. */
@@ -88,7 +95,7 @@ public class EntryFileResolver {
         return EntryFileSelector.select(global, project);
     }
 
-    /** 单层发现：dir/GEWU.md → dir/AGENTS.md，命中即停；读取上限 64KB。 */
+    /** 单层发现：dir/GEWU.md → dir/AGENTS.md，命中即停；读取上限 64KB；@import 相对该目录展开。 */
     private EntryCandidate load(String level, Path dir) {
         for (String name : new String[]{"GEWU.md", "AGENTS.md"}) {
             Path file = dir.resolve(name);
@@ -101,6 +108,8 @@ public class EntryFileResolver {
                 if (bytes.length > READ_CAP_BYTES) {
                     content = truncateToByteLimit(content, READ_CAP_BYTES);
                 }
+                content = com.gewu.common.entry.EntryImportExpander.expand(content,
+                        dir.toString(), (b, rel) -> localRead(dir, b, rel));
                 return EntryCandidate.builder()
                         .level(level)
                         .path(level + ":" + name)
@@ -113,6 +122,20 @@ public class EntryFileResolver {
             }
         }
         return null;
+    }
+
+    /** 本地 @import 读取（相对入口文件目录；越界/缺失返回 null）。 */
+    private static String localRead(Path baseDir, String subDir, String rel) {
+        String effective = (subDir == null || subDir.isBlank()) ? rel : subDir + "/" + rel;
+        Path p = baseDir.resolve(effective).normalize();
+        if (!p.startsWith(baseDir) || !Files.isRegularFile(p)) {
+            return null;
+        }
+        try {
+            return Files.readString(p, StandardCharsets.UTF_8);
+        } catch (IOException e) {
+            return null;
+        }
     }
 
     /** 按字节上限截断（不切半个多字节字符）。 */
@@ -128,8 +151,22 @@ public class EntryFileResolver {
         return new String(bytes, 0, cut, StandardCharsets.UTF_8);
     }
 
-    private String metaJson(String source, String version, String reason, String sha256, int bytes, boolean truncated) {
-        try {
+    /** 升级提示（§6.4 桌面同等能力，P2）：全局带版本且更高、项目未参与协议或版本较低。 */
+    private static String buildUpgradeHint(EntryCandidate global, EntryCandidate project) {
+        if (global == null || global.getVersion() == null
+                || project == null || project.getContent() == null) {
+            return null;
+        }
+        if (project.getVersion() == null
+                || EntryFileSelector.compareVersions(global.getVersion(), project.getVersion()) > 0) {
+            return "全局规范已升级至 " + global.getVersion()
+                    + "，当前项目文件" + (project.getVersion() == null ? "未声明版本" : "版本 " + project.getVersion())
+                    + "，可查看差异或一键同步（限同名文件）";
+        }
+        return null;
+    }
+
+    private String metaJson(String source, String version, String reason, String sha256, int bytes, boolean truncated) {        try {
             Map<String, Object> meta = new LinkedHashMap<>();
             meta.put("source", source);
             meta.put("version", version);

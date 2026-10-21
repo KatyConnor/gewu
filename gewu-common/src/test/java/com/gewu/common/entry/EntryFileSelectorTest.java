@@ -1,5 +1,6 @@
 package com.gewu.common.entry;
 
+import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -93,6 +94,41 @@ class EntryFileSelectorTest {
         assertThat(EntryFileSelector.compareVersions("1.3", "1.3.0")).isZero();
         assertThat(EntryFileSelector.compareVersions("1.3", "1.3.1")).isNegative();
         assertThat(EntryFileSelector.compareVersions("0.9", "1.0.0")).isNegative();
+    }
+
+    @Test
+    @DisplayName("MERGE 叠加：双侧内容拼接（reason=merged）")
+    void mergeLayering_concatenatesBoth() {
+        EntrySelection s = EntryFileSelector.select(global("1.1.0", "全局段"), project("1.0.0", "项目段"),
+                EntryFileSelector.Layering.MERGE, false);
+        assertThat(s.getReason()).isEqualTo(EntryFileSelector.REASON_MERGED);
+        assertThat(s.getContent()).contains("全局段").contains("项目段");
+        assertThat(s.getSource()).contains("+");
+    }
+
+    @Test
+    @DisplayName("MERGE + override:true → 项目级独占（project-override）")
+    void mergeLayering_projectOverride() {
+        EntrySelection s = EntryFileSelector.select(global("1.1.0", "全局段"), project("1.0.0", "项目段"),
+                EntryFileSelector.Layering.MERGE, true);
+        assertThat(s.getReason()).isEqualTo(EntryFileSelector.REASON_PROJECT_OVERRIDE);
+        assertThat(s.getContent()).isEqualTo("项目段");
+    }
+
+    @Test
+    @DisplayName("MERGE 下单侧缺失 → 退化为 only-candidate")
+    void mergeLayering_singleSide() {
+        EntrySelection s = EntryFileSelector.select(global("1.1.0", "全局段"), null,
+                EntryFileSelector.Layering.MERGE, false);
+        assertThat(s.getReason()).isEqualTo(EntryFileSelector.REASON_ONLY_CANDIDATE);
+    }
+
+    @Test
+    @DisplayName("override frontmatter 解析")
+    void extractOverride() {
+        assertThat(EntryFileSelector.extractOverride("---\noverride: true\nversion: 1.0.0\n---\n")).isTrue();
+        assertThat(EntryFileSelector.extractOverride("---\noverride: false\n---\n")).isFalse();
+        assertThat(EntryFileSelector.extractOverride("# 无 frontmatter")).isFalse();
     }
 
     @Test

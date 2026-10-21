@@ -158,7 +158,7 @@ ReactAgentExecutor.buildMessages → SystemPromptComposer.compose(agent, ...)
 - **子代理继承**：spawn_subagents 构建子任务时经 `ToolContext` 传递父任务字段（ReactAgentExecutor:1399-1415）——`ToolContext` 需同步新增 `entryDirectives` 透传字段（评审 F-204），子任务不重复解析（与子代理共享工作空间的既有语义一致，:1404）。
 - **长任务继承（评审 F-203）**：`LongTaskService` 分段执行自建 AgentTask（:315），P0 必须同步透传父会话已解析的 entryDirectives，否则同一会话的长任务段静默丢失入口指令。
 - **编排路径（P2）**：VeloflowAiBridge、Supervisor/Swarm/Debate/Pipeline 模式处理器、PlanExecuteRuntime 另有 6 类 7 处 AgentTask 构建点（全仓共 11 处，清单见 §12.6），本期不注入，后续复用同一继承载体。
-- 会话快照语义：任务启动时解析一次，会话中途改动不自动重载（智能体仍可通过文件工具重读项目级文件）。**边界明示（评审 F-209）**：无项目会话的会话根即卷根，`/workspace/GEWU.md` 对模型**可见且可改写**（模型写入经 V2M 同步持久化）——行为与文件工具语义一致、予以接受，缓解措施见 §8；全局文件对**项目会话**不可见（文件工具以会话根为边界，属预期行为）。
+- 会话语义（实现修正，2026-10-21）：注入在**每条用户消息的任务构建时解析**（buildTask→applyToTask，60s 缓存）——会话中途改动入口文件，**下一条用户消息即生效**，无需专门刷新命令；"任务启动快照"仅指单轮内不重读。**边界明示（评审 F-209）**：无项目会话的会话根即卷根，`/workspace/GEWU.md` 对模型**可见且可改写**（模型写入经 V2M 同步持久化）——行为与文件工具语义一致、予以接受，缓解见 §8；全局文件对**项目会话**不可见（文件工具以会话根为边界，属预期行为）。
 
 ## 6. 平台端详细设计
 
@@ -250,8 +250,8 @@ EntryResolution resolve(String projectDirectory /*可空*/):
 | **P0 引擎底座** | `EntryFileSelector` 纯函数 + semver 比较（gewu-common，表驱动单测）；`AgentTask.entryDirectives/entryDirectivesMeta` 字段；`SystemPromptComposer` 追加段；`ToolContext.entryDirectives` 透传（子代理继承）；`LongTaskService` 长任务段继承 | gewu-common、gewu-agent-engine | 1~1.5d |
 | **P0 桌面端** | `EntryFileResolver`；DesktopChatController 注入；ProjectContextTool 复用 resolver；设置面板编辑器；contract test 扩展 | gewu-desktop-runtime、gewu-desktop | 1d |
 | **P1 平台端** | `AgentEntryFileService`（MinIO 全局 + 沙箱项目级 + 缓存 + 种子同步（对账自愈））；三个 REST API（PUT 复用 WorkspaceService 保存路径）；设置页编辑器 + 项目页签 + 模板初始化 + 升级通知（§6.4）；集成测试 | gewu-application、gewu-interface、gewu-web | 2~3d |
-| **P2 增强**（批次一已实施·2026-10-20） | ✅ 编排路径接入（OrchestrationContext 继承载体 + 6 处 builder + OrchestrationService 发起解析；VeloflowAiBridge/AutonomousExecutor 为系统合成身份无用户绑定，按用户绑定语义 N/A）；✅ 密钥泄漏扫描（SecretScanUtil 特征集，平台保存/初始化 + 桌面保存入口命中即拒绝，§12 风险7 豁免期清偿）；✅ LongTaskService 长任务继承（随 P0 落地） | gewu-common、gewu-agent-engine、gewu-application、gewu-desktop-runtime | 1d |
-| **P2 增强**（后续批次） | 子目录嵌套发现；merge 叠加模式（`layering: select\|merge` 配置）；`@path` import；`/memory` 式会话内刷新；桌面端升级通知；Wenshi 旁路注入 | 多模块 | 另评 |
+| **P2 增强**（批次二已实施·2026-10-21） | ✅ merge 叠加模式（`gewu.entry.layering`/`gewu.desktop.entry-layering: select\|merge`，项目 frontmatter `override: true` 时项目独占，reason=merged/project-override）；✅ `@path` import（EntryImportExpander：整行 @相对路径、单层展开、上限 5 处、防环防越界，两端接入）；✅ 桌面端升级提示（resolver 计算 + 设置面板横幅）；✅ Wenshi 旁路注入（reasonStream/steering/callLlm 共 15 处拼接点接入 entrySuffix）；✅ 会话内刷新（实现为逐轮解析，文档语义修正 §5.3） | 多模块 | 1d |
+| **P2 占位**（后续批次） | 子目录嵌套发现（monorepo）——依赖引擎文件工具层先落"当前工作子目录"语义，需单独设计；其余均已在批次一/二落地 | gewu-agent-engine | 另评 |
 
 ## 11. 测试与验收
 
@@ -270,6 +270,6 @@ EntryResolution resolve(String projectDirectory /*可空*/):
 | 3 | **MinIO 同步延迟**：沙箱内手建的全局文件最多 5 分钟（对账兜底）才可被无沙箱会话读到 | 文档明示"建议从设置页编辑全局文件"（直写 MinIO，零延迟） |
 | 4 | **项目级文件污染 Git 状态**：UI 初始化写入的是未跟踪文件 | 提示提交入库；`inRepo` 标记区分 |
 | 5 | **与既有 `project.context` 工具的关系**（桌面端） | 统一 Resolver 后工具降级为"补充装载 rules/skills"，入口文件以自动注入为准 |
-| 6 | **编排路径未覆盖（评审 F-203）**：VeloflowAiBridge:75、SupervisorModeHandler:97、SwarmModeHandler:107、DebateModeHandler:73/139、PipelineModeHandler:346、PlanExecuteRuntime:106 共 6 类 7 处 AgentTask 构建点，P0/P1 不注入——这些路径上入口指令与审计静默缺失；AgentRoleSpec.systemPromptTemplate 亦预留未填、Wenshi 旁路为硬编码提示词 | 继承载体（ToolContext.entryDirectives）在 P0 就位，编排路径接入复用同一字段；编排角色系统提示词模板填充时一并启用 |
+| 6 | **编排路径未覆盖（已清偿·P2 批次一）**：~~VeloflowAiBridge:75、SupervisorModeHandler:97、SwarmModeHandler:107、DebateModeHandler:73/139、PipelineModeHandler:346、PlanExecuteRuntime:106 共 6 类 7 处 AgentTask 构建点不注入~~——OrchestrationContext 继承载体 + 6 处 builder + 编排发起解析已落地；VeloflowAiBridge/AutonomousExecutor 为系统合成身份记 N/A；AgentRoleSpec.systemPromptTemplate 仍预留未填、Wenshi 旁路已于批次二接入 | 已清偿（编排）；Wenshi 已接入（批次二） |
 | 7 | **P1 密钥扫描缺位豁免期**：~~PUT/初始化 API 于 P1 上线，密钥特征扫描 P2 才有~~ **已清偿（P2 批次一）**：SecretScanUtil 特征扫描接入平台保存/初始化与桌面保存入口，命中即拒绝落库 | 已清偿 |
 | 8 | **多智能体/编排提示词改造**（Wenshi 推理引擎/多智能体协调器硬编码） | 另立专项，不随本设计分期 |

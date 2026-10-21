@@ -38,6 +38,9 @@ public class DesktopProps {
     /** 入口调度指令注入总量上限（字节，AGENTS.md/GEWU.md 裁决产物；设计文档 56 §5.1） */
     private int entryMaxBytes = 32 * 1024;
 
+    /** 叠加语义（P2 §12.1）：select=单选（默认）；merge=全局段+项目段拼接，项目 override:true 时项目独占 */
+    private String entryLayering = "select";
+
     public Map<String, String> getModelKeys() {
         return modelKeys;
     }
@@ -92,5 +95,13 @@ public class DesktopProps {
 
     public void setEntryMaxBytes(int entryMaxBytes) {
         this.entryMaxBytes = entryMaxBytes;
+    }
+
+    public String getEntryLayering() {
+        return entryLayering;
+    }
+
+    public void setEntryLayering(String entryLayering) {
+        this.entryLayering = entryLayering;
     }
 }
