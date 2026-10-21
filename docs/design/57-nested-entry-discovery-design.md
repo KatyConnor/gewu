@@ -22,7 +22,7 @@ agents.md 规范的核心语义之一是**就近优先**：monorepo 各子目录
 | **B. 工具访问感知（惰性就近）**：文件工具读写某子树文件时，向上探测入口文件，命中则**附加进当次工具结果** | 与 Claude Code 子目录 CLAUDE.md 惰性加载同构；零配置、零会话改动 | 指令进入的是工具结果段而非 system prompt；跨轮可能重复 | **采用** |
 | C. 独立查询工具（entry.nearest(path)） | 模型自主控制 | 依赖模型主动性，覆盖不稳 | 否（可作 B 的补充后续加） |
 
-## 3. 发现算法（纯函数，gewu-common）
+## 3. 发现算法（纯函数，gewu-agent-engine.entry——实施偏离说明：引擎自包含不依赖 gewu-common，RPT-005 N-1 补记）
 
 `NestedEntryFinder.find(root, targetPath, probe)`：
 
@@ -43,7 +43,7 @@ agents.md 规范的核心语义之一是**就近优先**：monorepo 各子目录
   \n\n---\n## 子目录调度指令（packages/foo/）\n<内容>
   ```
 
-- **去重**：`ToolContext` 增 `nestedEntriesServed`（`Set<String>` 相对目录集合）——同一次任务内同一子目录只附加一次；跨轮允许再次附加（每轮首触注入一次，成本上限可控，见 §5），文档如实声明；
+- **去重**：`ToolContext` 增 `nestedEntriesServed`（`Set<String>` 相对目录集合）——**"轮"=会话轮次（新任务新建 ToolContext）**：同一任务内多 LLM 轮共享集合并只附加一次，会话下一轮（新任务）首触再附加（实现口径，RPT-005 F-505）；
 - **单文件上限**：16KB，超限截断并标注。
 
 ## 5. 边界与成本（如实声明）
@@ -56,13 +56,13 @@ agents.md 规范的核心语义之一是**就近优先**：monorepo 各子目录
 ## 6. 安全
 
 - 子目录文件来源为 Git 仓库内容——信任定位同 56 §8.3"项目级=仓库自带"（来源标注入附加段、审计可查、平台红线门禁独立执行）；
-- 密钥扫描：附加前过 `SecretScanUtil`，命中则以一行警示替代内容（不注入密钥，也不完全吞掉信号）。
+- 密钥扫描：附加前过 `SecretScanUtil`，命中则以一行警示替代内容（不注入密钥，也不完全吞掉信号）。实现为**引擎本地最小副本 `EntrySecretScan`**（特征集与 gewu-common `SecretScanUtil` 同步维护、一致性由守护测试断言）——引擎自包含不依赖 gewu-common（RPT-005 F-502）。
 
 ## 7. 实施拆解与工作量
 
 | 步骤 | 内容 | 估时 |
 |---|---|---|
-| 1 | `NestedEntryFinder`（gewu-common 纯函数）+ 表驱动单测 | 0.5d |
+| 1 | `NestedEntryFinder`（纯函数，实施落 gewu-agent-engine.entry——引擎自包含）+ 表驱动单测 | 0.5d |
 | 2 | 引擎接线：ToolContext 集合 + executeFileTool 三案后置检查 + 输出附加 | 0.5d |
 | 3 | 测试：finder 单测 + 引擎侧 monorepo 假仓库用例（read 触发/根不触发/GEWU 优先/去重/截断） | 0.5d |
 

@@ -58,12 +58,12 @@ public class ToolContext {
     private String entryDirectivesSource;
     /** 子代理派生上下文：父任务入口调度指令元数据 JSON */
     private String entryDirectivesMeta;
-    /** 子目录嵌套入口已服务集合（设计文档 57）：本轮任务内已附加过的子目录（去重） */
+    /** 子目录嵌套入口已服务集合（设计文档 57）：本轮任务内已附加过的子目录（去重）；并发工具调用共享，须并发容器（RPT-005 F-501） */
     @Builder.Default
-    private java.util.Set<String> nestedEntriesServed = new java.util.HashSet<>();
-    /** 子目录嵌套探针记忆化（设计文档 57 性能修复）：key=dir/name，值=内容，空串=已探测但缺失 */
+    private java.util.Set<String> nestedEntriesServed = java.util.concurrent.ConcurrentHashMap.newKeySet();
+    /** 子目录嵌套探针记忆化（设计文档 57 性能修复）：key=dir/name，值=内容，空串=已探测但缺失；并发容器（RPT-005 F-501） */
     @Builder.Default
-    private java.util.Map<String, String> nestedEntryProbeCache = new java.util.HashMap<>();
+    private java.util.Map<String, String> nestedEntryProbeCache = new java.util.concurrent.ConcurrentHashMap<>();
 
     /**
      * 任务计划状态（S9 F5）：跨工具轮次持有最新任务清单，

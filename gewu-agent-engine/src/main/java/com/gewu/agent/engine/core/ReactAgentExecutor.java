@@ -1180,8 +1180,8 @@ public class ReactAgentExecutor implements AgentExecutor {
         }
     }
 
-    /** 写/编辑入口文件本身时失效探针缓存（模型新建子目录入口文件可被即时发现）。 */
-    private static void invalidateNestedProbeCache(ToolContext toolContext, String path) {
+    /** 写/编辑入口文件本身时失效探针缓存（模型新建子目录入口文件可被即时发现）。包私有以便直测。 */
+    static void invalidateNestedProbeCache(ToolContext toolContext, String path) {
         if (toolContext == null || toolContext.getNestedEntryProbeCache() == null
                 || path == null || (!path.endsWith("/GEWU.md") && !path.endsWith("/AGENTS.md"))) {
             return;
@@ -1205,7 +1205,12 @@ public class ReactAgentExecutor implements AgentExecutor {
                 return output;
             }
             var cache = toolContext.getNestedEntryProbeCache();
-            var hit = com.gewu.agent.engine.entry.NestedEntryFinder.find("", path, (dir, name) -> {
+            // 探测/去重前统一路径口径（RPT-005 F-504：避免 SPI 剥前缀产生幽灵目录标签）
+            String normalizedPath = com.gewu.agent.engine.entry.NestedEntryFinder.normalizePath(path);
+            if (normalizedPath == null || normalizedPath.isBlank()) {
+                return output;
+            }
+            var hit = com.gewu.agent.engine.entry.NestedEntryFinder.find("", normalizedPath, (dir, name) -> {
                 String key = dir + "/" + name;
                 if (cache.containsKey(key)) {
                     String cached = cache.get(key);

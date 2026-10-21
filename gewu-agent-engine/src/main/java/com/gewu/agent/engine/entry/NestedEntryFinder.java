@@ -38,8 +38,8 @@ public final class NestedEntryFinder {
         if (targetPath == null || targetPath.isBlank() || probe == null) {
             return null;
         }
-        String rootNorm = normalize(root);
-        String target = normalize(targetPath);
+        String rootNorm = normalizePath(root);
+        String target = normalizePath(targetPath);
         if (target == null) {
             return null; // 绝对路径或含 .. → 越界拒绝
         }
@@ -61,8 +61,12 @@ public final class NestedEntryFinder {
         return null;
     }
 
-    /** 规范化相对路径：剥 ./ 前缀；绝对路径或含 .. 段返回 null（越界拒绝）。 */
-    private static String normalize(String path) {
+    /**
+     * 相对路径规范化（公开供接线层探测/去重前统一口径，RPT-005 F-504）：
+     * 剥 ./ 前缀；绝对路径或含 .. 段返回 null（越界拒绝）。
+     * 注意：显式 root≠"" 时，targetPath 必须以 root 前缀开头，否则探测范围会静默漂移——调用方自行保证。
+     */
+    public static String normalizePath(String path) {
         if (path == null) {
             return null;
         }

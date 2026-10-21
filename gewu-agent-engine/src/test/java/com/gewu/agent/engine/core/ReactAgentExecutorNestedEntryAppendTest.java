@@ -109,6 +109,46 @@ class ReactAgentExecutorNestedEntryAppendTest {
     }
 
     @Test
+    @DisplayName("并发 append：无异常、去重集与探针缓存完整（F-501 回归）")
+    void concurrentAppends_threadSafe() throws Exception {
+        FakeWs ws = new FakeWs();
+        int dirs = 20;
+        for (int i = 0; i < dirs; i++) {
+            ws.files.put("pkg" + i + "/AGENTS.md", "约定" + i);
+        }
+        ToolContext ctx = ToolContext.builder().build();
+        var pool = java.util.concurrent.Executors.newFixedThreadPool(8);
+        var calls = new java.util.ArrayList<java.util.concurrent.Callable<String>>();
+        for (int i = 0; i < dirs * 2; i++) {
+            final int k = i % dirs;
+            calls.add(() -> ReactAgentExecutor.appendNestedEntry("out" + k, ctx, "pkg" + k + "/a.java", ws));
+        }
+        pool.invokeAll(calls);
+        pool.shutdown();
+        // 去重集：每目录恰好一项；探针缓存：每目录两键（GEWU 缺失哨兵 + AGENTS 内容），无丢失无重复
+        assertThat(ctx.getNestedEntriesServed()).hasSize(dirs);
+        assertThat(ctx.getNestedEntryProbeCache()).hasSize(dirs * 2);
+    }
+
+    @Test
+    @DisplayName("写→失效→读 即时发现链（F-503）")
+    void invalidation_enablesImmediateDiscovery() {
+        FakeWs ws = new FakeWs();
+        ToolContext ctx = ToolContext.builder().build();
+        // 首次探测未命中（缓存写入空串哨兵）
+        assertThat(ReactAgentExecutor.appendNestedEntry("首轮", ctx, "packages/foo/a.java", ws)).isEqualTo("首轮");
+        // write_file 创建入口文件 + invalidate（executeFileTool 写路径的次序）
+        ws.files.put("packages/foo/GEWU.md", "新建的入口文件");
+        ReactAgentExecutor.invalidateNestedProbeCache(ctx, "packages/foo/GEWU.md");
+        // 失效后同目录读取 → 即时发现
+        String out = ReactAgentExecutor.appendNestedEntry("次轮", ctx, "packages/foo/b.java", ws);
+        assertThat(out).contains("新建的入口文件");
+        // 非入口文件路径失效为 no-op
+        ReactAgentExecutor.invalidateNestedProbeCache(ctx, "packages/foo/other.md");
+        assertThat(out).contains("新建的入口文件");
+    }
+
+    @Test
     @DisplayName("无命中原样返回；ws 为 null 安全")
     void noHitAndNullWs() {
         assertThat(ReactAgentExecutor.appendNestedEntry("原样", ToolContext.builder().build(), "a.md", null))
