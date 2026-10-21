@@ -1123,6 +1123,7 @@ public class ReactAgentExecutor implements AgentExecutor {
                 case WRITE_FILE_TOOL -> {
                     String content = root.path("content").asText("");
                     fileWorkspace.writeFile(toolContext, path, content);
+                    invalidateNestedProbeCache(toolContext, path);
                     return ToolResult.builder().success(true)
                             .output(appendNestedEntry("已写入 " + path + "（" + content.length() + " 字符）", toolContext, path, fileWorkspace))
                             .build();
@@ -1157,6 +1158,7 @@ public class ReactAgentExecutor implements AgentExecutor {
                         if (current.charAt(i) == '\n') startLine++;
                     }
                     int[] diff = diffLineCounts(oldText, newText);
+                    invalidateNestedProbeCache(toolContext, path);
                     return ToolResult.builder().success(true)
                             .output(appendNestedEntry("已编辑 " + path + "（第 " + startLine + " 行起，+" + diff[0] + " -" + diff[1] + "）", toolContext, path, fileWorkspace))
                             .build();
@@ -1178,23 +1180,45 @@ public class ReactAgentExecutor implements AgentExecutor {
         }
     }
 
+    /** 写/编辑入口文件本身时失效探针缓存（模型新建子目录入口文件可被即时发现）。 */
+    private static void invalidateNestedProbeCache(ToolContext toolContext, String path) {
+        if (toolContext == null || toolContext.getNestedEntryProbeCache() == null
+                || path == null || (!path.endsWith("/GEWU.md") && !path.endsWith("/AGENTS.md"))) {
+            return;
+        }
+        String dir = path.substring(0, path.lastIndexOf('/'));
+        toolContext.getNestedEntryProbeCache().keySet()
+                .removeIf(k -> k.equals(dir + "/GEWU.md") || k.equals(dir + "/AGENTS.md"));
+    }
+
     /**
      * 子目录嵌套入口发现附加（设计文档 57）：读/写/编辑成功后，自被触碰文件目录向上
      * 探测就近入口文件（至会话根、不含根），命中且本轮未服务过则附加进工具输出。
-     * 任何异常静默降级为原输出，不阻塞文件工具。
+     * 探针经任务级记忆化（性能：每个唯一目录只探测一次，避免每次文件操作全量
+     * 向上探测的 HTTP/exec 开销）；写入口文件时失效对应缓存。任何异常静默降级。
      */
     static String appendNestedEntry(String output, ToolContext toolContext, String path, com.gewu.agent.engine.tool.FileWorkspaceSpi ws) {
         try {
             if (ws == null || output == null || toolContext == null
-                    || toolContext.getNestedEntriesServed() == null) {
+                    || toolContext.getNestedEntriesServed() == null
+                    || toolContext.getNestedEntryProbeCache() == null) {
                 return output;
             }
+            var cache = toolContext.getNestedEntryProbeCache();
             var hit = com.gewu.agent.engine.entry.NestedEntryFinder.find("", path, (dir, name) -> {
-                try {
-                    return ws.readFile(toolContext, dir + "/" + name);
-                } catch (Exception e) {
-                    return null;
+                String key = dir + "/" + name;
+                if (cache.containsKey(key)) {
+                    String cached = cache.get(key);
+                    return cached.isEmpty() ? null : cached;
                 }
+                String content;
+                try {
+                    content = ws.readFile(toolContext, key);
+                } catch (Exception e) {
+                    content = null;
+                }
+                cache.put(key, content == null ? "" : content);
+                return content;
             });
             if (hit == null || !toolContext.getNestedEntriesServed().add(hit.relativeDir())) {
                 return output;

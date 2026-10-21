@@ -17,12 +17,14 @@ import static org.assertj.core.api.Assertions.assertThat;
  */
 class ReactAgentExecutorNestedEntryAppendTest {
 
-    /** 内存文件工作区（对齐引擎既有 Fake 惯例）。 */
+    /** 内存文件工作区（对齐引擎既有 Fake 惯例），带探针调用计数。 */
     static class FakeWs implements FileWorkspaceSpi {
         final Map<String, String> files = new HashMap<>();
+        int readCalls;
 
         @Override
         public String readFile(ToolContext ctx, String path) {
+            readCalls++;
             return files.get(path);
         }
 
@@ -38,7 +40,7 @@ class ReactAgentExecutorNestedEntryAppendTest {
     }
 
     @Test
-    @DisplayName("read 触发：子目录入口文件附加进工具输出")
+    @DisplayName("read 触发：子目录入口文件附加进工具输出；探针记忆化同目录零重复探测")
     void readTriggersAppend() {
         FakeWs ws = new FakeWs();
         ws.files.put("packages/foo/AGENTS.md", "foo 子项目约定：测试命令 pytest -q");
@@ -47,9 +49,12 @@ class ReactAgentExecutorNestedEntryAppendTest {
         assertThat(out).startsWith("文件内容")
                 .contains("## 子目录调度指令（packages/foo/）")
                 .contains("pytest -q");
+        int afterFirst = ws.readCalls;
         // 任务内去重：同一子目录第二次读取不再附加
         String again = ReactAgentExecutor.appendNestedEntry("再次读取", ctx, "packages/foo/src/Y.java", ws);
         assertThat(again).isEqualTo("再次读取");
+        // 探针记忆化：第二次同目录操作零重复探测（性能修复断言）
+        assertThat(ws.readCalls).isEqualTo(afterFirst);
     }
 
     @Test

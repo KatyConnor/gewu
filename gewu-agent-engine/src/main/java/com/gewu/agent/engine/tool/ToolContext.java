@@ -61,6 +61,9 @@ public class ToolContext {
     /** 子目录嵌套入口已服务集合（设计文档 57）：本轮任务内已附加过的子目录（去重） */
     @Builder.Default
     private java.util.Set<String> nestedEntriesServed = new java.util.HashSet<>();
+    /** 子目录嵌套探针记忆化（设计文档 57 性能修复）：key=dir/name，值=内容，空串=已探测但缺失 */
+    @Builder.Default
+    private java.util.Map<String, String> nestedEntryProbeCache = new java.util.HashMap<>();
 
     /**
      * 任务计划状态（S9 F5）：跨工具轮次持有最新任务清单，
