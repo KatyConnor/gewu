@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { EngineConnection } from '../engine';
 
 /**
@@ -95,6 +95,7 @@ export default function SettingsPanel({ conn, initialTab = 'models', onClose, on
   const [entryContent, setEntryContent] = useState('');
   const [entryPath, setEntryPath] = useState('');
   const [entryHint, setEntryHint] = useState<string | null>(null);
+  const entryLoadSeq = useRef(0);
 
   // ===== 模型设置状态：选中供应商 + 编辑表单 =====
   const [selected, setSelected] = useState<string | null>(null); // code 或 '__new__'
@@ -121,7 +122,7 @@ export default function SettingsPanel({ conn, initialTab = 'models', onClose, on
 
   const run = useCallback(async (fn: () => Promise<void>, ok: string) => {
     setBusy(true);
-    try { await fn(); setMsg(ok); onChanged?.(); } catch (e) { setMsg(`失败: ${String(e)}`); } finally { setBusy(false); }
+    try { await fn(); setMsg(ok); onChanged?.(); } catch (e) { setMsg(e instanceof Error ? e.message : '操作失败'); } finally { setBusy(false); }
   }, [onChanged]);
 
   const switchToCloud = async () => {
@@ -260,26 +261,36 @@ export default function SettingsPanel({ conn, initialTab = 'models', onClose, on
 
   // ==================== 调度入口文件（设计文档 56 §7.2） ====================
   const loadEntry = useCallback(async () => {
+    const seq = ++entryLoadSeq.current;
     if (section !== 'entry') return;
     if (entryScope === 'project' && !entryProject.trim()) { setEntryContent(''); setEntryPath(''); setEntryHint(null); return; }
     try {
       const qs = `scope=${entryScope}&name=${entryName}`
         + (entryScope === 'project' ? `&project=${encodeURIComponent(entryProject.trim())}` : '');
-      const data = (await conn.data(`/v1/entry-file?${qs}`)) as { exists: boolean; content: string; path: string };
+      const data = (await conn.data(`/v1/entry-file?${qs}`)) as { exists: boolean; content: string; path: string; error?: string };
+      if (seq !== entryLoadSeq.current) return; // 竞态守卫（CR F#5）：丢弃过期响应
+      if (data.error) { setMsg('调度入口文件读取失败: ' + data.error); return; }
       setEntryContent(data.content || '');
       setEntryPath(data.path || '');
+      if (!data.exists) setMsg(`${data.path} 尚未创建，保存后将新建`);
       if (entryScope === 'project') {
         try {
           const r = (await conn.data('/v1/entry-file/resolve?project=' + encodeURIComponent(entryProject.trim()))) as { upgradeHint?: string | null };
+          if (seq !== entryLoadSeq.current) return;
           setEntryHint(r.upgradeHint || null);
         } catch { setEntryHint(null); }
       } else {
         setEntryHint(null);
       }
-    } catch { setMsg('调度入口文件读取失败'); }
+    } catch {
+      if (seq === entryLoadSeq.current) setMsg('调度入口文件读取失败');
+    }
   }, [section, entryScope, entryName, entryProject, conn]);
 
-  useEffect(() => { loadEntry(); }, [loadEntry]);
+  useEffect(() => {
+    const t = setTimeout(loadEntry, 300); // 防抖（CR F#5：项目目录逐键输入不触发请求风暴）
+    return () => clearTimeout(t);
+  }, [loadEntry]);
 
   const saveEntry = () => run(async () => {
     if (entryScope === 'project' && !entryProject.trim()) throw new Error('项目层编辑需填写项目目录');
@@ -585,7 +596,6 @@ export default function SettingsPanel({ conn, initialTab = 'models', onClose, on
                   </select>
                 </div>
                 {entryScope === 'project' && input('项目目录（如 /home/me/projects/demo）', entryProject, setEntryProject)}
-                {entryPath && <p className="hint">当前文件：{entryPath}</p>}
                 {entryHint && (
                   <div className="mb-2 rounded-md border border-[#8a6d1a] bg-[#2a2410] p-2 text-xs text-[#e3c567]">
                     ⚠ {entryHint}（一键同步在项目详情/平台侧提供）

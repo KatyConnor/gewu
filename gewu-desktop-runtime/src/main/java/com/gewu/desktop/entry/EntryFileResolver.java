@@ -52,23 +52,12 @@ public class EntryFileResolver {
      * 解析入口调度文件。projectDirectory 为 null 时仅裁决全局层.
      */
     public EntryResolution resolve(String projectDirectory) {
-        EntryCandidate global = load("user-global", Path.of(
-                System.getProperty("user.home"), ".gewu"));
-        EntryCandidate project = projectDirectory == null || projectDirectory.isBlank()
-                ? null
-                : load("project", Path.of(projectDirectory));
-
-        com.gewu.common.entry.EntryFileSelector.Layering mode =
-                "merge".equalsIgnoreCase(props.getEntryLayering())
-                        ? com.gewu.common.entry.EntryFileSelector.Layering.MERGE
-                        : com.gewu.common.entry.EntryFileSelector.Layering.SELECT;
-        boolean projectOverride = project != null
-                && com.gewu.common.entry.EntryFileSelector.extractOverride(project.getContent());
-        EntrySelection sel = EntryFileSelector.select(global, project, mode, projectOverride);
+        SelectContext sc = selectInternal(projectDirectory);
+        EntrySelection sel = sc.sel();
         if (sel.getContent() == null) {
             return new EntryResolution(null, "none", metaJson("none", null, sel.getReason(), "", 0, false), null);
         }
-        String upgradeHint = buildUpgradeHint(global, project);
+        String upgradeHint = buildUpgradeHint(sc.global(), sc.project());
 
         // 注入总量上限（字节），超限截断并标记
         int maxBytes = Math.max(1, props.getEntryMaxBytes());
@@ -85,14 +74,28 @@ public class EntryFileResolver {
         return new EntryResolution(content, sel.getSource(), meta, upgradeHint);
     }
 
-    /** 供 project.context 复用的裁决读取（不截断注入上限，由工具自身预算控制）. */
+    /** 供 project.context 复用的裁决读取：与 resolve() 同一叠加语义（CR P1#3 消除双源分叉）。 */
     public EntrySelection resolveSelection(String projectDirectory) {
+        return selectInternal(projectDirectory).sel();
+    }
+
+    private record SelectContext(EntryCandidate global, EntryCandidate project, EntrySelection sel) {}
+
+    private SelectContext selectInternal(String projectDirectory) {
         EntryCandidate global = load("user-global", Path.of(
                 System.getProperty("user.home"), ".gewu"));
         EntryCandidate project = projectDirectory == null || projectDirectory.isBlank()
                 ? null
                 : load("project", Path.of(projectDirectory));
-        return EntryFileSelector.select(global, project);
+
+        com.gewu.common.entry.EntryFileSelector.Layering mode =
+                "merge".equalsIgnoreCase(props.getEntryLayering())
+                        ? com.gewu.common.entry.EntryFileSelector.Layering.MERGE
+                        : com.gewu.common.entry.EntryFileSelector.Layering.SELECT;
+        boolean projectOverride = project != null
+                && com.gewu.common.entry.EntryFileSelector.extractOverride(project.getContent());
+        EntrySelection sel = EntryFileSelector.select(global, project, mode, projectOverride);
+        return new SelectContext(global, project, sel);
     }
 
     /** 单层发现：dir/GEWU.md → dir/AGENTS.md，命中即停；读取上限 64KB；@import 相对该目录展开。 */
@@ -103,7 +106,13 @@ public class EntryFileResolver {
                 continue;
             }
             try {
-                byte[] bytes = Files.readAllBytes(file);
+                if (!Files.isRegularFile(file, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                    continue; // 符号链接条目拒读（CR P2#8：防仓库内链接逃逸外泄本地文件）
+                }
+                byte[] bytes;
+                try (java.io.InputStream in = Files.newInputStream(file)) {
+                    bytes = in.readNBytes(READ_CAP_BYTES + 1); // 限长读取（CR P2#18：防超大文件内存尖峰）
+                }
                 String content = new String(bytes, StandardCharsets.UTF_8);
                 if (bytes.length > READ_CAP_BYTES) {
                     content = truncateToByteLimit(content, READ_CAP_BYTES);
@@ -124,14 +133,19 @@ public class EntryFileResolver {
         return null;
     }
 
-    /** 本地 @import 读取（相对入口文件目录；越界/缺失返回 null）。 */
+    /** 本地 @import 读取（相对入口文件目录；越界/缺失/非普通文件返回 null）。 */
     private static String localRead(Path baseDir, String subDir, String rel) {
         String effective = (subDir == null || subDir.isBlank()) ? rel : subDir + "/" + rel;
         Path p = baseDir.resolve(effective).normalize();
-        if (!p.startsWith(baseDir) || !Files.isRegularFile(p)) {
+        if (!p.startsWith(baseDir)) {
             return null;
         }
         try {
+            // realpath 断言（CR P2#8：防符号链接中间段逃逸工作区）
+            if (!p.toRealPath().startsWith(baseDir.toRealPath())
+                    || !Files.isRegularFile(p, java.nio.file.LinkOption.NOFOLLOW_LINKS)) {
+                return null;
+            }
             return Files.readString(p, StandardCharsets.UTF_8);
         } catch (IOException e) {
             return null;

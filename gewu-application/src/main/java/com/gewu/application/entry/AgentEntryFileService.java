@@ -59,6 +59,8 @@ public class AgentEntryFileService {
     private static final int READ_CAP_BYTES = 64 * 1024;
     /** 保存内容上限（字节）：入口文件属治理文本，超限应走版本管理而非平台直存 */
     private static final int MAX_CONTENT_BYTES = 512 * 1024;
+    /** 裁决缓存容量上限（超限清过期、仍超清空——回源重建安全，CR P1#1 内存放大防护） */
+    private static final int MAX_CACHE_ENTRIES = 500;
     private static final long CACHE_TTL_MS = 60_000;
 
     private final WorkspaceMapper workspaceMapper;
@@ -103,7 +105,10 @@ public class AgentEntryFileService {
                 return noneView();
             }
             Session session = sessionId != null ? sessionMapper.selectById(sessionId) : null;
-            String directory = session != null ? session.getDirectory() : null;
+            // 会话归属校验（CR P2#4 防越权纵深）：非本人会话不读取其目录（降级仅全局层）。
+            // Session 无 userId 字段，所有权以创建人（createdBy）为准。
+            String directory = session != null && userId.equals(session.getCreatedBy())
+                    ? session.getDirectory() : null;
             return resolve(userId, directory);
         } catch (Exception e) {
             log.info("[entry] 会话入口指令解析降级: sessionId={}, err={}", sessionId, e.getMessage());
@@ -141,20 +146,22 @@ public class AgentEntryFileService {
         String base = normalizeBase(sessionDirectory);
         String cacheKey = userId + "|" + (base != null ? base : "");
         CacheEntry cached = cache.get(cacheKey);
-        if (cached != null && cached.expireAt() > System.currentTimeMillis()) {
-            return cached.view();
+        if (cached != null) {
+            if (cached.expireAt() > System.currentTimeMillis()) {
+                return cached.view();
+            }
+            cache.remove(cacheKey); // 读时清除过期条目（CR P1#1：防无访问滞留）
         }
+        guardCacheCapacity();
         EntryView view = doResolve(userId, base);
         cache.put(cacheKey, new CacheEntry(view, System.currentTimeMillis() + CACHE_TTL_MS));
         return view;
     }
 
-    /** 项目页签裁决（按 projectId 取仓库路径，§6.4 升级提示消费方）。 */
+    /** 项目页签裁决（按 projectId 取仓库路径，§6.4 升级提示消费方）。按查看者自己的全局层裁决（成员身份已由 requireProjectAccess 保证）。 */
     public EntryView resolveForProject(String projectId) {
         Project project = requireProjectAccess(projectId);
-        String userId = com.gewu.common.context.UserContext.currentUserId();
-        // 项目页签跨用户查看时按项目归属者全局层裁决
-        return resolve(userId != null ? userId : project.getOwnerId(), project.getRepoLocalPath());
+        return resolve(com.gewu.common.context.UserContext.currentUserId(), project.getRepoLocalPath());
     }
 
     private EntryView doResolve(String userId, String base) {
@@ -207,10 +214,14 @@ public class AgentEntryFileService {
     /**
      * 保存全局文件（评审 F-202）：建/更新 workspace_file 台账行 + MinIO 直写 + M2V 入队。
      * 沙箱后建时由对账自愈完成种子同步（reconcile M2V 遍历全部已登记行）。
+     * 串行化（CR P2#6）：防并发首存双插台账行。
      */
     @Transactional
-    public void saveGlobalFile(String userId, String name, String content) {
+    public synchronized void saveGlobalFile(String userId, String name, String content) {
         requireAllowed(name);
+        if (content == null || content.isBlank()) {
+            throw new IllegalArgumentException("内容不能为空");
+        }
         checkContentSize(content);
         checkSecretLeak(content);
         Workspace ws = workspaceByUser(userId);
@@ -287,7 +298,7 @@ public class AgentEntryFileService {
         }
     }
 
-    /** 模板初始化：写入项目仓库根（仅 clone 成功后可调——clone 要求目标目录为空，§6.3）。仅项目成员可操作。 */
+    /** 模板初始化：写入项目仓库根（仅 clone 成功后可调——clone 要求目标目录为空，§6.3）。仅项目成员可操作。覆盖前强制快照既有内容（§6.4 承诺兑现）。 */
     public void initProjectFile(String projectId, String name, String content) {
         requireAllowed(name);
         checkContentSize(content);
@@ -297,8 +308,20 @@ public class AgentEntryFileService {
         if (ws == null || ws.getDevSandboxId() == null || project.getRepoLocalPath() == null) {
             throw new IllegalStateException("开发沙箱未就绪，无法初始化项目入口文件");
         }
-        sandboxClient.writeFile(ws.getDevSandboxId(),
-                project.getRepoLocalPath() + "/" + name, content);
+        String targetPath = project.getRepoLocalPath() + "/" + name;
+        // 覆盖前强制快照（CR F#7：UI 承诺"可恢复"必须有实现支撑）；快照失败中止覆盖
+        try {
+            String existing = sandboxClient.readFile(ws.getDevSandboxId(), targetPath);
+            if (existing != null && !existing.isEmpty()) {
+                String snapKey = ws.getStoragePath() + ".entry-package-snapshots/"
+                        + System.currentTimeMillis() + "/" + name;
+                storageService.uploadWorkspaceContent(snapKey, existing, "text/markdown");
+                log.info("覆盖前快照已存: projectId={}, snapKey={}", projectId, snapKey);
+            }
+        } catch (Exception e) {
+            throw new IllegalStateException("覆盖前快照失败，已中止覆盖（可稍后重试）: " + e.getMessage(), e);
+        }
+        sandboxClient.writeFile(ws.getDevSandboxId(), targetPath, content);
         evictUser(project.getOwnerId());
         log.info("项目入口文件已初始化: projectId={}, name={}", projectId, name);
     }
@@ -448,8 +471,10 @@ public class AgentEntryFileService {
     }
 
     private static void checkContentSize(String content) {
-        if (content != null
-                && content.getBytes(StandardCharsets.UTF_8).length > MAX_CONTENT_BYTES) {
+        if (content == null) {
+            throw new IllegalArgumentException("内容不能为空");
+        }
+        if (content.getBytes(StandardCharsets.UTF_8).length > MAX_CONTENT_BYTES) {
             throw new IllegalArgumentException("内容超过大小上限（512KB），请精简后保存");
         }
     }
@@ -490,6 +515,19 @@ public class AgentEntryFileService {
     /** none 视图工厂（解析降级/无入口文件的统一返回）。 */
     private static EntryView noneView() {
         return new EntryView(null, "none", "{\"source\":\"none\",\"reason\":\"no-entry\"}", null);
+    }
+
+    /**
+     * 裁决缓存容量护栏（CR P1：过期条目读时清除 + 超上限整体清理，防有界内存放大）。
+     */
+    private void guardCacheCapacity() {
+        if (cache.size() <= MAX_CACHE_ENTRIES) {
+            return;
+        }
+        cache.values().removeIf(e -> e.expireAt() <= System.currentTimeMillis());
+        if (cache.size() > MAX_CACHE_ENTRIES) {
+            cache.clear(); // 全量清空安全：缓存未命中仅回源重建
+        }
     }
 
     private static String truncateToByteLimit(String content, int maxBytes) {

@@ -1176,17 +1176,24 @@ public class ReactAgentExecutor implements AgentExecutor {
                 }
             }
         } catch (Exception e) {
-            return ToolResult.builder().success(false).error("文件操作失败: " + e.getMessage()).build();
+            log.warn("文件工具执行失败: err={}", e.getMessage());
+            // 通用文案（CR L3-SEC-020 邻域：原始异常可能含沙箱内部路径，不进模型上下文）
+            return ToolResult.builder().success(false).error("文件操作失败，请重试或调整参数").build();
         }
     }
 
     /** 写/编辑入口文件本身时失效探针缓存（模型新建子目录入口文件可被即时发现）。包私有以便直测。 */
     static void invalidateNestedProbeCache(ToolContext toolContext, String path) {
-        if (toolContext == null || toolContext.getNestedEntryProbeCache() == null
-                || path == null || (!path.endsWith("/GEWU.md") && !path.endsWith("/AGENTS.md"))) {
+        if (toolContext == null || toolContext.getNestedEntryProbeCache() == null || path == null) {
             return;
         }
-        String dir = path.substring(0, path.lastIndexOf('/'));
+        // 先归一化保证失效键与探测缓存键同口径（CR P1#2：./ 前缀/多斜杠写路径的失效错位）
+        String norm = com.gewu.agent.engine.entry.NestedEntryFinder.normalizePath(path);
+        if (norm == null || norm.isBlank()
+                || (!norm.endsWith("/GEWU.md") && !norm.endsWith("/AGENTS.md"))) {
+            return;
+        }
+        String dir = norm.substring(0, norm.lastIndexOf('/'));
         toolContext.getNestedEntryProbeCache().keySet()
                 .removeIf(k -> k.equals(dir + "/GEWU.md") || k.equals(dir + "/AGENTS.md"));
     }
@@ -1212,8 +1219,9 @@ public class ReactAgentExecutor implements AgentExecutor {
             }
             var hit = com.gewu.agent.engine.entry.NestedEntryFinder.find("", normalizedPath, (dir, name) -> {
                 String key = dir + "/" + name;
-                if (cache.containsKey(key)) {
-                    String cached = cache.get(key);
+                // 单次 get（CR P2#14：containsKey+get 与失效并发存在 TOCTOU）
+                String cached = cache.get(key);
+                if (cached != null) {
                     return cached.isEmpty() ? null : cached;
                 }
                 String content;

@@ -60,10 +60,18 @@ public class EntryFileController {
     }
 
     @GetMapping("/me/entry-file/resolve")
-    @Operation(summary = "全局裁决预览", description = "仅全局层裁决（content/source/meta），供设置页预览")
-    public Result<AgentEntryFileService.EntryView> resolveGlobal() {
+    @Operation(summary = "全局裁决预览", description = "仅全局层裁决（content/source/meta/upgradeHint），供设置页预览")
+    public Result<Map<String, Object>> resolveGlobal() {
         String userId = requireUserId();
-        return Result.success(entryFileService.resolve(userId, null));
+        var view = entryFileService.resolve(userId, null);
+        // 手工映射（CR F#4：record 的 present() 为派生方法不被 Jackson 序列化，meta 需对齐前端字段名）
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("present", view.present());
+        out.put("source", view.source());
+        out.put("content", view.content());
+        out.put("meta", view.metaJson());
+        out.put("upgradeHint", view.upgradeHint());
+        return Result.success(out);
     }
 
     // ==================== 项目层 ====================

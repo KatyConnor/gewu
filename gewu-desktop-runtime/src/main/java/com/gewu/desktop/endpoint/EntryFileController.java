@@ -84,6 +84,10 @@ public class EntryFileController {
             throw new IllegalArgumentException(
                     "内容疑似包含" + hit.get() + "，已拒绝保存——请移除凭据后重试");
         }
+        // 大小上限（与平台侧对齐，CR P2#18）
+        if (req.content().getBytes(java.nio.charset.StandardCharsets.UTF_8).length > 512 * 1024) {
+            throw new IllegalArgumentException("内容超过大小上限（512KB），请精简后保存");
+        }
         Path file = fileFor(req.scope(), req.name(), req.project());
         try {
             if (file.getParent() != null) {

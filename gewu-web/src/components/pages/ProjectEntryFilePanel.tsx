@@ -43,8 +43,11 @@ export default function ProjectEntryFilePanel({ projectId }: { projectId: string
 
   useEffect(() => { if (open) load(); }, [open, load]);
 
-  const globalName: Names | null = view?.source?.startsWith('user-global:')
-    ? (view.source.split(':')[1] as Names) : null;
+  const globalNameRaw = view?.source?.startsWith('user-global:')
+    ? view.source.split(':')[1] : null;
+  // 白名单校验（CR F#11）：非 GEWU/AGENTS 名一律不启用同步
+  const globalName: Names | null =
+    globalNameRaw === 'GEWU.md' || globalNameRaw === 'AGENTS.md' ? globalNameRaw : null;
   // 一键同步限同名（评审 F-302）：全局生效文件在项目层存在同名文件才可同步
   const canSync = !!view?.upgradeHint && !!globalName && !!projectFiles[globalName]?.exists;
 

@@ -50,7 +50,16 @@ public final class EntryImportExpander {
         boolean changed = false;
         for (String line : lines) {
             String rel = parseImportPath(line);
-            if (rel == null || !expanded.add(rel) || count >= MAX_IMPORTS) {
+            if (rel == null) {
+                out.append(line).append('\n');
+                continue;
+            }
+            // 超限先判（不污染去重集）并显式标注（CR P2#5：实现/文档/测试一致）
+            if (count >= MAX_IMPORTS) {
+                out.append(line).append("  <!-- import 超限（最多 ").append(MAX_IMPORTS).append(" 处） -->\n");
+                continue;
+            }
+            if (!expanded.add(rel)) {
                 out.append(line).append('\n');
                 continue;
             }

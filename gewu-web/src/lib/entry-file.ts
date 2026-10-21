@@ -24,8 +24,10 @@ async function authFetch(url: string, options: RequestInit = {}): Promise<Respon
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) throw new Error(`请求失败: ${res.status}`);
-  const json = await res.json();
-  if (!json || json.code !== 10000) throw new Error(json?.message || '请求失败');
+  const json = await res.json().catch(() => null);
+  if (!json || json.code !== 10000) {
+    throw new Error(json?.message || '服务响应异常，请稍后重试');
+  }
   return json.data;
 }
 
@@ -63,7 +65,7 @@ export async function resolveGlobalEntry(): Promise<EntryView> {
 
 /** 项目入口裁决视图（含升级提示） */
 export async function resolveProjectEntry(projectId: string): Promise<EntryView> {
-  const res = await authFetch(`${BASE}/projects/${projectId}/entry-file`);
+  const res = await authFetch(`${BASE}/projects/${encodeURIComponent(projectId)}/entry-file`);
   return handleResponse(res);
 }
 
@@ -72,7 +74,7 @@ export async function readProjectEntryFile(
   projectId: string, name: EntryFileName,
 ): Promise<{ exists: boolean; content: string; path: string }> {
   const res = await authFetch(
-    `${BASE}/projects/${projectId}/entry-file/file?name=${encodeURIComponent(name)}`);
+    `${BASE}/projects/${encodeURIComponent(projectId)}/entry-file/file?name=${encodeURIComponent(name)}`);
   return handleResponse(res);
 }
 
@@ -80,7 +82,7 @@ export async function readProjectEntryFile(
 export async function initProjectEntryFile(
   projectId: string, name: EntryFileName, content?: string,
 ): Promise<void> {
-  const res = await authFetch(`${BASE}/projects/${projectId}/entry-file/init`, {
+  const res = await authFetch(`${BASE}/projects/${encodeURIComponent(projectId)}/entry-file/init`, {
     method: 'POST',
     body: JSON.stringify({ name, content }),
   });

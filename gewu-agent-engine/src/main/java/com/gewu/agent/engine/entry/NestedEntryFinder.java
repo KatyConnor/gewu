@@ -71,18 +71,24 @@ public final class NestedEntryFinder {
             return null;
         }
         String p = path.trim();
-        while (p.startsWith("./")) {
-            p = p.substring(2);
-        }
-        if (p.startsWith("/") || p.equals("/") || p.isBlank()) {
+        if (p.startsWith("/") || p.isBlank()) {
             return p.isBlank() ? "" : null;
         }
+        // 分段重建：折叠空段与 ./，拒绝 .. 与反斜杠（CR P3#15 口径统一）
+        StringBuilder norm = new StringBuilder();
         for (String seg : p.split("/")) {
-            if ("..".equals(seg)) {
+            if (seg.isEmpty() || ".".equals(seg)) {
+                continue;
+            }
+            if ("..".equals(seg) || seg.contains("\\")) {
                 return null;
             }
+            if (norm.length() > 0) {
+                norm.append('/');
+            }
+            norm.append(seg);
         }
-        return p.replaceAll("/+", "/");
+        return norm.toString();
     }
 
     /** 取目录部分：无斜杠返回 ""（根层）；根层的 parent 由调用方空串判定终止。 */

@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '@/store';
 import { setTheme } from '@/store';
@@ -56,6 +56,8 @@ export default function SettingsPage() {
   const [entryExists, setEntryExists] = useState(false);
   const [entryView, setEntryView] = useState<EntryView | null>(null);
   const [entryLoading, setEntryLoading] = useState(false);
+  const [entrySaving, setEntrySaving] = useState(false);
+  const entryLoadSeq = useRef(0);
 
   const loadData = useCallback(async () => {
     try {
@@ -80,31 +82,49 @@ export default function SettingsPage() {
   useEffect(() => { loadPreference(); }, [loadPreference]);
 
   const loadEntry = useCallback(async (name: EntryFileName) => {
+    const seq = ++entryLoadSeq.current;
     setEntryLoading(true);
     try {
       const [file, view] = await Promise.all([
         readGlobalEntryFile(name),
         resolveGlobalEntry().catch(() => null),
       ]);
+      if (seq !== entryLoadSeq.current) return; // 竞态守卫：丢弃过期响应（CR F#2）
       setEntryExists(file.exists);
       setEntryContent(file.content);
       setEntryView(view);
     } catch (err) {
-      toast(err instanceof Error ? err.message : '调度入口文件读取失败', 'error');
+      if (seq !== entryLoadSeq.current) return;
+      const msg = err instanceof Error ? err.message : '调度入口文件读取失败';
+      toast(msg, 'error');
     } finally {
-      setEntryLoading(false);
+      if (seq === entryLoadSeq.current) setEntryLoading(false);
     }
   }, [toast]);
 
   const handleSaveEntry = async () => {
+    if (entrySaving) return;
+    if (!entryContent.trim()) {
+      toast('内容不能为空（如需清空请直接删除文件）', 'error');
+      return;
+    }
+    setEntrySaving(true);
     try {
       await saveGlobalEntryFile(entryName, entryContent);
       toast('调度入口文件已保存（即时生效于下一个会话）', 'success');
       await loadEntry(entryName);
     } catch (err) {
       toast(err instanceof Error ? err.message : '保存失败', 'error');
+    } finally {
+      setEntrySaving(false);
     }
   };
+
+  // 首次打开 Tab 加载既有内容（CR F#1：防止空内容保存覆盖既有文件）
+  useEffect(() => {
+    if (activeTab === 'entry') loadEntry(entryName);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
 
   const num = (v: string): number | undefined => (v.trim() === '' ? undefined : Number(v));
 
@@ -527,9 +547,9 @@ export default function SettingsPage() {
                 </span>
                 <button
                   onClick={handleSaveEntry}
-                  disabled={entryLoading}
+                  disabled={entryLoading || entrySaving}
                   className="px-4 py-2 text-sm btn-primary text-white rounded-lg disabled:opacity-50">
-                  保存
+                  {entrySaving ? '保存中…' : '保存'}
                 </button>
               </div>
               <p className="text-[11px] text-ink-500 mt-2">

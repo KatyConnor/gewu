@@ -28,6 +28,10 @@ public final class EntryFileSelector {
     public static final String REASON_MERGED = "merged";
     public static final String REASON_PROJECT_OVERRIDE = "project-override";
 
+    /** 注释标记行：gewu-entry: 后必须紧跟版本数字（散文提及不误判，CR P2#7 收紧） */
+    private static final java.util.regex.Pattern MARKER_VERSION =
+            java.util.regex.Pattern.compile("gewu-entry\\s*[:：]\\s*(v?\\d+(?:\\.\\d+){0,2})");
+
     private EntryFileSelector() {
     }
 
@@ -190,22 +194,12 @@ public final class EntryFileSelector {
         }
 
         // 兼容写法：<!-- gewu-entry: v1.3.0 -->
+        // 收紧（CR P2#7）：仅认可"gewu-entry: 后紧跟版本数字"的行，散文提及不误判为版本声明
         for (int i = 0; i < limit; i++) {
-            String line = lines[i];
-            int idx = line.indexOf("gewu-entry");
-            if (idx < 0) {
-                continue;
+            java.util.regex.Matcher m = MARKER_VERSION.matcher(lines[i]);
+            if (m.find()) {
+                return toVersionOrNull(m.group(1));
             }
-            int colon = line.indexOf(':', idx);
-            if (colon < 0) {
-                continue;
-            }
-            String raw = line.substring(colon + 1).trim();
-            int end = raw.indexOf("-->");
-            if (end >= 0) {
-                raw = raw.substring(0, end).trim();
-            }
-            return toVersionOrNull(raw);
         }
         return null;
     }
@@ -240,11 +234,9 @@ public final class EntryFileSelector {
                 }
             }
             if (!digits.isEmpty()) {
-                try {
-                    seg[i] = Long.parseLong(digits.toString());
-                } catch (NumberFormatException ignored) {
-                    seg[i] = 0;
-                }
+                // 限长解析（CR P3#16）：超长数字段截断至 10 位，防溢出静默归零
+                String d = digits.substring(0, Math.min(10, digits.length()));
+                seg[i] = Long.parseLong(d);
             }
         }
         return seg;
