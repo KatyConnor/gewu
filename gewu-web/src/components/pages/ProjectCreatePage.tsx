@@ -1,8 +1,9 @@
 'use client';
 import { useRef, useState } from 'react';
-import { ArrowLeft, GitBranch, Lock, Users } from 'lucide-react';
+import { ArrowLeft, ChevronDown, GitBranch, Lock, Search, Users, X } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import { createProject, type ProjectDTO } from '@/lib/project';
+import { listAppSystemOptions, type AppSystemOption } from '@/lib/system';
 
 // ==================== 常量 ====================
 
@@ -34,6 +35,33 @@ export default function ProjectCreatePage({ onBack, onCreated }: {
   const [name, setName] = useState('');
   const [shortName, setShortName] = useState('');
   const [systemName, setSystemName] = useState('');
+  // 所属系统选择器（管理端 app_system 台账只读数据源，设计文档 58 关联）
+  const [sysPickerOpen, setSysPickerOpen] = useState(false);
+  const [sysKeyword, setSysKeyword] = useState('');
+  const [sysOptions, setSysOptions] = useState<AppSystemOption[]>([]);
+  const [sysLoading, setSysLoading] = useState(false);
+
+  const loadSysOptions = async (kw?: string) => {
+    setSysLoading(true);
+    try {
+      setSysOptions(await listAppSystemOptions(kw ?? sysKeyword));
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '系统清单加载失败', 'error');
+      setSysOptions([]);
+    } finally {
+      setSysLoading(false);
+    }
+  };
+
+  const openSysPicker = () => {
+    setSysKeyword('');
+    setSysPickerOpen(true);
+    loadSysOptions('');
+  };
+
+  const sysTypeLabel: Record<string, string> = {
+    BUSINESS: '业务', PLATFORM: '平台', MIDDLEWARE: '中间件', DATA: '数据', TOOL: '工具支撑',
+  };
   const [desc, setDesc] = useState('');
   const [visibility, setVisibility] = useState(0);
   const [iconColor, setIconColor] = useState('#00b894');
@@ -121,18 +149,18 @@ export default function ProjectCreatePage({ onBack, onCreated }: {
 
   return (
     <div className="max-w-3xl">
-      {/* 页面标题 */}
-      <header className="flex items-center gap-3 mb-6">
+      {/* 页面标题（返回按钮右上角） */}
+      <header className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-semibold text-ink-50">新建项目</h1>
+          <p className="text-ink-400 text-sm mt-0.5">填写项目基础信息与仓库配置</p>
+        </div>
         <button
           onClick={onBack}
           className="flex items-center gap-1.5 px-3 py-1.5 text-sm text-ink-400 hover:text-ink-200 bg-ink-800/40 border border-tech-500/10 rounded-lg"
         >
           <ArrowLeft className="w-4 h-4" />返回
         </button>
-        <div>
-          <h1 className="text-2xl font-semibold text-ink-50">新建项目</h1>
-          <p className="text-ink-400 text-sm mt-0.5">填写项目基础信息与仓库配置</p>
-        </div>
       </header>
 
       <div className="space-y-4">
@@ -162,12 +190,20 @@ export default function ProjectCreatePage({ onBack, onCreated }: {
             </div>
             <div>
               <label className={labelCls}>所属系统</label>
-              <input
-                value={systemName}
-                onChange={e => setSystemName(e.target.value)}
-                placeholder="如：交易中台（可选）"
-                className={inputCls}
-              />
+              <button
+                type="button"
+                onClick={openSysPicker}
+                className={`w-full flex items-center justify-between px-3 py-2 bg-ink-800/50 border rounded-lg text-sm text-left ${
+                  systemName ? 'border-tech-500/30 text-ink-100' : 'border-tech-500/10 text-ink-500'
+                } hover:border-tech-500/30`}
+              >
+                <span>{systemName || '点击从管理端配置的系统选择（可选）'}</span>
+                <ChevronDown className="w-4 h-4 flex-shrink-0 text-ink-500" />
+              </button>
+              {systemName && (
+                <button type="button" onClick={() => setSystemName('')}
+                  className="mt-1 text-[10px] text-ink-500 hover:text-ink-300">清除所属系统</button>
+              )}
             </div>
             <div>
               <label className={labelCls}>项目编号</label>
@@ -396,6 +432,63 @@ export default function ProjectCreatePage({ onBack, onCreated }: {
           {submitting ? '创建中…' : '创建项目'}
         </button>
       </div>
+
+      {/* 所属系统选择弹框（管理端 app_system 台账，只读） */}
+      {sysPickerOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setSysPickerOpen(false)}>
+          <div className="glass-dark rounded-xl p-5 w-full max-w-xl border border-tech-500/20 max-h-[80vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-ink-50">选择所属系统</h3>
+              <button onClick={() => setSysPickerOpen(false)} className="text-ink-400 hover:text-ink-200">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="relative flex-1">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-500" />
+                <input
+                  value={sysKeyword}
+                  onChange={e => setSysKeyword(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && loadSysOptions()}
+                  placeholder="输入系统名称/编码/简称查询"
+                  className="w-full pl-8 pr-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none"
+                />
+              </div>
+              <button onClick={() => loadSysOptions()} disabled={sysLoading}
+                className="px-3 py-2 text-sm btn-primary text-white rounded-lg disabled:opacity-50">查询</button>
+            </div>
+            {sysLoading ? (
+              <div className="flex justify-center py-6">
+                <div className="w-5 h-5 border-2 border-tech-400 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : sysOptions.length === 0 ? (
+              <p className="text-ink-500 text-sm text-center py-6">
+                无匹配系统（系统清单来自管理端「应用系统」台账，仅显示启用项）
+              </p>
+            ) : (
+              <div className="space-y-1.5 max-h-80 overflow-y-auto">
+                {sysOptions.map(s => (
+                  <button key={s.systemId} type="button"
+                    onClick={() => { setSystemName(s.systemName); setSysPickerOpen(false); }}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-left transition-colors ${
+                      systemName === s.systemName ? 'border-tech-500/40 bg-tech-500/10' : 'border-tech-500/10 hover:border-tech-500/30'
+                    }`}>
+                    <div>
+                      <p className="text-sm text-ink-100">{s.systemName}</p>
+                      <p className="text-[10px] text-ink-500">
+                        {s.systemCode}{s.systemType ? ` · ${sysTypeLabel[s.systemType] || s.systemType}` : ''}
+                        {s.ownerName ? ` · ${s.ownerName}` : ''}
+                      </p>
+                    </div>
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className="text-[10px] text-ink-600 mt-2">系统清单来自管理端「应用系统」台账（仅启用项），选择后回填所属系统。</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
