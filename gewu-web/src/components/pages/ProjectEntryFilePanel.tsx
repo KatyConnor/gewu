@@ -84,7 +84,7 @@ export default function ProjectEntryFilePanel({ projectId }: { projectId: string
     run(() => initProjectEntryFile(projectId, name), `已按平台模板初始化项目 ${name}`);
   };
 
-  const handleImportZip = (e: ChangeEvent<HTMLInputElement>) => {
+  const handleImportZip = async (e: ChangeEvent<HTMLInputElement>) => {
     const f = e.target.files?.[0];
     e.target.value = ''; // 允许重复选择同一文件
     if (!f) return;
