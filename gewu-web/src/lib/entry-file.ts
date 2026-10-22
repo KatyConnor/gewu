@@ -100,6 +100,8 @@ export interface FileAction {
   relPath: string;
   action: string;
   bytes: number;
+  /** 内容级 unified diff（覆盖/预览场景有值；新增/跳过为空串） */
+  diff: string;
 }
 
 /** 导入报告（P3-4 起含 dryRun/actions） */
