@@ -90,7 +90,7 @@ export default function ProjectEntryFilePanel({ projectId }: { projectId: string
     if (!f) return;
     setBusy(true);
     try {
-      const r = await importEntryPackage(projectId, 'project', f);
+      const r = await importEntryPackage(f, 'project', projectId);
       toast(`入口包已导入项目（${r.fileCount} 个文件）`, 'success');
       await load();
     } catch (err) {
