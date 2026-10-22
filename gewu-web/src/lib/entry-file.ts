@@ -142,3 +142,25 @@ export async function readEntryImportHistory(limit = 10): Promise<string[]> {
   });
   return handleResponse(res);
 }
+
+/** 从 Git 仓库 URL 导入入口包（P3-4 二期：沙箱 clone 中转） */
+export async function importFromGit(
+  url: string, ref: string | undefined, target: 'global' | 'project', projectId?: string,
+  options?: { dryRun: boolean; conflictPolicy: 'overwrite' | 'skip' },
+): Promise<ImportReport> {
+  const token = getAccessToken();
+  const res = await fetch(`${BASE}/entry-package/import-git`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: JSON.stringify({
+      url, ref: ref || undefined, target,
+      projectId: projectId || undefined,
+      dryRun: options?.dryRun ?? false,
+      conflictPolicy: options?.conflictPolicy ?? 'overwrite',
+    }),
+  });
+  return handleResponse(res);
+}

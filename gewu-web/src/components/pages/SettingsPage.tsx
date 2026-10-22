@@ -18,8 +18,8 @@ import {
   type UserPreference, type QuotaPreflightResult,
 } from '@/lib/quota';
 import {
-  readGlobalEntryFile, saveGlobalEntryFile, resolveGlobalEntry,
-  type EntryFileName, type EntryView,
+  readGlobalEntryFile, saveGlobalEntryFile, resolveGlobalEntry, importEntryPackage,
+  importFromGit, type EntryFileName, type EntryView, type ImportReport,
 } from '@/lib/entry-file';
 
 const themes: { id: ThemeType; label: string; color: string }[] = [
@@ -58,6 +58,11 @@ export default function SettingsPage() {
   const [entryLoading, setEntryLoading] = useState(false);
   const [entryImporting, setEntryImporting] = useState(false);
   const [entryImportMsg, setEntryImportMsg] = useState('');
+  const [entryPolicy, setEntryPolicy] = useState<'overwrite' | 'skip'>('overwrite');
+  const [entryPreview, setEntryPreview] = useState<ImportReport | null>(null);
+  const [entryPendingFile, setEntryPendingFile] = useState<File | null>(null);
+  const [entryGitUrl, setEntryGitUrl] = useState('');
+  const [entryGitRef, setEntryGitRef] = useState('');
   const [entrySaving, setEntrySaving] = useState(false);
   const entryLoadSeq = useRef(0);
 
@@ -127,6 +132,24 @@ export default function SettingsPage() {
     if (activeTab === 'entry') loadEntry(entryName);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeTab]);
+
+  const handleImportGit = async () => {
+    if (entryImporting) return;
+    if (!entryGitUrl.trim()) {
+      toast('请填写 Git 仓库地址', 'error');
+      return;
+    }
+    setEntryImporting(true);
+    try {
+      const r = await importFromGit(entryGitUrl.trim(), entryGitRef.trim() || undefined, 'global');
+      setEntryImportMsg(`已从 Git 导入 ${r.fileCount} 个文件（入口 ${r.entryFile}）`);
+      await loadEntry(entryName);
+    } catch (err) {
+      setEntryImportMsg(err instanceof Error ? err.message : 'Git 导入失败');
+    } finally {
+      setEntryImporting(false);
+    }
+  };
 
   const num = (v: string): number | undefined => (v.trim() === '' ? undefined : Number(v));
 
@@ -573,14 +596,6 @@ export default function SettingsPage() {
                 rows={16}
                 className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none font-mono resize-none"
               />
-              <div className="flex items-center gap-3 mt-3">
-                <label className="px-3 py-1.5 text-xs rounded-md border border-tech-500/10 text-ink-300 hover:text-ink-100 cursor-pointer">
-                  导入入口包（.zip / .md）
-                  <input type="file" accept=".zip,.md" className="hidden"
-                    onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleImportPackage(f); }} />
-                </label>
-                {entryImportMsg && <span className="text-[11px] text-ink-400">{entryImportMsg}</span>}
-              </div>
               {entryPendingFile && entryPreview && (
                 <div className="rounded-md border border-tech-500/20 bg-tech-500/5 p-2 mb-3 text-[11px] text-ink-300">
                   <p>预览：{entryPreview.fileCount} 个文件
@@ -588,6 +603,13 @@ export default function SettingsPage() {
                   {entryPreview.overwritten.length > 0 && (
                     <p className="text-ink-500 mt-1">覆盖：{entryPreview.overwritten.join('、')}</p>
                   )}
+                  {entryPreview.actions.filter(a => a.diff).map(a => (
+                    <pre key={a.relPath}
+                      className="mt-1 max-h-40 overflow-auto whitespace-pre-wrap bg-ink-900/60 rounded p-1.5 text-[10px] text-ink-200 font-mono">
+{a.relPath}
+{a.diff}
+                    </pre>
+                  ))}
                   <button onClick={handleConfirmImport} disabled={entryImporting}
                     className="mt-1.5 px-2 py-1 rounded bg-tech-500/20 text-tech-300 disabled:opacity-50">
                     确认导入
