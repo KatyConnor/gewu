@@ -130,11 +130,29 @@ export default function SettingsPage() {
 
   const num = (v: string): number | undefined => (v.trim() === '' ? undefined : Number(v));
 
-  const handleImportPackage = async (f: File) => {
+  const handlePreviewPackage = async (f: File) => {
+    setEntryImporting(true);
+    setEntryPendingFile(f);
+    setEntryPreview(null);
+    try {
+      const r = await importEntryPackage(f, 'global', undefined, { dryRun: true, conflictPolicy: entryPolicy });
+      setEntryPreview(r);
+    } catch (err) {
+      setEntryImportMsg(err instanceof Error ? err.message : '预览失败');
+    } finally {
+      setEntryImporting(false);
+    }
+  };
+
+  const handleConfirmImport = async () => {
+    const f = entryPendingFile;
+    if (!f) return;
     setEntryImporting(true);
     try {
-      const r = await importEntryPackage(f, 'global');
+      const r = await importEntryPackage(f, 'global', undefined, { dryRun: false, conflictPolicy: entryPolicy });
       setEntryImportMsg(`已导入 ${r.fileCount} 个文件`);
+      setEntryPreview(null);
+      setEntryPendingFile(null);
       await loadEntry(entryName);
     } catch (err) {
       setEntryImportMsg(err instanceof Error ? err.message : '导入失败');
@@ -563,11 +581,24 @@ export default function SettingsPage() {
                 </label>
                 {entryImportMsg && <span className="text-[11px] text-ink-400">{entryImportMsg}</span>}
               </div>
+              {entryPendingFile && entryPreview && (
+                <div className="rounded-md border border-tech-500/20 bg-tech-500/5 p-2 mb-3 text-[11px] text-ink-300">
+                  <p>预览：{entryPreview.fileCount} 个文件
+                    {entryPreview.overwritten.length > 0 && `，覆盖 ${entryPreview.overwritten.length} 个（将自动快照）`}</p>
+                  {entryPreview.overwritten.length > 0 && (
+                    <p className="text-ink-500 mt-1">覆盖：{entryPreview.overwritten.join('、')}</p>
+                  )}
+                  <button onClick={handleConfirmImport} disabled={entryImporting}
+                    className="mt-1.5 px-2 py-1 rounded bg-tech-500/20 text-tech-300 disabled:opacity-50">
+                    确认导入
+                  </button>
+                </div>
+              )}
               <div className="flex items-center gap-3 mt-3">
                 <label className="px-3 py-1.5 text-xs rounded-md border border-tech-500/10 text-ink-300 hover:text-ink-100 cursor-pointer">
                   导入入口包（.zip / .md）
                   <input type="file" accept=".zip,.md" className="hidden"
-                    onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handleImportPackage(f); }} />
+                    onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) handlePreviewPackage(f); }} />
                 </label>
                 {entryImportMsg && <span className="text-[11px] text-ink-400">{entryImportMsg}</span>}
               </div>

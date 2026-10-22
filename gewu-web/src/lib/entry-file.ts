@@ -89,19 +89,56 @@ export async function initProjectEntryFile(
   await handleResponse(res);
 }
 
-/** 导入入口包（zip 整包 / 单 .md）→ 全局空间或项目仓库根（设计文档 58 §4） */
+/** 导入选项（P3-4）：dryRun 预览零写入；conflictPolicy 覆盖/跳过 */
+export interface ImportOptions {
+  dryRun: boolean;
+  conflictPolicy: 'overwrite' | 'skip';
+}
+
+/** 逐文件动作 */
+export interface FileAction {
+  relPath: string;
+  action: string;
+  bytes: number;
+}
+
+/** 导入报告（P3-4 起含 dryRun/actions） */
+export interface ImportReport {
+  fileCount: number;
+  entryFile: string;
+  overwritten: string[];
+  target: string;
+  dryRun: boolean;
+  actions: FileAction[];
+}
+
+/** 导入入口包（zip 整包 / 单 .md）→ 全局空间或项目仓库根（设计文档 58 §4；P3-4 支持 dryRun/冲突策略） */
 export async function importEntryPackage(
   file: File, target: 'global' | 'project', projectId?: string,
-): Promise<{ fileCount: number; entryFile: string; overwritten: string[]; target: string }> {
+  options?: ImportOptions,
+): Promise<ImportReport> {
   const token = getAccessToken();
   const fd = new FormData();
   fd.append('file', file);
   fd.append('target', target);
   if (projectId) fd.append('projectId', projectId);
+  if (options) {
+    fd.append('dryRun', String(options.dryRun));
+    fd.append('conflictPolicy', options.conflictPolicy);
+  }
   const res = await fetch(`${BASE}/entry-package/import`, {
     method: 'POST',
     headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
     body: fd,
+  });
+  return handleResponse(res);
+}
+
+/** 导入历史（倒序 JSONL 行，全局空间） */
+export async function readEntryImportHistory(limit = 10): Promise<string[]> {
+  const token = getAccessToken();
+  const res = await fetch(`${BASE}/entry-package/history?limit=${limit}`, {
+    headers: { ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   });
   return handleResponse(res);
 }
