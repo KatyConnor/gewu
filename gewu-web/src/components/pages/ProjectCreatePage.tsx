@@ -1,9 +1,10 @@
 'use client';
 import { useRef, useState } from 'react';
-import { ArrowLeft, ChevronDown, GitBranch, Lock, Search, Users, X } from 'lucide-react';
+import { ArrowLeft, Check, ChevronDown, GitBranch, Lock, Search, Users, X } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import { createProject, type ProjectDTO } from '@/lib/project';
 import { listAppSystemOptions, type AppSystemOption } from '@/lib/system';
+import { listUserOptions, type UserOption } from '@/lib/user';
 
 // ==================== 常量 ====================
 
@@ -66,9 +67,69 @@ export default function ProjectCreatePage({ onBack, onCreated }: {
   const [visibility, setVisibility] = useState(0);
   const [iconColor, setIconColor] = useState('#00b894');
 
-  // 团队与角色
+  // 团队与角色（搜索回显模式：点击弹出用户搜索弹框，确认后回显姓名）
   const [techLead, setTechLead] = useState('');
   const [teamMembers, setTeamMembers] = useState('');
+  const [techLeadUser, setTechLeadUser] = useState<UserOption | null>(null);
+  const [teamMemberUsers, setTeamMemberUsers] = useState<UserOption[]>([]);
+  // 用户选择弹框：lead=技术负责人（单选），members=团队成员（多选）
+  const [userPickerMode, setUserPickerMode] = useState<'lead' | 'members' | null>(null);
+  const [userKeyword, setUserKeyword] = useState('');
+  const [userOptions, setUserOptions] = useState<UserOption[]>([]);
+  const [userLoading, setUserLoading] = useState(false);
+  /** 弹框内暂存选择，点确认才回显到表单 */
+  const [userPicked, setUserPicked] = useState<UserOption[]>([]);
+
+  const loadUserOptions = async (kw?: string) => {
+    setUserLoading(true);
+    try {
+      setUserOptions(await listUserOptions(kw ?? userKeyword));
+    } catch (err) {
+      toast(err instanceof Error ? err.message : '用户清单加载失败', 'error');
+      setUserOptions([]);
+    } finally {
+      setUserLoading(false);
+    }
+  };
+
+  const openUserPicker = (mode: 'lead' | 'members') => {
+    setUserKeyword('');
+    setUserPickerMode(mode);
+    // 打开时以当前回显值为暂存初值
+    setUserPicked(mode === 'lead' ? (techLeadUser ? [techLeadUser] : []) : teamMemberUsers);
+    loadUserOptions('');
+  };
+
+  const toggleUserPicked = (user: UserOption) => {
+    setUserPicked(prev => {
+      if (userPickerMode === 'lead') return [user];
+      return prev.some(u => u.userId === user.userId)
+        ? prev.filter(u => u.userId !== user.userId)
+        : [...prev, user];
+    });
+  };
+
+  const confirmUserPicker = () => {
+    if (userPickerMode === 'lead') {
+      const lead = userPicked[0] ?? null;
+      setTechLeadUser(lead);
+      setTechLead(lead ? lead.displayName : '');
+    } else {
+      setTeamMemberUsers(userPicked);
+      setTeamMembers(userPicked.map(u => u.displayName).join(', '));
+    }
+    setUserPickerMode(null);
+  };
+
+  const clearTechLead = () => {
+    setTechLead('');
+    setTechLeadUser(null);
+  };
+
+  const clearTeamMembers = () => {
+    setTeamMembers('');
+    setTeamMemberUsers([]);
+  };
 
   // 技术配置
   const [techStack, setTechStack] = useState('');
@@ -265,21 +326,37 @@ export default function ProjectCreatePage({ onBack, onCreated }: {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className={labelCls}>技术负责人</label>
-              <input
-                value={techLead}
-                onChange={e => setTechLead(e.target.value)}
-                placeholder="如：张三（可选）"
-                className={inputCls}
-              />
+              <button
+                type="button"
+                onClick={() => openUserPicker('lead')}
+                className={`w-full flex items-center justify-between gap-2 px-3 py-2 bg-ink-800/50 border rounded-lg text-sm text-left ${
+                  techLead ? 'border-tech-500/30 text-ink-100' : 'border-tech-500/10 text-ink-500'
+                } hover:border-tech-500/30`}
+              >
+                <span className="truncate">{techLead || '点击搜索用户选择（可选）'}</span>
+                <ChevronDown className="w-4 h-4 flex-shrink-0 text-ink-500" />
+              </button>
+              {techLead && (
+                <button type="button" onClick={clearTechLead}
+                  className="mt-1 text-[10px] text-ink-500 hover:text-ink-300">清除技术负责人</button>
+              )}
             </div>
             <div>
               <label className={labelCls}>团队成员</label>
-              <input
-                value={teamMembers}
-                onChange={e => setTeamMembers(e.target.value)}
-                placeholder="多人用逗号分隔，如：李四, 王五"
-                className={inputCls}
-              />
+              <button
+                type="button"
+                onClick={() => openUserPicker('members')}
+                className={`w-full flex items-center justify-between gap-2 px-3 py-2 bg-ink-800/50 border rounded-lg text-sm text-left ${
+                  teamMembers ? 'border-tech-500/30 text-ink-100' : 'border-tech-500/10 text-ink-500'
+                } hover:border-tech-500/30`}
+              >
+                <span className="truncate">{teamMembers || '点击搜索用户选择，可多选'}</span>
+                <ChevronDown className="w-4 h-4 flex-shrink-0 text-ink-500" />
+              </button>
+              {teamMembers && (
+                <button type="button" onClick={clearTeamMembers}
+                  className="mt-1 text-[10px] text-ink-500 hover:text-ink-300">清除团队成员</button>
+              )}
             </div>
           </div>
         </section>
@@ -486,6 +563,79 @@ export default function ProjectCreatePage({ onBack, onCreated }: {
               </div>
             )}
             <p className="text-[10px] text-ink-600 mt-2">系统清单来自管理端「应用系统」台账（仅启用项），选择后回填所属系统。</p>
+          </div>
+        </div>
+      )}
+
+      {/* 用户选择弹框（团队与角色搜索回显：lead 单选 / members 多选） */}
+      {userPickerMode && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setUserPickerMode(null)}>
+          <div className="glass-dark rounded-xl p-5 w-full max-w-xl border border-tech-500/20 max-h-[80vh] overflow-y-auto"
+            onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between mb-3">
+              <h3 className="text-sm font-semibold text-ink-50">
+                {userPickerMode === 'lead' ? '选择技术负责人' : '选择团队成员'}
+              </h3>
+              <button onClick={() => setUserPickerMode(null)} className="text-ink-400 hover:text-ink-200">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="flex items-center gap-2 mb-3">
+              <div className="relative flex-1">
+                <Search className="w-3.5 h-3.5 absolute left-2.5 top-1/2 -translate-y-1/2 text-ink-500" />
+                <input
+                  value={userKeyword}
+                  onChange={e => setUserKeyword(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && loadUserOptions()}
+                  placeholder="输入显示名/用户名/邮箱查询"
+                  className="w-full pl-8 pr-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none"
+                />
+              </div>
+              <button onClick={() => loadUserOptions()} disabled={userLoading}
+                className="px-3 py-2 text-sm btn-primary text-white rounded-lg disabled:opacity-50">查询</button>
+            </div>
+            {userPickerMode === 'members' && userPicked.length > 0 && (
+              <p className="text-[11px] text-tech-300 mb-2 truncate">
+                已选 {userPicked.length} 人：{userPicked.map(u => u.displayName).join('、')}
+              </p>
+            )}
+            {userLoading ? (
+              <div className="flex justify-center py-6">
+                <div className="w-5 h-5 border-2 border-tech-400 border-t-transparent rounded-full animate-spin" />
+              </div>
+            ) : userOptions.length === 0 ? (
+              <p className="text-ink-500 text-sm text-center py-6">无匹配用户</p>
+            ) : (
+              <div className="space-y-1.5 max-h-80 overflow-y-auto">
+                {userOptions.map(u => {
+                  const picked = userPicked.some(p => p.userId === u.userId);
+                  return (
+                    <button key={u.userId} type="button"
+                      onClick={() => toggleUserPicked(u)}
+                      className={`w-full flex items-center justify-between gap-2 px-3 py-2 rounded-lg border text-left transition-colors ${
+                        picked ? 'border-tech-500/40 bg-tech-500/10' : 'border-tech-500/10 hover:border-tech-500/30'
+                      }`}>
+                      <div className="min-w-0">
+                        <p className="text-sm text-ink-100 truncate">{u.displayName}</p>
+                        <p className="text-[10px] text-ink-500 truncate">{u.username}{u.email ? ` · ${u.email}` : ''}</p>
+                      </div>
+                      {picked && <Check className="w-4 h-4 text-tech-400 flex-shrink-0" />}
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+            <div className="flex items-center justify-between mt-4 pt-3 border-t border-tech-500/10">
+              <p className="text-[10px] text-ink-600">
+                {userPickerMode === 'lead' ? '技术负责人只能选择一位' : '可多选，确认后回显到表单'}
+              </p>
+              <div className="flex gap-2">
+                <button onClick={() => setUserPickerMode(null)}
+                  className="px-3 py-1.5 text-sm text-ink-400 hover:text-ink-200">取消</button>
+                <button onClick={confirmUserPicker}
+                  className="px-4 py-1.5 text-sm btn-primary text-white rounded-lg">确认</button>
+              </div>
+            </div>
           </div>
         </div>
       )}
