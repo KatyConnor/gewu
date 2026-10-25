@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Loader2, X, Plus, Trash2, Building2, Edit3, ChevronRight, ChevronDown, Users } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
+import Modal from '@/components/ui/Modal';
 import { listOrgTree, createOrg, updateOrg, deleteOrg, type OrgDTO } from '@/lib/org';
 
 export default function OrgManagePage() {
@@ -166,8 +167,7 @@ export default function OrgManagePage() {
       )}
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setShowModal(false)} panelClassName="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl border border-tech-500/10">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-ink-50">{editingOrg ? '编辑机构' : '创建机构'}</h3>
               <button onClick={() => setShowModal(false)} className="text-ink-500 hover:text-ink-300">
@@ -228,8 +228,7 @@ export default function OrgManagePage() {
                 {editingOrg ? '保存' : '创建'}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

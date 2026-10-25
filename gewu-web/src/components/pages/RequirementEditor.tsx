@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react';
 import { X, Save, Send, Upload, Link } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
+import Modal from '@/components/ui/Modal';
 import RelatedSelector from '@/components/ui/RelatedSelector';
 import type { RequirementDTO } from '@/lib/requirement';
 
@@ -97,11 +98,7 @@ export default function RequirementEditor({ requirement, onClose, onSubmit }: Re
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={onClose}>
-      <div
-        className="glass-dark rounded-xl w-full max-w-4xl max-h-[90vh] flex flex-col border border-tech-500/20 shadow-2xl"
-        onClick={e => e.stopPropagation()}
-      >
+    <Modal open onClose={onClose} backdropClassName="bg-black/60" panelClassName="glass-dark rounded-xl w-full max-w-4xl max-h-[90vh] flex flex-col border border-tech-500/20 shadow-2xl">
         {/* 弹框标题 */}
         <div className="flex items-center justify-between p-4 border-b border-tech-500/10">
           <h3 className="text-lg font-semibold text-ink-50">
@@ -332,7 +329,6 @@ export default function RequirementEditor({ requirement, onClose, onSubmit }: Re
             )}
           </div>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

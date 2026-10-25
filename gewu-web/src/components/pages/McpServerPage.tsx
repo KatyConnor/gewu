@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Search, Trash2, CheckCircle, XCircle, RefreshCw, Server, Zap, Globe, Lock, Loader2 } from 'lucide-react';
+import Modal from '@/components/ui/Modal';
 import CustomSelect from '@/components/ui/Select';
 import { listMcpServers, createMcpServer, deleteMcpServer, activateMcpServer, type McpServerDTO } from '@/lib/mcp';
 
@@ -164,8 +165,7 @@ export default function McpServerPage() {
       )}
 
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowCreateModal(false)}>
-          <div className="glass-dark rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setShowCreateModal(false)} panelClassName="glass-dark rounded-2xl w-full max-w-lg p-6 shadow-2xl border border-tech-500/10">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-base font-semibold text-ink-50">添加 MCP 服务</h3>
               <button onClick={() => setShowCreateModal(false)} className="text-ink-500 hover:text-ink-300 text-lg">✕</button>
@@ -185,8 +185,7 @@ export default function McpServerPage() {
                 {creating && <Loader2 className="w-4 h-4 animate-spin" />}添加
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

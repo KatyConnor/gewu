@@ -14,6 +14,7 @@ import { chatStream } from '@/lib/chat';
 import { listActiveModels, type ModelConfig } from '@/lib/model-config';
 import MarkdownRenderer from '@/components/ui/MarkdownRenderer';
 import CustomSelect from '@/components/ui/Select';
+import Modal from '@/components/ui/Modal';
 import ProjectEntryFilePanel from './ProjectEntryFilePanel';
 import AIProcessTimeline from './AIProcessTimeline';
 import { createProcessStreamHandler, type ProcessSnapshot, type ProcessItem } from '@/lib/agentProcess';
@@ -499,8 +500,7 @@ export default function ProjectDetailPage({ projectId, onBack }: { projectId: st
 
         {/* 文档编辑器弹框 */}
         {editPanel && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60" onClick={() => setEditPanel(null)}>
-            <div className="glass-dark rounded-xl w-full max-w-4xl h-[80vh] flex flex-col border border-tech-500/20" onClick={e => e.stopPropagation()}>
+          <Modal open onClose={() => setEditPanel(null)} backdropClassName="bg-black/60" panelClassName="glass-dark rounded-xl w-full max-w-4xl h-[80vh] flex flex-col border border-tech-500/20">
               <div className="p-3 border-b border-tech-500/10 flex items-center justify-between">
                 <div className="flex items-center gap-2">
                   <span className="text-sm font-medium text-ink-100">文档编辑</span>
@@ -539,8 +539,7 @@ export default function ProjectDetailPage({ projectId, onBack }: { projectId: st
                   )}
                 </div>
               </div>
-            </div>
-          </div>
+          </Modal>
         )}
       </div>
 
@@ -618,8 +617,7 @@ export default function ProjectDetailPage({ projectId, onBack }: { projectId: st
 
       {/* 会话选择器弹窗（同名会话守卫）：阶段会话匹配失败时由用户显式选择或新建 */}
       {sessionChooser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm" onClick={() => setSessionChooser(null)}>
-          <div className="glass-dark rounded-xl border border-tech-500/20 w-[420px] max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setSessionChooser(null)} backdropClassName="bg-black/50 backdrop-blur-sm" panelClassName="glass-dark rounded-xl border border-tech-500/20 w-[420px] max-h-[70vh] flex flex-col">
             <div className="p-4 border-b border-tech-500/10">
               <h4 className="text-sm font-semibold text-ink-100">选择「{sessionChooser.phaseName}」阶段的会话</h4>
               <p className="text-xs text-ink-500 mt-1">检测到该项目下已有会话，请选择要继续的会话或新建（避免产生重复的同名会话）。</p>
@@ -637,8 +635,7 @@ export default function ProjectDetailPage({ projectId, onBack }: { projectId: st
               <button onClick={() => setSessionChooser(null)} className="px-3 py-1.5 text-xs text-ink-400 hover:text-ink-200 rounded-lg">取消</button>
               <button onClick={() => handleChooserSelect(null)} className="px-3 py-1.5 text-xs bg-tech-500/20 text-tech-400 rounded-lg hover:bg-tech-500/30">新建会话</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

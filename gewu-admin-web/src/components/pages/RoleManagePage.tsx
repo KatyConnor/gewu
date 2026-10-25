@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Loader2, X, Plus, Trash2, KeyRound } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
+import Modal from '@/components/ui/Modal';
 import { listRoles, listPermissions, assignPermissions, createRole, deleteRole, updateRole, type RoleDTO, type PermissionDTO } from '@/lib/role';
 
 const DATA_SCOPE_OPTIONS = [
@@ -195,8 +196,7 @@ export default function RoleManagePage() {
       )}
 
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowCreateModal(false)}>
-          <div className="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setShowCreateModal(false)} panelClassName="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl border border-tech-500/10">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-ink-50">创建角色</h3>
               <button onClick={() => setShowCreateModal(false)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button>
@@ -210,8 +210,7 @@ export default function RoleManagePage() {
               <button onClick={() => setShowCreateModal(false)} className="px-4 py-2 text-sm text-ink-300 hover:text-ink-100">取消</button>
               <button onClick={handleCreate} disabled={saving || !formName.trim() || !formCode.trim()} className="px-5 py-2 btn-primary text-white text-sm rounded-lg disabled:opacity-50 flex items-center gap-2">{saving && <Loader2 className="w-4 h-4 animate-spin" />}创建</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

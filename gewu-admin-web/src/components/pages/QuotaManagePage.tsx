@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, X, Edit3, Trash2, UserPlus } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
+import Modal from '@/components/ui/Modal';
 import CustomSelect from '@/components/ui/Select';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { getUser } from '@/lib/token';
@@ -196,8 +197,7 @@ export default function QuotaManagePage() {
 
       {/* 套餐编辑弹窗 */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="glass-dark rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setShowModal(false)} panelClassName="glass-dark rounded-2xl w-full max-w-lg p-6 shadow-2xl border border-tech-500/10">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-base font-semibold text-ink-50">{editingId ? '编辑套餐' : '新增套餐'}</h3>
               <button onClick={() => setShowModal(false)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button>
@@ -235,8 +235,7 @@ export default function QuotaManagePage() {
               <button onClick={() => setShowModal(false)} className="px-4 py-2 text-sm text-ink-300 hover:text-ink-100">取消</button>
               <button onClick={handleSave} className="px-5 py-2 btn-primary text-white text-sm rounded-lg">保存</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

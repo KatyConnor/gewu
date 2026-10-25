@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20261021-185135", "ts": "2026-10-21T18:51:35+08:00", "actor": "agent", "event": "TASK_OPEN", "summary": "57 号实施：子目录嵌套入口发现（NestedEntryFinder 纯函数 + executeFileTool 三案后置附加 + 任务内去重 + SecretScan 把关）", "phase": "coding", "prev_hash": null, "hash": "54224c345bef825543cc30779692fcc4c6a847296a501593dcc9782677cf8662"}

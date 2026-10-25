@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Search, Loader2, X, KeyRound, ShieldCheck, Building2 } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
+import Modal from '@/components/ui/Modal';
 import { listUsers, updateUserStatus, resetPassword, assignRoles, assignOrg, ROLE_OPTIONS, type UserDTO } from '@/lib/user';
 import { listOrgTree, type OrgDTO } from '@/lib/org';
 
@@ -217,8 +218,7 @@ export default function UserManagePage() {
       )}
 
       {roleModalUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setRoleModalUser(null)}>
-          <div className="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setRoleModalUser(null)} panelClassName="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl border border-tech-500/10">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-ink-50">分配角色 - {roleModalUser.username}</h3>
               <button onClick={() => setRoleModalUser(null)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button>
@@ -236,13 +236,11 @@ export default function UserManagePage() {
               <button onClick={() => setRoleModalUser(null)} className="px-4 py-2 text-sm text-ink-300 hover:text-ink-100">取消</button>
               <button onClick={handleSaveRoles} disabled={saving} className="px-5 py-2 btn-primary text-white text-sm rounded-lg disabled:opacity-50 flex items-center gap-2">{saving && <Loader2 className="w-4 h-4 animate-spin" />}保存</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {orgModalUser && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setOrgModalUser(null)}>
-          <div className="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setOrgModalUser(null)} panelClassName="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl border border-tech-500/10">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-ink-50">分配机构 - {orgModalUser.username}</h3>
               <button onClick={() => setOrgModalUser(null)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button>
@@ -264,8 +262,7 @@ export default function UserManagePage() {
               <button onClick={() => setOrgModalUser(null)} className="px-4 py-2 text-sm text-ink-300 hover:text-ink-100">取消</button>
               <button onClick={handleSaveOrg} disabled={saving} className="px-5 py-2 btn-primary text-white text-sm rounded-lg disabled:opacity-50 flex items-center gap-2">{saving && <Loader2 className="w-4 h-4 animate-spin" />}保存</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

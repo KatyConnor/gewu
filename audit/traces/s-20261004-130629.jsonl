@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20261004-130629", "ts": "2026-10-04T13:06:29+08:00", "actor": "agent", "event": "CHECKPOINT", "summary": "检查点 cp-turn-steering", "detail": "类型:checkpoint 目标:cp-turn-steering", "prev_hash": null, "hash": "f8f5be3163ae60f5f86801eae86a73cda34662f1368aa2ed3db40b8c90d84783"}

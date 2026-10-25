@@ -6,6 +6,7 @@
  */
 import React, { useEffect, useRef, useState } from 'react';
 import { HelpCircle } from 'lucide-react';
+import Modal from '@/components/ui/Modal';
 
 export interface PendingAsk {
   askId: string;
@@ -56,14 +57,16 @@ export default function AskUserDialog({ ask, onSubmit, onSkip }: Props) {
   const canSubmit = Boolean(custom.trim()) || (selected !== null && Boolean(ask.options[selected]));
 
   return (
-    <div
-      className="fixed inset-0 z-[80] flex items-center justify-center bg-black/50 backdrop-blur-sm"
-      data-testid="ask-user-dialog"
+    /* 强确认弹框：必须作答才能继续——禁 ESC 关闭，点遮罩不关闭 */
+    <Modal
+      open
+      onClose={() => {}}
+      closeOnEsc={false}
+      zIndex="z-[80]"
+      backdropClassName="bg-black/50 backdrop-blur-sm"
+      panelClassName="glass-dark rounded-xl border border-tech-500/25 w-[560px] max-w-[92vw] max-h-[80vh] flex flex-col shadow-2xl"
+      ariaLabel="需要你的确认"
     >
-      <div
-        className="glass-dark rounded-xl border border-tech-500/25 w-[560px] max-w-[92vw] max-h-[80vh] flex flex-col shadow-2xl"
-        onClick={e => e.stopPropagation()}
-      >
         <div className="px-5 py-3.5 border-b border-tech-500/10 flex items-center gap-2">
           <HelpCircle className="w-4 h-4 text-tech-400" />
           <span className="text-sm font-medium text-ink-100">需要你的确认</span>
@@ -119,7 +122,6 @@ export default function AskUserDialog({ ask, onSubmit, onSkip }: Props) {
             提交
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

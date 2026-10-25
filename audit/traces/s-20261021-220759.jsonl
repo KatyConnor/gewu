@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20261021-220759", "ts": "2026-10-21T22:07:59+08:00", "actor": "agent", "event": "TASK_OPEN", "summary": "THEMIS 补审受理：docs/design/57 号嵌套发现设计（实施后补审，设计-实现一致性 + 缺陷发现）", "phase": "design", "prev_hash": null, "hash": "bcbde4efcec239bba73814b35898621c63a97c5ff68a2b11009f7a1d419da776"}

@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20260929-233329", "ts": "2026-09-29T23:33:29+08:00", "actor": "agent", "event": "CHECKPOINT", "summary": "检查点 cp-fix-sandbox-paths", "detail": "类型:checkpoint 目标:cp-fix-sandbox-paths", "prev_hash": null, "hash": "4fe4590dd381296ea6ecce9ddd506353edfdd9d21e1085e936adf4e6879c8c12"}

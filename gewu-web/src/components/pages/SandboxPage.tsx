@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Search, Play, Square, RefreshCw, Trash2, CheckCircle, XCircle, Loader2, Terminal } from 'lucide-react';
+import Modal from '@/components/ui/Modal';
 import CustomSelect from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import {
@@ -238,8 +239,7 @@ export default function SandboxPage() {
 
       {/* 创建沙箱弹窗 */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowCreateModal(false)}>
-          <div className="glass-dark rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setShowCreateModal(false)} panelClassName="glass-dark rounded-2xl w-full max-w-lg p-6 shadow-2xl border border-tech-500/10">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-base font-semibold text-ink-50">创建沙箱</h3>
               <button onClick={() => setShowCreateModal(false)} className="text-ink-500 hover:text-ink-300 text-lg">✕</button>
@@ -266,8 +266,7 @@ export default function SandboxPage() {
                 {busy === 'create' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}创建
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20261021-171610", "ts": "2026-10-21T17:16:10+08:00", "actor": "agent", "event": "TASK_OPEN", "summary": "57 号小设计起草：子目录嵌套入口发现（monorepo 工作子目录语义）", "phase": "design", "prev_hash": null, "hash": "2026aefc2b51e0e4a5d7873893adc95d335e90a75948cf6bae15c400a9ddb446"}

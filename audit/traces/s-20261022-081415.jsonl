@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20261022-081415", "ts": "2026-10-22T08:14:15+08:00", "actor": "agent", "event": "TASK_OPEN", "summary": "58 号 P3-4 实施（首批）：导入差异预览（dryRun）+ 冲突策略（overwrite/skip）+ Git URL 导入（沙箱 clone 中转）+ 全局覆盖前快照与导入历史登记（MinIO JSONL）", "phase": "coding", "prev_hash": null, "hash": "9bdd3d4454d3e98c30faf0d135021a39db789977a6715727d722b9b631c39ac9"}

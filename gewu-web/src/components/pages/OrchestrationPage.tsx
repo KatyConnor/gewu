@@ -5,6 +5,7 @@ import {
   Plus, Search, Play, Pause, Square, Trash2, Send, Loader2,
   Network, CheckCircle, XCircle, Clock, Zap, Eye, PencilRuler, History, RotateCcw, ArrowDownToLine,
 } from 'lucide-react';
+import Modal from '@/components/ui/Modal';
 import CustomSelect from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import {
@@ -499,8 +500,7 @@ export default function OrchestrationPage() {
 
       {/* 版本历史弹窗（WFO-01/02：不可变版本快照 + 回滚） */}
       {versionGraph && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setVersionGraph(null)}>
-          <div className="glass-dark rounded-2xl w-full max-w-3xl p-6 shadow-2xl animate-fade-up border border-tech-500/10 max-h-[85vh] overflow-y-auto scrollbar-thin" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setVersionGraph(null)} panelClassName="glass-dark rounded-2xl w-full max-w-3xl p-6 shadow-2xl border border-tech-500/10 max-h-[85vh] overflow-y-auto scrollbar-thin">
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h3 className="text-base font-semibold text-ink-50">版本历史 - {versionGraph.graphName}</h3>
@@ -557,14 +557,12 @@ export default function OrchestrationPage() {
                 )}
               </div>
             )}
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* 创建编排图弹窗 */}
       {showCreateModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowCreateModal(false)}>
-          <div className="glass-dark rounded-2xl w-full max-w-lg p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setShowCreateModal(false)} panelClassName="glass-dark rounded-2xl w-full max-w-lg p-6 shadow-2xl border border-tech-500/10">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-base font-semibold text-ink-50">创建编排图</h3>
               <button onClick={() => setShowCreateModal(false)} className="text-ink-500 hover:text-ink-300 text-lg">✕</button>
@@ -618,8 +616,7 @@ export default function OrchestrationPage() {
                 {busy === 'create' && <Loader2 className="w-3.5 h-3.5 animate-spin" />}创建
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

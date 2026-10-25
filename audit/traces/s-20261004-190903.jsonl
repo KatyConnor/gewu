@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20261004-190903", "ts": "2026-10-04T19:09:03+08:00", "actor": "agent", "event": "CHECKPOINT", "summary": "检查点 cp-web-terminal", "detail": "类型:checkpoint 目标:cp-web-terminal", "prev_hash": null, "hash": "79db3d8aaff84a7a9854c775832aa4630824b2f0649ab44016cc4371bfb0f364"}

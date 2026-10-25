@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20261020-081731", "ts": "2026-10-20T08:17:31+08:00", "actor": "agent", "event": "TASK_OPEN", "summary": "v1.2 修订：版本裁决收窄为双方opt-in、默认回归主流就近、升级通知替代静默覆盖（用户质询认可后修订）；RR-003 受理送原评审代理复审", "phase": "design", "prev_hash": null, "hash": "7e0d4aa79172e59828f61aa652242f7509bbeac011377e948134d45f2b103b62"}

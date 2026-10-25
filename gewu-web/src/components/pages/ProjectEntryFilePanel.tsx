@@ -3,6 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { ChangeEvent } from 'react';
 import { FileText, RefreshCw, AlertTriangle } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
+import Modal from '@/components/ui/Modal';
 import {
   resolveProjectEntry, readProjectEntryFile, readGlobalEntryFile,
   initProjectEntryFile, importEntryPackage, type EntryFileName, type EntryView,
@@ -161,10 +162,7 @@ export default function ProjectEntryFilePanel({ projectId }: { projectId: string
 
       {/* 编辑弹层 */}
       {editing && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-          onClick={() => setEditing(null)}>
-          <div className="glass-dark rounded-xl p-5 w-full max-w-2xl border border-tech-500/20 max-h-[85vh] overflow-y-auto"
-            onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setEditing(null)} panelClassName="glass-dark rounded-xl p-5 w-full max-w-2xl border border-tech-500/20 max-h-[85vh] overflow-y-auto">
             <h3 className="text-sm font-semibold text-ink-50 mb-3">编辑项目 {editing.name}</h3>
             <textarea
               value={editing.content}
@@ -177,8 +175,7 @@ export default function ProjectEntryFilePanel({ projectId }: { projectId: string
               <button onClick={handleSave} disabled={busy}
                 className="px-4 py-2 text-sm btn-primary text-white rounded-lg disabled:opacity-50">保存</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

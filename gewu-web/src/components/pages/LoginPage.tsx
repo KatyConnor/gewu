@@ -2,6 +2,7 @@
 import { useDispatch } from 'react-redux';
 import { setAuth } from '@/store';
 import { useState, useRef, useEffect, FormEvent } from 'react';
+import Modal from '@/components/ui/Modal';
 import { useToast } from '@/components/ui/Toast';
 import { Eye, EyeOff } from 'lucide-react';
 import { login, register } from '@/lib/auth';
@@ -284,8 +285,7 @@ export default function LoginPage() {
 
       {/* 忘记密码弹窗 */}
       {showForgotModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowForgotModal(false)}>
-          <div className="glass-dark rounded-2xl w-full max-w-sm p-6 shadow-2xl animate-fade-up border border-glass-border" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setShowForgotModal(false)} panelClassName="glass-dark rounded-2xl w-full max-w-sm p-6 shadow-2xl border border-glass-border">
             <div className="flex items-center justify-between mb-5">
               <h3 className="text-base font-semibold text-ink-500">重置密码</h3>
               <button onClick={() => setShowForgotModal(false)} className="text-ink-500 hover:text-ink-300 text-lg">✕</button>
@@ -294,8 +294,7 @@ export default function LoginPage() {
             <input type="email" value={resetEmail} onChange={e => setResetEmail(e.target.value)} placeholder="name@company.com" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30 mb-4" />
             <button onClick={handleSendReset} className="w-full py-2.5 btn-primary text-white text-sm rounded-lg">发送重置链接</button>
             <button onClick={() => setShowForgotModal(false)} className="w-full py-2 text-xs text-ink-400 hover:text-ink-200 transition-colors mt-2">返回登录</button>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

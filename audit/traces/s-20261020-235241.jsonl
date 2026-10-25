@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20261020-235241", "ts": "2026-10-20T23:52:41+08:00", "actor": "agent", "event": "TASK_OPEN", "summary": "P2 批次一立项实施：编排路径接入（6类7处构建点）+ 密钥泄漏扫描（清偿§12.7豁免期）", "phase": "coding", "prev_hash": null, "hash": "730b44f3cd3dfcfedb92c5f7e9bb57c668a25580fdeec06d98f0fe7d7af9f348"}

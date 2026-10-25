@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Loader2, X, Plus, Trash2, Menu as MenuIcon, Edit3, ChevronRight, ChevronDown } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
+import Modal from '@/components/ui/Modal';
 import {
   listMenus, createMenu, updateMenu, deleteMenu,
   listRoleMenus, assignRoleMenus,
@@ -324,8 +325,7 @@ export default function MenuManagePage() {
 
       {/* 创建/编辑弹窗 */}
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl animate-fade-up border border-tech-500/10 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setShowModal(false)} panelClassName="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl border border-tech-500/10 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-4">
               <h3 className="text-lg font-semibold text-ink-50">{editingMenu ? '编辑菜单' : '创建菜单'}</h3>
               <button onClick={() => setShowModal(false)} className="text-ink-500 hover:text-ink-300">
@@ -429,8 +429,7 @@ export default function MenuManagePage() {
                 {editingMenu ? '保存' : '创建'}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Settings, Trash2, Loader2, X, Upload } from 'lucide-react';
+import Modal from '@/components/ui/Modal';
 import CustomSelect from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import { listMySkills, uninstallSkill, createSkill, updateSkill, publishSkill, type SkillDTO, type CreateSkillCommand, type UpdateSkillCommand } from '@/lib/skill';
@@ -151,8 +152,7 @@ export default function MySkillsPage() {
       )}
 
       {showModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowModal(false)}>
-          <div className="glass-dark rounded-2xl w-full max-w-2xl p-6 shadow-2xl animate-fade-up border border-tech-500/10 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setShowModal(false)} panelClassName="glass-dark rounded-2xl w-full max-w-2xl p-6 shadow-2xl border border-tech-500/10 max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-semibold text-ink-50">{editingSkill ? '编辑技能' : '创建技能'}</h3>
               <button onClick={() => setShowModal(false)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button>
@@ -175,8 +175,7 @@ export default function MySkillsPage() {
                 {saving && <Loader2 className="w-4 h-4 animate-spin" />}{editingSkill ? '保存' : '创建'}
               </button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

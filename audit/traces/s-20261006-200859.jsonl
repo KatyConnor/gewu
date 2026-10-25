@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20261006-200859", "ts": "2026-10-06T20:08:59+08:00", "actor": "agent", "event": "CHECKPOINT", "summary": "检查点 cp-long-task", "detail": "类型:checkpoint 目标:cp-long-task", "prev_hash": null, "hash": "6f3ef90d2c49f1a5e25045e0727b3645822b763c8d44b2c12a595b4657582792"}

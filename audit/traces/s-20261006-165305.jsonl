@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20261006-165305", "ts": "2026-10-06T16:53:05+08:00", "actor": "agent", "event": "CHECKPOINT", "summary": "检查点 cp-retry-roadmap", "detail": "类型:checkpoint 目标:cp-retry-roadmap", "prev_hash": null, "hash": "fec1f63172bdc17c837500bba874ae6049e75000d59178428d09e954d9bf81c4"}

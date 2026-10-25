@@ -7,6 +7,7 @@
  */
 import { useState, useEffect, useMemo } from 'react';
 import { X, Loader2 } from 'lucide-react';
+import Modal from '@/components/ui/Modal';
 import CustomSelect from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import { createAgent, updateAgent, listAgentSkills, mountSkill, unmountSkill, type AgentDTO, type UpdateAgentCommand } from '@/lib/agent';
@@ -128,8 +129,7 @@ export default function AgentEditModal({ visible, editingAgent, onClose, onSaved
   if (!visible) return null;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={onClose}>
-      <div className="glass-dark rounded-2xl w-full max-w-2xl p-6 shadow-2xl animate-fade-up border border-tech-500/10 max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+    <Modal open onClose={onClose} panelClassName="glass-dark rounded-2xl w-full max-w-2xl p-6 shadow-2xl border border-tech-500/10 max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between mb-6">
           <h3 className="text-lg font-semibold text-ink-50">{editingAgent ? '编辑智能体' : '创建智能体'}</h3>
           <button onClick={onClose} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button>
@@ -162,7 +162,6 @@ export default function AgentEditModal({ visible, editingAgent, onClose, onSaved
             {saving && <Loader2 className="w-4 h-4 animate-spin" />}{editingAgent ? '保存' : '创建'}
           </button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

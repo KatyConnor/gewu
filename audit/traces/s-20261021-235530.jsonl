@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20261021-235530", "ts": "2026-10-21T23:55:30+08:00", "actor": "agent", "event": "TASK_OPEN", "summary": "58 号 P3 实施启动：P3-1 入口包导入（zip/目录→全局. entry-package保留前缀/项目仓库）+ P3-2 双根只读（@global/ 路由）+ P3-3 桌面导入（按设计 58 v1.2 分期）", "phase": "coding", "prev_hash": null, "hash": "88af493346559a17a8691c40bb5002ab7fbcf3da673a1f3d600d18efc5052aab"}

@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20261021-075036", "ts": "2026-10-21T07:50:36+08:00", "actor": "agent", "event": "TASK_OPEN", "summary": "P2 批次二：merge 叠加模式 + Wenshi 旁路注入 + @path import + 桌面升级提示 + 刷新语义修正（嵌套发现做占位）", "phase": "coding", "prev_hash": null, "hash": "3777e40df2e6cd2826ab32be10814eeaf452e0cc2653d45aaddcc53353c35ccd"}

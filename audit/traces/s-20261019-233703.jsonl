@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20261019-233703", "ts": "2026-10-19T23:37:03+08:00", "actor": "agent", "event": "TASK_OPEN", "summary": "THEMIS T1 技术评审受理：docs/design/56-agent-entry-dispatch-md-design.md（独立代理裁定，产出者回避）", "phase": "design", "prev_hash": null, "hash": "4f67c40bbba0a0c35a263e42cb03a059eb7d6f0eb14918d4bafc2595b08afe62"}

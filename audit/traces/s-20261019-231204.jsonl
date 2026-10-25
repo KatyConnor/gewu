@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20261019-231204", "ts": "2026-10-19T23:12:04+08:00", "actor": "agent", "event": "TASK_OPEN", "summary": "智能体入口调度文件（AGENTS.md/GEWU.md）调研与设计：平台端用户级+项目级版本协商、桌面端 .gewu 全局+项目根", "phase": "design", "prev_hash": null, "hash": "0876bc9682ccb884dca3c972b5b3f7ab78fa75816b5a3bd4fa1307b27b1d24d0"}

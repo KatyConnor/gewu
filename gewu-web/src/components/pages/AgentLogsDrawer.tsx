@@ -6,6 +6,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useDispatch } from 'react-redux';
 import { X, CheckCircle, XCircle, Clock, Loader2, ChevronDown, ChevronRight, MessageSquare, RefreshCw } from 'lucide-react';
+import Modal from '@/components/ui/Modal';
 import { useToast } from '@/components/ui/Toast';
 import { listAgentExecutions, type AgentDTO, type AgentExecutionDTO } from '@/lib/agent';
 import { setPage } from '@/store';
@@ -82,8 +83,7 @@ export default function AgentLogsDrawer({ agent, onClose }: AgentLogsDrawerProps
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex justify-end modal-overlay" onClick={onClose}>
-      <div className="w-full max-w-lg h-full overflow-y-auto glass-dark border-l border-tech-500/10 p-6" onClick={e => e.stopPropagation()}>
+    <Modal open onClose={onClose} variant="right" panelClassName="w-full max-w-lg h-full overflow-y-auto glass-dark border-l border-tech-500/10 p-6">
         <div className="flex items-center justify-between mb-6">
           <div>
             <h3 className="text-lg font-semibold text-ink-50">执行日志</h3>
@@ -166,7 +166,6 @@ export default function AgentLogsDrawer({ agent, onClose }: AgentLogsDrawerProps
             </div>
           </div>
         )}
-      </div>
-    </div>
+    </Modal>
   );
 }

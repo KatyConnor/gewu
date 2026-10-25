@@ -6,6 +6,7 @@ import { setTheme } from '@/store';
 import { ThemeType } from '@/types';
 import { useToast } from '@/components/ui/Toast';
 import CustomSelect from '@/components/ui/Select';
+import Modal from '@/components/ui/Modal';
 import { Card, CardHeader, CardTitle, CardContent } from '@/components/ui/Card';
 import { Plus, X, Edit3, Eye, Check } from 'lucide-react';
 import {
@@ -725,8 +726,7 @@ export default function SettingsPage() {
 
       {/* 新增供应商弹窗 */}
       {showProviderModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowProviderModal(false)}>
-          <div className="glass-dark rounded-2xl w-full max-w-md max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setShowProviderModal(false)} panelClassName="glass-dark rounded-2xl w-full max-w-md max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl border border-tech-500/10">
             <div className="flex items-center justify-between mb-5 flex-shrink-0"><h3 className="text-base font-semibold text-ink-50">新增供应商</h3><button onClick={() => setShowProviderModal(false)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
             <div className="space-y-4 overflow-y-auto min-h-0 flex-1">
               <div><label className="block text-xs text-ink-400 mb-1">供应商名称 <span className="text-cinnabar-400">*</span></label><input type="text" value={providerForm.providerName} onChange={e => setProviderForm({ ...providerForm, providerName: e.target.value })} placeholder="如：OpenAI、Anthropic" className="w-full px-3 py-2.5 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none focus:border-tech-500/30 transition-all" /></div>
@@ -740,14 +740,12 @@ export default function SettingsPage() {
               <button onClick={() => setShowProviderModal(false)} className="px-4 py-2 text-sm text-ink-300 hover:text-ink-100">取消</button>
               <button onClick={handleCreateProvider} className="px-5 py-2 btn-primary text-white text-sm rounded-lg">保存</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* 新增模型弹窗 */}
       {showModelModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowModelModal(false)}>
-          <div className="glass-dark rounded-2xl w-full max-w-lg max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setShowModelModal(false)} panelClassName="glass-dark rounded-2xl w-full max-w-lg max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl border border-tech-500/10">
             <div className="flex items-center justify-between mb-5 flex-shrink-0"><h3 className="text-base font-semibold text-ink-50">新增模型</h3><button onClick={() => setShowModelModal(false)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
             <div className="space-y-4 overflow-y-auto min-h-0 flex-1">
               <div><label className="block text-xs text-ink-400 mb-1">供应商 <span className="text-cinnabar-400">*</span></label><CustomSelect value={modelForm.providerId} onChange={(v) => setModelForm({ ...modelForm, providerId: v })} options={providers.map(p => ({ value: p.id, label: p.providerName }))} /></div>
@@ -769,14 +767,12 @@ export default function SettingsPage() {
               <button onClick={() => setShowModelModal(false)} className="px-4 py-2 text-sm text-ink-300 hover:text-ink-100">取消</button>
               <button onClick={handleCreateModel} className="px-5 py-2 btn-primary text-white text-sm rounded-lg">保存</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* 编辑供应商弹窗 */}
       {editingProvider && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setEditingProvider(null)}>
-          <div className="glass-dark rounded-2xl w-full max-w-md max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setEditingProvider(null)} panelClassName="glass-dark rounded-2xl w-full max-w-md max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl border border-tech-500/10">
             <div className="flex items-center justify-between mb-5 flex-shrink-0"><h3 className="text-base font-semibold text-ink-50">编辑供应商</h3><button onClick={() => setEditingProvider(null)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
             <div className="space-y-4 overflow-y-auto min-h-0 flex-1">
               <div><label className="block text-xs text-ink-400 mb-1">供应商编码</label><input type="text" value={editingProvider.providerCode} disabled className="w-full px-3 py-2.5 bg-ink-800/30 border border-tech-500/10 rounded-lg text-sm text-ink-500 outline-none font-mono text-xs cursor-not-allowed" /></div>
@@ -789,14 +785,12 @@ export default function SettingsPage() {
               <button onClick={() => setEditingProvider(null)} className="px-4 py-2 text-sm text-ink-300 hover:text-ink-100">取消</button>
               <button onClick={handleUpdateProvider} className="px-5 py-2 btn-primary text-white text-sm rounded-lg">保存</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* 编辑模型弹窗 */}
       {editingModel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setEditingModel(null)}>
-          <div className="glass-dark rounded-2xl w-full max-w-lg max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setEditingModel(null)} panelClassName="glass-dark rounded-2xl w-full max-w-lg max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl border border-tech-500/10">
             <div className="flex items-center justify-between mb-5 flex-shrink-0"><h3 className="text-base font-semibold text-ink-50">编辑模型</h3><button onClick={() => setEditingModel(null)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
             <div className="space-y-4 overflow-y-auto min-h-0 flex-1">
               <div><label className="block text-xs text-ink-400 mb-1">模型ID</label><input type="text" value={editingModel.modelId} disabled className="w-full px-3 py-2.5 bg-ink-800/30 border border-tech-500/10 rounded-lg text-sm text-ink-500 outline-none font-mono text-xs cursor-not-allowed" /></div>
@@ -816,14 +810,12 @@ export default function SettingsPage() {
               <button onClick={() => setEditingModel(null)} className="px-4 py-2 text-sm text-ink-300 hover:text-ink-100">取消</button>
               <button onClick={handleUpdateModel} className="px-5 py-2 btn-primary text-white text-sm rounded-lg">保存</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* 查看供应商弹窗 */}
       {viewingProvider && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setViewingProvider(null)}>
-          <div className="glass-dark rounded-2xl w-full max-w-md max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setViewingProvider(null)} panelClassName="glass-dark rounded-2xl w-full max-w-md max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl border border-tech-500/10">
             <div className="flex items-center justify-between mb-5 flex-shrink-0"><h3 className="text-base font-semibold text-ink-50">供应商详情</h3><button onClick={() => setViewingProvider(null)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
             <div className="space-y-3 overflow-y-auto min-h-0 flex-1">
               <div className="flex items-center gap-3 mb-4">
@@ -856,14 +848,12 @@ export default function SettingsPage() {
               <button onClick={() => setViewingProvider(null)} className="px-4 py-2 text-sm text-ink-300 hover:text-ink-100">关闭</button>
               <button onClick={() => { handleEditProvider(viewingProvider); setViewingProvider(null); }} className="px-5 py-2 btn-primary text-white text-sm rounded-lg">编辑</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* 查看模型弹窗 */}
       {viewingModel && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setViewingModel(null)}>
-          <div className="glass-dark rounded-2xl w-full max-w-md max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl animate-fade-up border border-tech-500/10" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setViewingModel(null)} panelClassName="glass-dark rounded-2xl w-full max-w-md max-h-[calc(100vh-2rem)] flex flex-col p-6 shadow-2xl border border-tech-500/10">
             <div className="flex items-center justify-between mb-5 flex-shrink-0"><h3 className="text-base font-semibold text-ink-50">模型详情</h3><button onClick={() => setViewingModel(null)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button></div>
             <div className="space-y-3 overflow-y-auto min-h-0 flex-1">
               <div className="flex items-center gap-3 mb-4">
@@ -887,8 +877,7 @@ export default function SettingsPage() {
               <button onClick={() => setViewingModel(null)} className="px-4 py-2 text-sm text-ink-300 hover:text-ink-100">关闭</button>
               <button onClick={() => { handleEditModel(viewingModel); setViewingModel(null); }} className="px-5 py-2 btn-primary text-white text-sm rounded-lg">编辑</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

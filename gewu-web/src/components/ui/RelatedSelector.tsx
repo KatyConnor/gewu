@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { X, Search, Plus, Check } from 'lucide-react';
+import Modal from '@/components/ui/Modal';
 import { listMyProjects } from '@/lib/project';
 
 // ==================== 组件 Props ====================
@@ -142,8 +143,7 @@ export default function RelatedSelector({ label, type, value, onChange, multiple
 
       {/* 选择弹框 */}
       {isOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setIsOpen(false)}>
-          <div className="glass-dark rounded-xl w-full max-w-md border border-tech-500/20 max-h-[70vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setIsOpen(false)} panelClassName="glass-dark rounded-xl w-full max-w-md border border-tech-500/20 max-h-[70vh] flex flex-col">
             {/* 弹框头部 */}
             <div className="p-4 border-b border-tech-500/10">
               <h3 className="text-sm font-semibold text-ink-50 mb-3">选择{label}</h3>
@@ -209,8 +209,7 @@ export default function RelatedSelector({ label, type, value, onChange, multiple
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

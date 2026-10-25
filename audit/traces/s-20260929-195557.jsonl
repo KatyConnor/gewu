@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20260929-195557", "ts": "2026-09-29T19:55:57+08:00", "actor": "agent", "event": "CHECKPOINT", "summary": "检查点 cp-orch-coordinate-fallback", "detail": "类型:checkpoint 目标:cp-orch-coordinate-fallback", "prev_hash": null, "hash": "94ab6b60dfb6933795345e69c4848f8386f0ed1378dbb9d52165d43e30a0294d"}

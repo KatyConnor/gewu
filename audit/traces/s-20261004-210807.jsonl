@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20261004-210807", "ts": "2026-10-04T21:08:07+08:00", "actor": "agent", "event": "CHECKPOINT", "summary": "检查点 cp-ide-workbench", "detail": "类型:checkpoint 目标:cp-ide-workbench", "prev_hash": null, "hash": "fae8718dbac4345ce06a04ad83b778aa3b86e62b4982712f00068c5f28d04fae"}

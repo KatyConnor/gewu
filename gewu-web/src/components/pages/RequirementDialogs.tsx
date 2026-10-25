@@ -1,5 +1,6 @@
 'use client';
 import { useState } from 'react';
+import Modal from '@/components/ui/Modal';
 import { type RequirementDTO } from '@/lib/requirement';
 
 // ==================== 常量 ====================
@@ -42,8 +43,7 @@ export function EditDialog({ requirement, onClose, onSubmit }: EditDialogProps) 
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div className="glass-dark rounded-xl p-6 w-full max-w-lg border border-tech-500/20 max-h-[85vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
+    <Modal open onClose={onClose} panelClassName="glass-dark rounded-xl p-6 w-full max-w-lg border border-tech-500/20 max-h-[85vh] overflow-y-auto">
         <h3 className="text-lg font-semibold text-ink-50 mb-4">编辑需求</h3>
         <div className="space-y-3">
           <input
@@ -80,8 +80,7 @@ export function EditDialog({ requirement, onClose, onSubmit }: EditDialogProps) 
           <button onClick={onClose} className="px-4 py-2 text-sm text-ink-400 hover:text-ink-200">取消</button>
           <button onClick={handleSubmit} disabled={!title.trim()} className="px-4 py-2 text-sm btn-primary text-white rounded-lg disabled:opacity-50">保存</button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -102,8 +101,7 @@ export function ReviewDialog({ onClose, onSubmit }: ReviewDialogProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div className="glass-dark rounded-xl p-6 w-full max-w-md border border-tech-500/20" onClick={e => e.stopPropagation()}>
+    <Modal open onClose={onClose} panelClassName="glass-dark rounded-xl p-6 w-full max-w-md border border-tech-500/20">
         <h3 className="text-lg font-semibold text-ink-50 mb-4">提交评审意见</h3>
         <div className="space-y-3">
           <select
@@ -135,8 +133,7 @@ export function ReviewDialog({ onClose, onSubmit }: ReviewDialogProps) {
           <button onClick={onClose} className="px-4 py-2 text-sm text-ink-400 hover:text-ink-200">取消</button>
           <button onClick={handleSubmit} className="px-4 py-2 text-sm btn-primary text-white rounded-lg">提交</button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }
 
@@ -157,8 +154,7 @@ export function TaskDialog({ onClose, onSubmit }: TaskDialogProps) {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={onClose}>
-      <div className="glass-dark rounded-xl p-6 w-full max-w-md border border-tech-500/20" onClick={e => e.stopPropagation()}>
+    <Modal open onClose={onClose} panelClassName="glass-dark rounded-xl p-6 w-full max-w-md border border-tech-500/20">
         <h3 className="text-lg font-semibold text-ink-50 mb-4">创建任务</h3>
         <div className="space-y-3">
           <input
@@ -179,7 +175,6 @@ export function TaskDialog({ onClose, onSubmit }: TaskDialogProps) {
           <button onClick={onClose} className="px-4 py-2 text-sm text-ink-400 hover:text-ink-200">取消</button>
           <button onClick={handleSubmit} disabled={!title.trim()} className="px-4 py-2 text-sm btn-primary text-white rounded-lg disabled:opacity-50">创建</button>
         </div>
-      </div>
-    </div>
+    </Modal>
   );
 }

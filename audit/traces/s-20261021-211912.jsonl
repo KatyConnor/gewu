@@ -1,0 +1,1 @@
+{"schema": "aetc/1.0", "seq": 1, "session": "s-20261021-211912", "ts": "2026-10-21T21:19:12+08:00", "actor": "agent", "event": "TASK_OPEN", "summary": "THEMIS T1 评审受理：docs/design/58-entry-package-import-and-global-visibility-design.md（独立代理裁定，产出者回避）", "phase": "design", "prev_hash": null, "hash": "3b9e23c432ab8be3ab2e9364719e873a8b30bb195e4a2925a806a6d81589d8f8"}

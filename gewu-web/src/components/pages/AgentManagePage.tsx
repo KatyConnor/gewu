@@ -1,6 +1,7 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Search, Play, Pause, Archive, Trash2, Edit, Copy, CheckCircle, XCircle, Bot, Eye, MoreVertical, Loader2, X, Upload, MessageSquare } from 'lucide-react';
+import Modal from '@/components/ui/Modal';
 import CustomSelect from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
 import { listAgents, createAgent, deleteAgent, publishAgent, listAgentSkills, type AgentDTO } from '@/lib/agent';
@@ -201,8 +202,7 @@ export default function AgentManagePage() {
       <AgentEditModal visible={showModal} editingAgent={editingAgent} onClose={() => setShowModal(false)} onSaved={loadAgents} />
 
       {showDetailDrawer && selectedAgent && (
-        <div className="fixed inset-0 z-50 flex justify-end modal-overlay" onClick={() => setShowDetailDrawer(false)}>
-          <div className="w-full max-w-lg h-full overflow-y-auto glass-dark border-l border-tech-500/10 p-6" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setShowDetailDrawer(false)} variant="right" panelClassName="w-full max-w-lg h-full overflow-y-auto glass-dark border-l border-tech-500/10 p-6">
             <div className="flex items-center justify-between mb-6">
               <h3 className="text-lg font-semibold text-ink-50">智能体详情</h3>
               <button onClick={() => setShowDetailDrawer(false)} className="text-ink-500 hover:text-ink-300"><X className="w-5 h-5" /></button>
@@ -240,8 +240,7 @@ export default function AgentManagePage() {
                 <button onClick={() => handleDelete(selectedAgent.agentId)} className="flex items-center gap-1.5 px-3 py-1.5 text-xs bg-cinnabar-500/10 text-cinnabar-400 border border-cinnabar-500/20 rounded-lg hover:bg-cinnabar-500/20 transition-colors"><Trash2 className="w-3 h-3" />销毁</button>
               </div>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );
