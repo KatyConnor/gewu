@@ -3,15 +3,16 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useDispatch } from 'react-redux';
 import { setPage } from '@/store';
-import { Loader2, Play, Square, GitBranch, Terminal, Save, Upload, Plus, RefreshCw, Key, Pencil, Undo2, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, FileText, Trash2 } from 'lucide-react';
+import { Loader2, Play, Square, GitBranch, Terminal, Save, Upload, Plus, RefreshCw, Key, Pencil, Undo2, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, FileText } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import MarkdownReader from '@/components/ui/MarkdownReader';
+import Modal from '@/components/ui/Modal';
 import { isMarkdownPath, isProbablyBinary, monacoLangOf } from '@/lib/fileLanguage';
 import {
   getDevWorkspace, startSandbox, stopSandbox, readFile, writeFile,
   cloneRepo, listProjects, gitPull, gitPush, buildProject, runProject,
   listGitCredentials, addGitCredential, deleteGitCredential,
-  listFileEntries, deleteProject,
+  listFileEntries,
   type DevWorkspaceInfo, type GitProject, type GitCredential, type FileEntry,
 } from '@/lib/dev-workspace';
 // 终端面板客户端专用（ssr:false）：@xterm/addon-fit UMD 顶层引用 self，SSR 预渲染会崩
@@ -181,24 +182,6 @@ export default function DevWorkspacePage() {
     const paths = [selectedProject.localPath, ...Array.from(expandedDirs)];
     setTree({});
     paths.forEach(p => loadEntries(p));
-  };
-
-  const handleDeleteProject = async (p: GitProject) => {
-    if (!confirm(`删除项目「${p.projectName}」？卷内仓库目录将一并清理。`)) return;
-    try {
-      await deleteProject(p.projectId);
-      toast('项目已删除', 'success');
-      if (selectedProject?.projectId === p.projectId) {
-        setSelectedProject(null);
-        setTree({});
-        setExpandedDirs(new Set());
-        setCurrentPath('');
-        setFileContent('');
-      }
-      load();
-    } catch (e) {
-      toast('删除失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
-    }
   };
 
   /** 递归渲染树节点（相对路径 = 卷内文件路径；单链目录按 IDEA 式折叠为单节点） */
@@ -456,10 +439,6 @@ export default function DevWorkspacePage() {
                       <div className="flex items-center gap-1.5">
                         <GitBranch className="w-3.5 h-3.5 flex-shrink-0" />
                         <span className="truncate flex-1">{p.projectName}</span>
-                        <button onClick={(e) => { e.stopPropagation(); handleDeleteProject(p); }}
-                          className="opacity-0 group-hover:opacity-100 text-ink-600 hover:text-cinnabar-400" title="删除项目">
-                          <Trash2 className="w-3 h-3" />
-                        </button>
                       </div>
                       <div className={`text-[10px] ml-5 ${p.cloneStatus === 'failed' ? 'text-cinnabar-400' : 'text-ink-600'}`}>
                         {p.repoBranch} · {p.cloneStatus === 'failed' ? '克隆失败' : p.cloneStatus}
@@ -609,8 +588,7 @@ export default function DevWorkspacePage() {
 
       {/* 克隆仓库弹窗 */}
       {showClone && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowClone(false)}>
-          <div className="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl border border-tech-500/10" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setShowClone(false)} panelClassName="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl border border-tech-500/10">
             <h3 className="text-lg font-semibold text-ink-50 mb-4">克隆 Git 仓库</h3>
             <div className="space-y-3">
               <div><label className="block text-xs text-ink-400 mb-1">仓库地址 *</label><input value={cloneUrl} onChange={e => setCloneUrl(e.target.value)} placeholder="https://github.com/user/repo.git" className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" /></div>
@@ -621,14 +599,12 @@ export default function DevWorkspacePage() {
               <button onClick={() => setShowClone(false)} className="px-4 py-2 text-sm text-ink-300 hover:text-ink-100">取消</button>
               <button onClick={handleClone} disabled={!cloneUrl.trim() || !cloneName.trim() || execLoading} className="px-5 py-2 btn-primary text-white text-sm rounded-lg disabled:opacity-50 flex items-center gap-2">{execLoading && <Loader2 className="w-4 h-4 animate-spin" />}克隆</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
 
       {/* 添加凭证弹窗 */}
       {showCred && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center modal-overlay" onClick={() => setShowCred(false)}>
-          <div className="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl border border-tech-500/10" onClick={e => e.stopPropagation()}>
+        <Modal open onClose={() => setShowCred(false)} panelClassName="glass-dark rounded-2xl w-full max-w-md p-6 shadow-2xl border border-tech-500/10">
             <h3 className="text-lg font-semibold text-ink-50 mb-4">添加 Git 凭证</h3>
             <div className="space-y-3">
               <div><label className="block text-xs text-ink-400 mb-1">名称 *</label><input value={credName} onChange={e => setCredName(e.target.value)} placeholder="GitHub Token" className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 outline-none focus:border-tech-500/30" /></div>
@@ -645,8 +621,7 @@ export default function DevWorkspacePage() {
               <button onClick={() => setShowCred(false)} className="px-4 py-2 text-sm text-ink-300 hover:text-ink-100">取消</button>
               <button onClick={handleAddCred} disabled={!credName.trim() || !credValue.trim()} className="px-5 py-2 btn-primary text-white text-sm rounded-lg disabled:opacity-50">添加</button>
             </div>
-          </div>
-        </div>
+        </Modal>
       )}
     </div>
   );

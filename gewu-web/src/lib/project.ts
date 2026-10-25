@@ -115,46 +115,8 @@ export async function getProject(projectId: string): Promise<ProjectDTO> {
   return handleResponse<ProjectDTO>(res);
 }
 
-export interface CreateProjectRequest {
-  projectName: string;
-  shortName?: string;
-  systemName?: string;
-  teamMembers?: string;
-  techLead?: string;
-  description?: string;
-  visibility?: number;
-  techStack?: string;
-  vcs?: string;
-  worktree?: string;
-  iconColor?: string;
-  repoUrl?: string;
-  /** 仓库认证方式: token/ssh_key（访问凭证）或 password（用户名密码），二者二选一 */
-  repoCredentialType?: 'token' | 'ssh_key' | 'password';
-  repoUsername?: string;
-  /** 仓库访问凭证明文（令牌 / SSH 私钥 / 密码），后端 SM4 加密存储 */
-  repoCredential?: string;
-}
-
-export async function createProject(data: CreateProjectRequest): Promise<ProjectDTO> {
-  const res = await authFetch(`${BASE}/projects`, {
-    method: 'POST',
-    body: JSON.stringify(data),
-  });
-  return handleResponse<ProjectDTO>(res);
-}
-
-export async function updateProject(projectId: string, data: Record<string, unknown>): Promise<ProjectDTO> {
-  const res = await authFetch(`${BASE}/projects/${projectId}`, {
-    method: 'PUT',
-    body: JSON.stringify(data),
-  });
-  return handleResponse<ProjectDTO>(res);
-}
-
-export async function deleteProject(projectId: string): Promise<void> {
-  const res = await authFetch(`${BASE}/projects/${projectId}`, { method: 'DELETE' });
-  if (!res.ok) throw new Error(`删除失败: ${res.status}`);
-}
+// 项目创建/编辑/删除已迁移管理端（gewu-admin-server，project:manage 权限门）；
+// 用户侧仅保留只读查询与项目内工作流 API。
 
 // ==================== 阶段 API ====================
 

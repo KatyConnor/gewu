@@ -4,7 +4,7 @@ import { useDispatch, useSelector } from 'react-redux';
 import { useRouter } from 'next/navigation';
 import { RootState, setPage, clearAuth } from '@/store';
 import { PageType } from '@/types';
-import { Users, KeyRound, Wallet, Shield, ListTree, Building2, ShieldCheck, LayoutDashboard, LogOut } from 'lucide-react';
+import { Users, KeyRound, Wallet, Shield, ListTree, Building2, ShieldCheck, LayoutDashboard, LogOut, Boxes, FolderKanban } from 'lucide-react';
 import { getUser, clearTokens } from '@/lib/token';
 
 /** 后台管理端侧栏（静态菜单，全部为系统管理功能） */
@@ -21,6 +21,8 @@ export default function Sidebar() {
     { id: 'role-manage', label: '角色权限', icon: KeyRound },
     { id: 'menu-manage', label: '菜单管理', icon: ListTree },
     { id: 'org-manage', label: '机构管理', icon: Building2 },
+    { id: 'appsystem-manage', label: '应用系统', icon: Boxes },
+    { id: 'project-manage', label: '项目管理', icon: FolderKanban },
     { id: 'quota-manage', label: '配额套餐', icon: Wallet },
     { id: 'skill-audit', label: '技能审核', icon: Shield },
     { id: 'sandbox-audit', label: '沙箱审计', icon: ShieldCheck },

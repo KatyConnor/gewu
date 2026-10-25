@@ -2,11 +2,14 @@
 import { memo, useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
 import { RootState } from '@/store';
-import { setPage } from '@/store';
+import { setPage, clearAuth } from '@/store';
 import { getUser } from '@/lib/token';
 import { PageType } from '@/types';
 import { listCurrentMenus, type MenuDTO } from '@/lib/menu';
-import { Wallet, Home, MessageSquare, FolderOpen, Bot, Settings, BarChart3, PenTool, FileText, GitBranch, BookOpen, Zap, Shield, Search, ArrowLeft, Lock, Server, Users, KeyRound, ClipboardCheck, Menu, Building2, Network } from 'lucide-react';
+import { useToast } from '@/components/ui/Toast';
+import { clearTokens } from '@/lib/token';
+import { logout as apiLogout } from '@/lib/auth';
+import { Wallet, Home, MessageSquare, FolderOpen, Bot, Settings, BarChart3, PenTool, FileText, GitBranch, BookOpen, Zap, Shield, Search, ArrowLeft, Lock, Server, Users, KeyRound, ClipboardCheck, Menu, Building2, Network, LogOut } from 'lucide-react';
 
 interface NavItem { id: PageType; label: string; icon: React.ComponentType<{ className?: string }>; badge?: string; colorClass?: string; noAction?: boolean }
 
@@ -23,7 +26,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
   { label: '工作空间', items: [
     { id: 'dashboard', label: '主页', icon: Home },
     { id: 'chat', label: '会话', icon: MessageSquare, badge: '3' },
-    { id: 'projects', label: '项目管理', icon: FolderOpen },
+    { id: 'projects', label: '我的项目', icon: FolderOpen },
     { id: 'workspace' as PageType, label: '我的文件', icon: FolderOpen },
     { id: 'dev-workspace' as PageType, label: '开发空间', icon: GitBranch },
     { id: 'requirements', label: '需求管理', icon: FileText, badge: '12' },
@@ -69,10 +72,20 @@ function menuTreeToGroups(menus: MenuDTO[]): { label: string; items: NavItem[] }
 
 function SidebarInner() {
   const dispatch = useDispatch();
+  const toast = useToast();
   const currentPage = useSelector((s: RootState) => s.app.currentPage);
   const user = useSelector((s: RootState) => s.app.user);
   const isHome = currentPage === 'dashboard';
   const [dynamicGroups, setDynamicGroups] = useState<{ label: string; items: NavItem[] }[] | null>(null);
+
+  const handleLogout = async () => {
+    await apiLogout();
+    clearTokens();
+    localStorage.removeItem('gewu-remember');
+    localStorage.removeItem('gewu-email');
+    dispatch(clearAuth());
+    toast('已退出登录', 'info');
+  };
 
   // 挂载时拉取当前用户菜单树；失败则 fallback 到静态 navGroups
   useEffect(() => {
@@ -146,15 +159,20 @@ function SidebarInner() {
             <p className="text-xs text-ink-100 truncate font-medium">{user.name}</p>
             <p className="text-[10px] text-ink-500 truncate">{user.department} · {user.role}</p>
           </div>
-          {isHome ? (
-            <button onClick={() => dispatch(setPage('settings'))} className="p-1.5 text-ink-500 hover:text-tech-400 hover:bg-nav-hover rounded-md transition-all" title="设置">
-              <Settings className="w-4 h-4" />
+          <div className="flex items-center gap-1">
+            {isHome ? (
+              <button onClick={() => dispatch(setPage('settings'))} className="p-1.5 text-ink-500 hover:text-tech-400 hover:bg-nav-hover rounded-md transition-all" title="设置">
+                <Settings className="w-4 h-4" />
+              </button>
+            ) : (
+              <button onClick={() => dispatch(setPage('dashboard'))} className="p-1.5 text-ink-500 hover:text-tech-400 hover:bg-nav-hover rounded-md transition-all" title="返回">
+                <ArrowLeft className="w-4 h-4" />
+              </button>
+            )}
+            <button onClick={handleLogout} className="p-1.5 text-ink-500 hover:text-cinnabar-400 hover:bg-nav-hover rounded-md transition-all" title="退出登录">
+              <LogOut className="w-4 h-4" />
             </button>
-          ) : (
-            <button onClick={() => dispatch(setPage('dashboard'))} className="p-1.5 text-ink-500 hover:text-tech-400 hover:bg-nav-hover rounded-md transition-all" title="返回">
-              <ArrowLeft className="w-4 h-4" />
-            </button>
-          )}
+          </div>
         </div>
       </div>
     </aside>

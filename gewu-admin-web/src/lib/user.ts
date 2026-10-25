@@ -86,3 +86,19 @@ export async function assignRoles(userId: string, roleCodes: string[]): Promise<
 export async function assignOrg(userId: string, orgId: string | null): Promise<void> {
   return unwrap(request.put<ApiResponse<void>>(`${API_ENDPOINTS.USERS}/${userId}/org`, { orgId }));
 }
+
+// ==================== 用户选项（项目团队分配选择器） ====================
+
+/** 用户选项（启用中的平台用户，不含凭证等敏感字段） */
+export interface UserOption {
+  userId: string;
+  username: string;
+  displayName: string;
+  email?: string;
+}
+
+/** 启用用户选项列表：keyword 模糊匹配显示名/用户名/邮箱（管理端只读端点，无用户管理权限也可调） */
+export async function listUserOptions(keyword?: string): Promise<UserOption[]> {
+  const query = keyword && keyword.trim() ? `?keyword=${encodeURIComponent(keyword.trim())}` : '';
+  return unwrap(request.get<ApiResponse<UserOption[]>>(`/v1/user-options${query}`));
+}

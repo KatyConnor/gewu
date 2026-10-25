@@ -2,15 +2,10 @@ package com.gewu.application.project;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
-import com.gewu.application.project.dto.CreateProjectCommand;
 import com.gewu.application.project.dto.ProjectDTO;
 import com.gewu.application.project.dto.ProjectMemberDTO;
 import com.gewu.application.project.dto.ProjectQuery;
-import com.gewu.application.project.dto.UpdateProjectCommand;
-import com.gewu.application.sandbox.SandboxClient;
-import com.gewu.application.workspace.DevWorkspaceService;
 import com.gewu.common.context.UserContext;
-import com.gewu.common.crypto.ApiKeyCryptoService;
 import com.gewu.common.dto.PageQuery;
 import com.gewu.common.result.BusinessException;
 import com.gewu.common.result.PageResult;
@@ -21,11 +16,9 @@ import com.gewu.domain.user.UserAccount;
 import com.gewu.infrastructure.mapper.ProjectMapper;
 import com.gewu.infrastructure.mapper.ProjectMemberMapper;
 import com.gewu.infrastructure.mapper.UserAccountMapper;
-import com.gewu.infrastructure.storage.MinioStorageService;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
-import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
@@ -33,7 +26,11 @@ import java.util.Set;
 import java.util.stream.Collectors;
 
 /**
- * 项目应用服务 - 项目创建、查询、更新、删除及成员查询.
+ * 项目应用服务 — 用户侧"我的项目"查询与成员查询.
+ *
+ * <p>项目创建/编辑/删除/团队分发已迁移管理端（gewu-admin-server AdminProjectService）；
+ * 本服务仅保留用户侧只读查询。可见性由 project_member 成员行驱动：
+ * 技术负责人（TECH_LEAD）/团队成员（MEMBER）/所有者（OWNER）均视为参与项目。
  */
 @Slf4j
 @Service
@@ -43,104 +40,11 @@ public class ProjectService {
     private final ProjectMapper projectMapper;
     private final ProjectMemberMapper projectMemberMapper;
     private final UserAccountMapper userAccountMapper;
-    private final ProjectPhaseService projectPhaseService;
-    private final SandboxClient sandboxClient;
-    private final ProjectCodeGenerator projectCodeGenerator;
-    private final MinioStorageService storageService;
-    private final DevWorkspaceService devWorkspaceService;
-    private final ApiKeyCryptoService credentialCrypto;
-
-    @Transactional
-    public ProjectDTO createProject(CreateProjectCommand command) {
-        String ownerId = UserContext.currentUserId();
-        if (ownerId == null) {
-            throw BusinessException.of(ResultCode.UNAUTHORIZED);
-        }
-
-        Project project = new Project();
-        // 显式生成 ULID：repoLocalPath 等路径在 insert 前就要拼 ID，
-        // 依赖 MP insert 时赋值会让所有项目落库 projects/null/repo（E2E 冒烟捕获）
-        project.setId(com.gewu.common.ulid.Ulid.next());
-        project.setProjectName(command.getProjectName());
-        project.setProjectCode(projectCodeGenerator.generate());
-        project.setShortName(command.getShortName());
-        project.setSystemName(command.getSystemName());
-        project.setTeamMembers(command.getTeamMembers());
-        project.setTechLead(command.getTechLead());
-        project.setDescription(command.getDescription());
-        project.setVisibility(command.getVisibility() != null ? command.getVisibility() : 0);
-        project.setStatus(1);
-        project.setOwnerId(ownerId);
-        project.setTechStack(command.getTechStack());
-        project.setWorktree(command.getWorktree());
-        project.setVcs(command.getVcs());
-        project.setIconUrl(command.getIconUrl());
-        project.setIconColor(command.getIconColor());
-        project.setRepoUrl(command.getRepoUrl());
-        applyRepoCredential(project, command);
-        project.setRepoLocalPath("projects/" + project.getId() + "/repo");
-        projectMapper.insert(project);
-
-        ProjectMember member = new ProjectMember();
-        member.setProjectId(project.getId());
-        member.setUserId(ownerId);
-        member.setRoleCode("OWNER");
-        member.setJoinedAt(System.currentTimeMillis());
-        projectMemberMapper.insert(member);
-
-        projectPhaseService.initializePhases(project.getId());
-
-        return toDTO(project);
-    }
-
-    /**
-     * 仓库凭证二选一校验与加密落库：
-     * 访问凭证（token/ssh_key）与用户名密码（password）只能选其一；
-     * 凭证明文经 SM4 加密后存 repo_credential，不回传 DTO。
-     */
-    private void applyRepoCredential(Project project, CreateProjectCommand command) {
-        String credential = command.getRepoCredential();
-        String username = command.getRepoUsername();
-        String type = command.getRepoCredentialType();
-
-        if (credential == null || credential.isBlank()) {
-            if (username != null && !username.isBlank()) {
-                throw BusinessException.of(ResultCode.PARAM_INVALID, "已填写仓库用户名，请同时填写密码");
-            }
-            return;
-        }
-        if (username != null && !username.isBlank() && !"password".equals(type)) {
-            throw BusinessException.of(ResultCode.PARAM_INVALID, "访问凭证与用户名密码二选一，请勿同时填写");
-        }
-        String resolvedType = type;
-        if (resolvedType == null || resolvedType.isBlank()) {
-            // 未显式指定类型时按内容推断：PEM 私钥视为 ssh_key，其余视为访问令牌
-            resolvedType = credential.strip().startsWith("-----BEGIN") ? "ssh_key" : "token";
-        }
-        if (!Set.of("token", "ssh_key", "password").contains(resolvedType)) {
-            throw BusinessException.of(ResultCode.PARAM_INVALID, "仓库凭证类型不合法: " + resolvedType);
-        }
-        if ("password".equals(resolvedType) && (username == null || username.isBlank())) {
-            throw BusinessException.of(ResultCode.PARAM_INVALID, "用户名密码认证需同时填写用户名与密码");
-        }
-        project.setRepoCredentialType(resolvedType);
-        project.setRepoUsername(username);
-        project.setRepoCredential(credentialCrypto.encrypt(credential.strip()));
-    }
 
     public ProjectDTO getProject(String projectId) {
         Project project = getProjectEntity(projectId);
         checkMembership(project); // CR-021: 确保用户是项目成员才能访问
         return toDTO(project);
-    }
-
-    public PageResult<ProjectDTO> listProjects(PageQuery query) {
-        Page<Project> page = new Page<>(query.getPage(), query.getSize());
-        Page<Project> result = projectMapper.selectPage(page, new LambdaQueryWrapper<>());
-        List<ProjectDTO> dtos = result.getRecords().stream()
-                .map(this::toDTO)
-                .toList();
-        return PageResult.of(dtos, result.getTotal(), query.getPage(), query.getSize());
     }
 
     public PageResult<ProjectDTO> listMyProjects(ProjectQuery query) {
@@ -183,57 +87,6 @@ public class ProjectService {
         return PageResult.of(dtos, result.getTotal(), query.getPage(), query.getSize());
     }
 
-    @Transactional
-    public ProjectDTO updateProject(String projectId, UpdateProjectCommand command) {
-        Project project = getProjectEntity(projectId);
-        checkOwnership(project);
-
-        if (command.getProjectName() != null) project.setProjectName(command.getProjectName());
-        if (command.getDescription() != null) project.setDescription(command.getDescription());
-        if (command.getVisibility() != null) project.setVisibility(command.getVisibility());
-        if (command.getStatus() != null) project.setStatus(command.getStatus());
-        if (command.getTechStack() != null) project.setTechStack(command.getTechStack());
-        if (command.getWorktree() != null) project.setWorktree(command.getWorktree());
-        if (command.getVcs() != null) project.setVcs(command.getVcs());
-        if (command.getIconUrl() != null) project.setIconUrl(command.getIconUrl());
-        if (command.getIconColor() != null) project.setIconColor(command.getIconColor());
-        projectMapper.updateById(project);
-
-        return toDTO(project);
-    }
-
-    @Transactional
-    public void deleteProject(String projectId) {
-        Project project = getProjectEntity(projectId);
-        checkOwnership(project);
-
-        destroyProjectSandboxes(projectId);
-        cleanupProjectArtifacts(project, projectId);
-
-        projectMapper.deleteById(project.getId());
-    }
-
-    /**
-     * 级联清理项目产物：MinIO projects/{pid}/ 前缀对象（需求文件+阶段文档）
-     * 与 dev 卷内项目仓库目录。失败不阻断项目删除（仅告警）；关联会话保留（用户数据）。
-     */
-    private void cleanupProjectArtifacts(Project project, String projectId) {
-        try {
-            storageService.deleteWorkspacePath("projects/" + projectId + "/");
-        } catch (Exception e) {
-            log.warn("项目 MinIO 产物清理失败: projectId={}, error={}", projectId, e.getMessage());
-        }
-        if (project.getRepoLocalPath() == null || project.getRepoLocalPath().isBlank()) {
-            return;
-        }
-        try {
-            devWorkspaceService.deleteWorkspaceDir(project.getRepoLocalPath());
-        } catch (Exception e) {
-            log.warn("项目仓库目录清理失败: projectId={}, path={}, error={}",
-                    projectId, project.getRepoLocalPath(), e.getMessage());
-        }
-    }
-
     public List<ProjectMemberDTO> getProjectMembers(String projectId) {
         Project project = getProjectEntity(projectId);
         checkMembership(project); // CR-021: 确保用户是项目成员才能访问
@@ -260,15 +113,6 @@ public class ProjectService {
                             .build();
                 })
                 .toList();
-    }
-
-    private void destroyProjectSandboxes(String projectId) {
-        try {
-            sandboxClient.destroyProjectSandboxes(projectId);
-            log.info("项目沙箱销毁: projectId={}", projectId);
-        } catch (Exception e) {
-            log.warn("项目沙箱销毁失败（不影响项目删除）: projectId={}, error={}", projectId, e.getMessage());
-        }
     }
 
     public ProjectDTO toDTO(Project project) {
@@ -312,13 +156,6 @@ public class ProjectService {
             throw BusinessException.of(ResultCode.PROJECT_NOT_FOUND);
         }
         return project;
-    }
-
-    private void checkOwnership(Project project) {
-        String userId = UserContext.currentUserId();
-        if (userId == null || !userId.equals(project.getOwnerId())) {
-            throw BusinessException.of(ResultCode.PERMISSION_DENIED);
-        }
     }
 
     private void checkMembership(Project project) {

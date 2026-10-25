@@ -1,12 +1,8 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { useDispatch } from 'react-redux';
-import { Plus, Eye, Edit, Trash2, FolderOpen, Calendar, Users, Search, LayoutGrid, List, BarChart3, Pause, X } from 'lucide-react';
-import { setPage } from '@/store';
-import { useToast } from '@/components/ui/Toast';
-import { listMyProjects, deleteProject, type ProjectDTO } from '@/lib/project';
+import { Eye, FolderOpen, Calendar, Users, Search, LayoutGrid, List, BarChart3 } from 'lucide-react';
+import { listMyProjects, type ProjectDTO } from '@/lib/project';
 import ProjectDetailPage from './ProjectDetailPage';
-import ProjectCreatePage from './ProjectCreatePage';
 
 // ==================== 常量定义 ====================
 
@@ -67,28 +63,16 @@ type ViewType = 'kanban' | 'list' | 'gantt';
 export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectDTO[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showCreate, setShowCreate] = useState(false);
   const [detailProjectId, setDetailProjectId] = useState<string | null>(null);
 
-  // 编辑弹框
-  const [showEdit, setShowEdit] = useState(false);
-  const [editProjectId, setEditProjectId] = useState<string | null>(null);
-  const [editName, setEditName] = useState('');
-  const [editCode, setEditCode] = useState('');
-  const [editDesc, setEditDesc] = useState('');
-
-  // 搜索和分页
+  // 搜索和分页（"我的项目"按成员分发可见，无需按负责人检索）
   const [viewType, setViewType] = useState<ViewType>('kanban');
   const [searchProjectName, setSearchProjectName] = useState('');
   const [searchProjectCode, setSearchProjectCode] = useState('');
-  const [searchOwnerName, setSearchOwnerName] = useState('');
   const [searchStatus, setSearchStatus] = useState<number | undefined>(undefined);
   const [currentPage, setCurrentPage] = useState(1);
   const [pageSize] = useState(20);
   const [total, setTotal] = useState(0);
-
-  const dispatch = useDispatch();
-  const toast = useToast();
 
   const loadProjects = useCallback(async () => {
     setLoading(true);
@@ -98,7 +82,6 @@ export default function ProjectsPage() {
         size: pageSize,
         projectName: searchProjectName || undefined,
         projectCode: searchProjectCode || undefined,
-        ownerName: searchOwnerName || undefined,
         status: searchStatus,
       });
       setProjects(result.records || []);
@@ -109,7 +92,7 @@ export default function ProjectsPage() {
     } finally {
       setLoading(false);
     }
-  }, [currentPage, pageSize, searchProjectName, searchProjectCode, searchOwnerName, searchStatus]);
+  }, [currentPage, pageSize, searchProjectName, searchProjectCode, searchStatus]);
 
   useEffect(() => { loadProjects(); }, [loadProjects]);
 
@@ -121,89 +104,13 @@ export default function ProjectsPage() {
   const handleReset = () => {
     setSearchProjectName('');
     setSearchProjectCode('');
-    setSearchOwnerName('');
     setSearchStatus(undefined);
     setCurrentPage(1);
-  };
-
-  const handleDelete = async (projectId: string, name: string) => {
-    if (!confirm(`确定要删除项目 "${name}" 吗？此操作不可恢复。`)) return;
-    try {
-      await deleteProject(projectId);
-      toast('项目已删除', 'success');
-      loadProjects();
-    } catch {
-      toast('删除失败', 'error');
-    }
-  };
-
-  const handleEdit = (projectId: string) => {
-    const project = projects.find(p => p.projectId === projectId);
-    if (!project) return;
-    setEditProjectId(projectId);
-    setEditName(project.projectName);
-    setEditDesc(project.description || '');
-    setEditCode(project.projectCode || '');
-    setShowEdit(true);
-  };
-
-  const handleSaveEdit = async () => {
-    if (!editProjectId || !editName.trim()) return;
-    try {
-      const { updateProject } = await import('@/lib/project');
-      await updateProject(editProjectId, {
-        projectName: editName,
-        description: editDesc,
-      });
-      toast('项目已更新', 'success');
-      setShowEdit(false);
-      setEditProjectId(null);
-      loadProjects();
-    } catch {
-      toast('更新失败', 'error');
-    }
-  };
-
-  const handlePause = async (projectId: string, name: string) => {
-    if (!confirm(`确定要暂停项目 "${name}" 吗？`)) return;
-    try {
-      const { updateProject } = await import('@/lib/project');
-      await updateProject(projectId, { status: 4 });
-      toast('项目已暂停', 'success');
-      loadProjects();
-    } catch {
-      toast('操作失败', 'error');
-    }
-  };
-
-  const handleCancel = async (projectId: string, name: string) => {
-    if (!confirm(`确定要取消项目 "${name}" 吗？`)) return;
-    try {
-      const { updateProject } = await import('@/lib/project');
-      await updateProject(projectId, { status: 5 });
-      toast('项目已取消', 'success');
-      loadProjects();
-    } catch {
-      toast('操作失败', 'error');
-    }
   };
 
   const viewDetail = (projectId: string) => {
     setDetailProjectId(projectId);
   };
-
-  // 新建项目视图（整页，非弹框）
-  if (showCreate) {
-    return (
-      <ProjectCreatePage
-        onBack={() => setShowCreate(false)}
-        onCreated={() => {
-          setShowCreate(false);
-          loadProjects();
-        }}
-      />
-    );
-  }
 
   // 项目详情视图
   if (detailProjectId) {
@@ -222,22 +129,14 @@ export default function ProjectsPage() {
   return (
     <div>
       {/* 页面标题 */}
-      <header className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-ink-50">项目管理</h1>
-          <p className="text-ink-400 text-sm mt-1">管理和追踪项目生命周期</p>
-        </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 px-4 py-2 btn-primary text-white text-sm rounded-lg"
-        >
-          <Plus className="w-4 h-4" />新建项目
-        </button>
+      <header className="mb-6">
+        <h1 className="text-2xl font-semibold text-ink-50">我的项目</h1>
+        <p className="text-ink-400 text-sm mt-1">项目由管理后台统一创建并分发给技术负责人与团队成员，此处展示您参与的项目</p>
       </header>
 
       {/* 搜索区域 */}
       <div className="glass-dark rounded-xl p-4 mb-4 border border-tech-500/10">
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-3 gap-3">
           <input
             value={searchProjectName}
             onChange={e => setSearchProjectName(e.target.value)}
@@ -248,12 +147,6 @@ export default function ProjectsPage() {
             value={searchProjectCode}
             onChange={e => setSearchProjectCode(e.target.value)}
             placeholder="项目编号"
-            className="px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none"
-          />
-          <input
-            value={searchOwnerName}
-            onChange={e => setSearchOwnerName(e.target.value)}
-            placeholder="项目负责人"
             className="px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none"
           />
           <select
@@ -305,42 +198,9 @@ export default function ProjectsPage() {
         </div>
       </div>
 
-      {/* 编辑项目弹框 */}
-      {showEdit && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50" onClick={() => setShowEdit(false)}>
-          <div className="glass-dark rounded-xl p-6 w-full max-w-md border border-tech-500/20" onClick={e => e.stopPropagation()}>
-            <h3 className="text-lg font-semibold text-ink-50 mb-4">编辑项目</h3>
-            <input
-              value={editName}
-              onChange={e => setEditName(e.target.value)}
-              placeholder="项目名称"
-              className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none mb-3"
-            />
-            <input
-              value={editCode}
-              readOnly
-              disabled
-              placeholder="项目编号"
-              className="w-full px-3 py-2 bg-ink-800/30 border border-tech-500/10 rounded-lg text-sm text-ink-300 placeholder-ink-500 outline-none mb-3 cursor-not-allowed"
-            />
-            <textarea
-              value={editDesc}
-              onChange={e => setEditDesc(e.target.value)}
-              placeholder="项目描述（可选）"
-              rows={3}
-              className="w-full px-3 py-2 bg-ink-800/50 border border-tech-500/10 rounded-lg text-sm text-ink-100 placeholder-ink-500 outline-none resize-none mb-4"
-            />
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setShowEdit(false)} className="px-4 py-2 text-sm text-ink-400 hover:text-ink-200">取消</button>
-              <button onClick={handleSaveEdit} disabled={!editName.trim()} className="px-4 py-2 text-sm btn-primary text-white rounded-lg disabled:opacity-50">保存</button>
-            </div>
-          </div>
-        </div>
-      )}
-
       {/* 视图内容 */}
-      {viewType === 'kanban' && <KanbanView projects={projects} onViewDetail={viewDetail} onEdit={handleEdit} onPause={handlePause} onCancel={handleCancel} />}
-      {viewType === 'list' && <ListView projects={projects} onViewDetail={viewDetail} onDelete={handleDelete} />}
+      {viewType === 'kanban' && <KanbanView projects={projects} onViewDetail={viewDetail} />}
+      {viewType === 'list' && <ListView projects={projects} onViewDetail={viewDetail} />}
       {viewType === 'gantt' && <GanttView projects={projects} />}
 
       {/* 分页 */}
@@ -372,12 +232,9 @@ export default function ProjectsPage() {
 
 // ==================== 看板视图 ====================
 
-function KanbanView({ projects, onViewDetail, onEdit, onPause, onCancel }: {
+function KanbanView({ projects, onViewDetail }: {
   projects: ProjectDTO[];
   onViewDetail: (id: string) => void;
-  onEdit: (id: string) => void;
-  onPause: (id: string, name: string) => void;
-  onCancel: (id: string, name: string) => void;
 }) {
   const columns = [
     { title: '待立项', status: 2, color: 'border-gold-500/20 bg-gold-500/5' },
@@ -433,22 +290,13 @@ function KanbanView({ projects, onViewDetail, onEdit, onPause, onCancel }: {
                     {/* 项目信息 */}
                     <div className="flex items-center justify-between text-[10px] text-ink-400 mb-3 pb-2 border-b border-tech-500/5">
                       <span className="flex items-center gap-1"><Calendar className="w-3 h-3" />{p.initiatedAt ? new Date(p.initiatedAt).toLocaleDateString('zh-CN') : '-'}</span>
-                      <span className="flex items-center gap-1"><Users className="w-3 h-3" />{p.ownerName || '-'}</span>
+                      <span className="flex items-center gap-1"><Users className="w-3 h-3" />{p.techLead || p.ownerName || '-'}</span>
                     </div>
 
                     {/* 操作按钮 */}
-                    <div className="grid grid-cols-4 gap-1">
+                    <div className="grid grid-cols-1 gap-1">
                       <button onClick={() => onViewDetail(p.projectId)} className="flex items-center justify-center gap-1 text-[10px] text-tech-400 hover:bg-tech-500/10 rounded py-1.5 transition-colors">
                         <Eye className="w-3 h-3" />查看
-                      </button>
-                      <button onClick={() => onEdit(p.projectId)} className="flex items-center justify-center gap-1 text-[10px] text-gold-400 hover:bg-gold-500/10 rounded py-1.5 transition-colors">
-                        <Edit className="w-3 h-3" />编辑
-                      </button>
-                      <button onClick={() => onPause(p.projectId, p.projectName)} className="flex items-center justify-center gap-1 text-[10px] text-orange-400 hover:bg-orange-500/10 rounded py-1.5 transition-colors">
-                        <Pause className="w-3 h-3" />暂停
-                      </button>
-                      <button onClick={() => onCancel(p.projectId, p.projectName)} className="flex items-center justify-center gap-1 text-[10px] text-cinnabar-400 hover:bg-cinnabar-500/10 rounded py-1.5 transition-colors">
-                        <X className="w-3 h-3" />取消
                       </button>
                     </div>
                   </div>
@@ -464,10 +312,9 @@ function KanbanView({ projects, onViewDetail, onEdit, onPause, onCancel }: {
 
 // ==================== 列表视图 ====================
 
-function ListView({ projects, onViewDetail, onDelete }: {
+function ListView({ projects, onViewDetail }: {
   projects: ProjectDTO[];
   onViewDetail: (id: string) => void;
-  onDelete: (id: string, name: string) => void;
 }) {
   if (projects.length === 0) {
     return (
@@ -488,7 +335,7 @@ function ListView({ projects, onViewDetail, onDelete }: {
             <th className="text-left text-xs font-medium text-ink-400 px-4 py-3">创建时间</th>
             <th className="text-left text-xs font-medium text-ink-400 px-4 py-3">立项时间</th>
             <th className="text-left text-xs font-medium text-ink-400 px-4 py-3">状态</th>
-            <th className="text-left text-xs font-medium text-ink-400 px-4 py-3">项目负责人</th>
+            <th className="text-left text-xs font-medium text-ink-400 px-4 py-3">技术负责人</th>
             <th className="text-left text-xs font-medium text-ink-400 px-4 py-3">工作空间</th>
             <th className="text-left text-xs font-medium text-ink-400 px-4 py-3">操作</th>
           </tr>
@@ -505,12 +352,11 @@ function ListView({ projects, onViewDetail, onDelete }: {
                   {statusMap[p.status] || '-'}
                 </span>
               </td>
-              <td className="px-4 py-3 text-sm text-ink-300">{p.ownerName || '-'}</td>
+              <td className="px-4 py-3 text-sm text-ink-300">{p.techLead || p.ownerName || '-'}</td>
               <td className="px-4 py-3 text-sm text-ink-400 truncate max-w-[200px]">{p.worktree || '-'}</td>
               <td className="px-4 py-3">
                 <div className="flex items-center gap-1">
                   <button onClick={() => onViewDetail(p.projectId)} className="text-tech-400 hover:bg-tech-500/10 rounded p-1"><Eye className="w-3.5 h-3.5" /></button>
-                  <button onClick={() => onDelete(p.projectId, p.projectName)} className="text-cinnabar-400 hover:bg-cinnabar-500/10 rounded p-1"><Trash2 className="w-3.5 h-3.5" /></button>
                 </div>
               </td>
             </tr>

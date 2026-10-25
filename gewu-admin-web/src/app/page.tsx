@@ -1,8 +1,8 @@
 'use client';
 import { useState, useEffect } from 'react';
 import { useDispatch, useSelector } from 'react-redux';
-import { RootState, setPage } from '@/store';
-import { isAuthenticated } from '@/lib/token';
+import { RootState, setPage, clearAuth } from '@/store';
+import { isAuthenticated, isTokenValid } from '@/lib/token';
 import Sidebar from '@/components/layout/Sidebar';
 import UserManagePage from '@/components/pages/UserManagePage';
 import RoleManagePage from '@/components/pages/RoleManagePage';
@@ -13,6 +13,8 @@ import QuotaManagePage from '@/components/pages/QuotaManagePage';
 import SandboxAuditPage from '@/components/pages/SandboxAuditPage';
 import DashboardPage from '@/components/pages/AdminDashboardPage';
 import LoginPage from '@/components/pages/LoginPage';
+import AppSystemManagePage from '@/components/pages/AppSystemManagePage';
+import ProjectManagePage from '@/components/pages/ProjectManagePage';
 
 /** 后台管理端页面注册表 */
 const pages: Record<string, React.ComponentType> = {
@@ -25,6 +27,8 @@ const pages: Record<string, React.ComponentType> = {
   'skill-audit': SkillAuditPage,
   'quota-manage': QuotaManagePage,
   'sandbox-audit': SandboxAuditPage,
+  'appsystem-manage': AppSystemManagePage,
+  'project-manage': ProjectManagePage,
 };
 
 export default function Home() {
@@ -40,6 +44,17 @@ export default function Home() {
     }
   }, [isAuthed, dispatch]);
 
+  // 空闲过期主动检测：令牌在无 API 调用期间自然过期时，立即切换到登录页
+  useEffect(() => {
+    if (!isAuthed) return;
+    const timer = setInterval(() => {
+      if (!isTokenValid()) {
+        dispatch(clearAuth());
+      }
+    }, 30_000);
+    return () => clearInterval(timer);
+  }, [isAuthed, dispatch]);
+
   if (!hydrated) {
     return (
       <div className="min-h-screen flex items-center justify-center" style={{ background: '#081211' }}>
@@ -49,6 +64,12 @@ export default function Home() {
   }
 
   const PageComponent = pages[currentPage] || DashboardPage;
+
+  // 登录页独立全屏呈现，不套后台壳（侧栏）——含会话过期后切换到登录态的场景
+  if (!isAuthed || currentPage === 'login') {
+    return <PageComponent />;
+  }
+
   return (
     <div className="flex h-screen w-full main-bg">
       <Sidebar />

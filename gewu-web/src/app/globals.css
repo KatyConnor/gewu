@@ -316,3 +316,20 @@ div[onclick], [role="button"] {
   background-position: bottom;
   background-repeat: no-repeat;
 }
+
+/* ===== 全站统一弹框动画（ui/Modal.tsx）：进 200ms / 出 150ms，仅 opacity+transform ===== */
+.modal-backdrop { animation: modalBackdropIn 200ms ease-out; }
+.modal-panel { animation: modalPanelIn 200ms ease-out; }
+.modal-backdrop.modal-closing { animation: modalBackdropOut 150ms ease-in forwards; }
+.modal-panel.modal-closing { animation: modalPanelOut 150ms ease-in forwards; }
+@keyframes modalBackdropIn { from { opacity: 0; } to { opacity: 1; } }
+@keyframes modalBackdropOut { from { opacity: 1; } to { opacity: 0; } }
+@keyframes modalPanelIn { from { opacity: 0; transform: translateY(8px) scale(0.98); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes modalPanelOut { from { opacity: 1; transform: translateY(0) scale(1); } to { opacity: 0; transform: translateY(8px) scale(0.98); } }
+.modal-panel[data-variant='right'] { animation-name: modalPanelRightIn; }
+.modal-panel.modal-closing[data-variant='right'] { animation-name: modalPanelRightOut; }
+@keyframes modalPanelRightIn { from { opacity: 0; transform: translateX(24px); } to { opacity: 1; transform: translateX(0); } }
+@keyframes modalPanelRightOut { from { opacity: 1; transform: translateX(0); } to { opacity: 0; transform: translateX(24px); } }
+@media (prefers-reduced-motion: reduce) {
+  .modal-backdrop, .modal-panel, .modal-backdrop.modal-closing, .modal-panel.modal-closing { animation: none; }
+}
