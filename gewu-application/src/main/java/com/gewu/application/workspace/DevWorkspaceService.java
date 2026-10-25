@@ -3,7 +3,12 @@ package com.gewu.application.workspace;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.gewu.application.sandbox.SandboxClient;
 import com.gewu.application.workspace.dto.DevWorkspaceDTO;
+import com.gewu.application.workspace.dto.GitBranchesDTO;
+import com.gewu.application.workspace.dto.GitLogEntryDTO;
+import com.gewu.application.workspace.dto.GitOpCommand;
 import com.gewu.application.workspace.dto.GitProjectDTO;
+import com.gewu.application.workspace.dto.GitStashDTO;
+import com.gewu.application.workspace.dto.GitStatusDTO;
 import com.gewu.common.context.UserContext;
 import com.gewu.common.crypto.ApiKeyCryptoService;
 import com.gewu.common.dto.sandbox.CreateSandboxCommand;
@@ -30,8 +35,10 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Set;
+import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
@@ -343,24 +350,295 @@ public class DevWorkspaceService {
                 .build();
     }
 
-    /** Git commit + push（基于项目仓库路径） */
-    public String gitCommitPush(String projectId, String message) {
+    // ==================== Git 常规操作（IDEA 式 Git 菜单操作集） ====================
+    // 项目仓库路径 = 领域 Project.repoLocalPath；操作统一经 gitExec（SSH 非交互环境 +
+    // 失败不静默）；入口统一 requireGitProject（成员/所有者门 + 仓库就绪门）。
+
+    /** Git 操作入口校验：项目存在 → 当前用户为所有者或项目成员 → 仓库已就绪 */
+    private com.gewu.domain.project.Project requireGitProject(String projectId) {
         com.gewu.domain.project.Project project = projectEntityMapper.selectById(projectId);
-        if (project == null || project.getRepoLocalPath() == null) {
-            throw BusinessException.of(ResultCode.NOT_FOUND, "项目仓库未初始化");
+        if (project == null) {
+            throw BusinessException.of(ResultCode.NOT_FOUND, "项目不存在");
         }
-        String sandboxId = ensureRunningSandbox();
+        String userId = UserContext.currentUserId();
+        boolean allowed = userId != null && (userId.equals(project.getOwnerId())
+                || projectMemberMapper.selectCount(new LambdaQueryWrapper<ProjectMember>()
+                        .eq(ProjectMember::getProjectId, projectId)
+                        .eq(ProjectMember::getUserId, userId)) > 0);
+        if (!allowed) {
+            throw BusinessException.of(ResultCode.FORBIDDEN, "无权访问该项目仓库");
+        }
+        if (!"ready".equals(project.getCloneStatus()) || project.getRepoLocalPath() == null) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "项目仓库未就绪，请先拉取代码");
+        }
+        return project;
+    }
+
+    /** git 命令统一执行：仓库目录 + SSH 非交互环境；失败抛错（stderr 优先，截断 300 字符） */
+    private String gitExec(com.gewu.domain.project.Project project, String args, int timeoutSec) {
+        String sandboxId = ensureRunningSandboxId();
         String dir = "/workspace/" + sanitizeWorkspaceRel(project.getRepoLocalPath());
+        ExecCommandResponse resp = sandboxClient.execCommand(sandboxId,
+                "GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes\""
+                        + " git -C " + shellQuote(dir) + " " + args, timeoutSec);
+        if (resp.getExitCode() == null || resp.getExitCode() != 0) {
+            String err = resp.getStderr() != null && !resp.getStderr().isBlank() ? resp.getStderr() : resp.getStdout();
+            throw BusinessException.of(ResultCode.SYSTEM_ERROR,
+                    "Git 操作失败: " + (err != null && err.length() > 300 ? err.substring(0, 300) : err));
+        }
+        return resp.getStdout() != null ? resp.getStdout() : "";
+    }
 
-        sandboxClient.execCommand(sandboxId, "git -C " + shellQuote(dir) + " add .", 10);
-        sandboxClient.execCommand(sandboxId,
-                "git -C " + shellQuote(dir) + " commit -m " + shellQuote(message != null ? message : ""), 30);
-        String branch = project.getRepoBranch() != null ? project.getRepoBranch() : "main";
-        ExecCommandResponse pushResp = sandboxClient.execCommand(
-                sandboxId, "GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes\""
-                + " git -C " + shellQuote(dir) + " push origin " + shellQuote(branch), 60);
+    /** 工作区状态（分支/上游/领先落后/变更清单，git status porcelain 解析） */
+    public GitStatusDTO gitStatus(String projectId) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        String out = gitExec(project, "status --porcelain=v1 -b", 15);
+        GitStatusDTO dto = new GitStatusDTO();
+        for (String line : out.split("\n")) {
+            if (line.startsWith("## ")) {
+                String head = line.substring(3).trim();
+                int dots = head.indexOf("...");
+                if (dots > 0) {
+                    dto.setBranch(head.substring(0, dots));
+                    String rest = head.substring(dots + 3);
+                    dto.setUpstream(rest.split("\\s+")[0]);
+                    Matcher m = Pattern.compile("ahead (\\d+)").matcher(rest);
+                    if (m.find()) {
+                        dto.setAhead(Integer.parseInt(m.group(1)));
+                    }
+                    m = Pattern.compile("behind (\\d+)").matcher(rest);
+                    if (m.find()) {
+                        dto.setBehind(Integer.parseInt(m.group(1)));
+                    }
+                } else {
+                    dto.setBranch(head.split("\\s+")[0]);
+                }
+            } else if (line.length() >= 4) {
+                char x = line.charAt(0);
+                char y = line.charAt(1);
+                String path = line.substring(3).trim();
+                GitStatusDTO.Change ch = new GitStatusDTO.Change();
+                int arrow = path.lastIndexOf(" -> ");
+                if (arrow > 0) {
+                    ch.setRenameFrom(path.substring(0, arrow));
+                    path = path.substring(arrow + 4);
+                }
+                ch.setPath(path);
+                ch.setUntracked(x == '?' && y == '?');
+                ch.setStaged(!ch.isUntracked() && x != ' ');
+                ch.setStatusDesc(statusDescOf(x, y, ch.isUntracked()));
+                dto.getChanges().add(ch);
+            }
+        }
+        return dto;
+    }
 
-        return pushResp.getStdout() + (pushResp.getStderr().isEmpty() ? "" : "\n" + pushResp.getStderr());
+    private static String statusDescOf(char x, char y, boolean untracked) {
+        char c = untracked ? '?' : (x != ' ' ? x : y);
+        return switch (c) {
+            case 'A' -> "新增";
+            case 'D' -> "删除";
+            case 'R' -> "重命名";
+            case 'C' -> "复制";
+            case '?' -> "新文件";
+            default -> "修改";
+        };
+    }
+
+    /** 提交历史（单行格式 + \x1f 分隔，规避消息内制表符干扰） */
+    public List<GitLogEntryDTO> gitLog(String projectId, Integer limit) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        int n = limit != null && limit > 0 && limit <= 500 ? limit : 100;
+        String out = gitExec(project, "log -n " + n + " --pretty=format:%H%x1f%an%x1f%at%x1f%s", 30);
+        List<GitLogEntryDTO> list = new ArrayList<>();
+        for (String line : out.split("\n")) {
+            if (line.isBlank()) {
+                continue;
+            }
+            String[] parts = line.split("\u001f", 4);
+            if (parts.length < 4) {
+                continue;
+            }
+            GitLogEntryDTO e = new GitLogEntryDTO();
+            e.setHash(parts[0]);
+            e.setShortHash(parts[0].length() > 7 ? parts[0].substring(0, 7) : parts[0]);
+            e.setAuthor(parts[1]);
+            try {
+                e.setTimestamp(Long.parseLong(parts[2]));
+            } catch (NumberFormatException ignored) {
+            }
+            e.setMessage(parts[3]);
+            list.add(e);
+        }
+        return list;
+    }
+
+    /** 分支列表（本地 + 远程跟踪，HEAD 标记解析当前分支） */
+    public GitBranchesDTO gitBranches(String projectId) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        GitBranchesDTO dto = new GitBranchesDTO();
+        for (String line : gitExec(project, "branch --format=%(HEAD)%(refname:short)", 15).split("\n")) {
+            String t = line.trim();
+            if (t.isEmpty()) {
+                continue;
+            }
+            if (t.startsWith("*")) {
+                dto.setCurrent(t.substring(1));
+            } else {
+                dto.getLocal().add(t);
+            }
+        }
+        for (String line : gitExec(project, "branch -r --format=%(refname:short)", 30).split("\n")) {
+            String t = line.trim();
+            if (!t.isEmpty() && !t.contains("HEAD")) {
+                dto.getRemote().add(t);
+            }
+        }
+        return dto;
+    }
+
+    /** stash 记录列表 */
+    public List<GitStashDTO> gitStashList(String projectId) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        String out = gitExec(project, "stash list --pretty=format:%gd%x1f%s", 15);
+        List<GitStashDTO> list = new ArrayList<>();
+        for (String line : out.split("\n")) {
+            if (line.isBlank()) {
+                continue;
+            }
+            String[] parts = line.split("\u001f", 2);
+            GitStashDTO s = new GitStashDTO();
+            Matcher m = Pattern.compile("\\{(\\d+)\\}").matcher(parts[0]);
+            if (m.find()) {
+                s.setIndex(Integer.parseInt(m.group(1)));
+            }
+            s.setMessage(parts.length > 1 ? parts[1] : "");
+            list.add(s);
+        }
+        return list;
+    }
+
+    /** 单文件工作区差异（vs HEAD；未跟踪文件为空，由前端回落展示全文） */
+    public String gitFileDiff(String projectId, String path) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        return gitExec(project, "diff HEAD -- " + shellQuote(sanitizeWorkspaceRel(path)), 30);
+    }
+
+    /** 提交（IDEA 提交对话框语义：勾选文件 add 后 commit；无勾选则提交已暂存内容） */
+    public void gitCommit(String projectId, GitOpCommand cmd) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        List<String> files = cmd.getFiles();
+        if (files != null && !files.isEmpty()) {
+            StringBuilder add = new StringBuilder("add --");
+            for (String f : files) {
+                add.append(" ").append(shellQuote(sanitizeWorkspaceRel(f)));
+            }
+            gitExec(project, add.toString(), 30);
+        }
+        String message = cmd.getMessage() != null ? cmd.getMessage().trim() : "";
+        boolean amend = Boolean.TRUE.equals(cmd.getAmend());
+        if (message.isEmpty() && !amend) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "提交信息不能为空");
+        }
+        StringBuilder commit = new StringBuilder("commit ");
+        if (!message.isEmpty()) {
+            commit.append("-m ").append(shellQuote(message)).append(" ");
+        }
+        if (amend) {
+            commit.append("--amend --no-edit ");
+        }
+        gitExec(project, commit.toString(), 60);
+    }
+
+    /** 推送当前分支（-u：远程无同名分支时建立跟踪，已跟踪时幂等） */
+    public String gitPush(String projectId) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        return gitExec(project, "push -u origin HEAD", 120);
+    }
+
+    /** 获取远程更新（含 prune 清理已删除远程分支的跟踪引用） */
+    public void gitFetch(String projectId) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        gitExec(project, "fetch --prune", 120);
+    }
+
+    /** 创建分支（可选立即检出） */
+    public void gitCreateBranch(String projectId, String name, Boolean checkout) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        String branch = validateBranch(name);
+        gitExec(project, "branch " + shellQuote(branch), 15);
+        if (Boolean.TRUE.equals(checkout)) {
+            gitExec(project, "checkout " + shellQuote(branch), 15);
+        }
+    }
+
+    /** 切换分支 */
+    public void gitCheckout(String projectId, String branch) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        gitExec(project, "checkout " + shellQuote(validateBranch(branch)), 30);
+    }
+
+    /** 删除本地分支（-d 安全删除：未合入当前分支的拒绝删除；当前分支不可删） */
+    public void gitDeleteBranch(String projectId, String name) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        String branch = validateBranch(name);
+        if (branch.equals(currentBranchOf(project))) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "不能删除当前所在分支");
+        }
+        gitExec(project, "branch -d " + shellQuote(branch), 15);
+    }
+
+    /** 合并分支到当前分支（冲突时退出码非 0，错误信息透出） */
+    public void gitMerge(String projectId, String branch) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        gitExec(project, "merge --no-edit " + shellQuote(validateBranch(branch)), 60);
+    }
+
+    /** 暂存更改（-u 含未跟踪文件，对齐 IDEA stash 默认行为） */
+    public void gitStash(String projectId, String message) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        String msg = message != null ? message.trim() : "";
+        gitExec(project, "stash push -u" + (msg.isEmpty() ? "" : " -m " + shellQuote(msg)), 30);
+    }
+
+    /** 弹出 stash（应用到工作区并从栈中移除） */
+    public void gitStashPop(String projectId, Integer index) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        int idx = index != null && index >= 0 && index <= 999 ? index : 0;
+        gitExec(project, "stash pop " + shellQuote("stash@{" + idx + "}"), 60);
+    }
+
+    /** 回滚（IDEA Rollback 语义）：跟踪文件 reset+checkout 还原；未跟踪/新增文件 clean 清除 */
+    public void gitRollback(String projectId, List<String> paths, List<String> untrackedPaths) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        boolean hasTracked = paths != null && !paths.isEmpty();
+        boolean hasUntracked = untrackedPaths != null && !untrackedPaths.isEmpty();
+        if (!hasTracked && !hasUntracked) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "未选择要回滚的文件");
+        }
+        if (hasTracked) {
+            StringBuilder reset = new StringBuilder("reset -q HEAD --");
+            for (String f : paths) {
+                reset.append(" ").append(shellQuote(sanitizeWorkspaceRel(f)));
+            }
+            gitExec(project, reset.toString(), 30);
+            StringBuilder checkout = new StringBuilder("checkout --");
+            for (String f : paths) {
+                checkout.append(" ").append(shellQuote(sanitizeWorkspaceRel(f)));
+            }
+            gitExec(project, checkout.toString(), 30);
+        }
+        if (hasUntracked) {
+            StringBuilder clean = new StringBuilder("clean -f --");
+            for (String f : untrackedPaths) {
+                clean.append(" ").append(shellQuote(sanitizeWorkspaceRel(f)));
+            }
+            gitExec(project, clean.toString(), 30);
+        }
+    }
+
+    private String currentBranchOf(com.gewu.domain.project.Project project) {
+        return gitExec(project, "rev-parse --abbrev-ref HEAD", 10).trim();
     }
 
     /** 构建项目（基于项目仓库路径） */
@@ -391,6 +669,9 @@ public class DevWorkspaceService {
 
     /** Git 主机名白名单（用于拼接 git config 键，不允许 shell 元字符） */
     private static final Pattern SAFE_HOST = Pattern.compile("^[A-Za-z0-9._-]+(:\\d{1,5})?$");
+
+    /** Git 分支名白名单（创建/检出/删除/合并的分支名拼入命令前必须过检） */
+    private static final Pattern SAFE_BRANCH = Pattern.compile("^[A-Za-z0-9._/-]+$");
 
     /** 路径中禁止的 shell 元字符 */
     private static final Pattern UNSAFE_PATH_CHARS = Pattern.compile("[`;&|$<>()\\{\\}\\\\\\r\\n]");
@@ -426,6 +707,13 @@ public class DevWorkspaceService {
             throw BusinessException.of(ResultCode.PARAM_INVALID, "Git 主机名非法: " + host);
         }
         return host;
+    }
+
+    static String validateBranch(String branch) {
+        if (branch == null || branch.isBlank() || !SAFE_BRANCH.matcher(branch).matches()) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "分支名非法");
+        }
+        return branch;
     }
 
     // ==================== Git 凭证 ====================

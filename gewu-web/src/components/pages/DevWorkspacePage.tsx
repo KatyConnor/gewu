@@ -3,13 +3,14 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useDispatch } from 'react-redux';
 import { setPage } from '@/store';
-import { Loader2, Play, Square, GitBranch, Terminal, Save, Upload, RefreshCw, Pencil, Undo2, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, FileText } from 'lucide-react';
+import { Loader2, Play, Square, GitBranch, Terminal, Save, RefreshCw, Pencil, Undo2, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, FileText } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import MarkdownReader from '@/components/ui/MarkdownReader';
+import DevGitMenu from './DevGitMenu';
 import { isMarkdownPath, isProbablyBinary, monacoLangOf } from '@/lib/fileLanguage';
 import {
   getDevWorkspace, startSandbox, stopSandbox, readFile, writeFile,
-  listProjects, gitPull, gitPush, buildProject, runProject,
+  listProjects, gitPull, buildProject, runProject,
   listFileEntries,
   type DevWorkspaceInfo, type GitProject, type FileEntry,
 } from '@/lib/dev-workspace';
@@ -325,16 +326,10 @@ export default function DevWorkspacePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [viewMode, currentPath, fileContent, saving]);
 
-  const handleGitPush = async () => {
-    if (!selectedProject) return;
-    const message = prompt('Commit message:');
-    if (!message) return;
-    try {
-      await gitPush(selectedProject.projectId, message);
-      toast('Push 完成', 'success');
-    } catch (e) {
-      toast('Push 失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
-    }
+  /** Git 菜单操作完成后：刷新项目状态 + 按展开状态重载文件树 */
+  const afterGitRefresh = async () => {
+    await load();
+    if (selectedProject?.localPath) refreshTree();
   };
 
   const handleBuild = async (cmd: string) => {
@@ -408,14 +403,7 @@ export default function DevWorkspacePage() {
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {selectedProject && (projectReady ? (
             <>
-              <button onClick={() => handlePull(selectedProject)} disabled={pulling}
-                className="flex items-center gap-1 px-2 py-1.5 text-xs text-ink-300 hover:text-tech-400 border border-ink-700/60 rounded transition-all disabled:opacity-50"
-                title="拉取项目仓库最新代码（项目配置的 Git 凭证）">
-                {pulling ? <Loader2 className="w-3 h-3 animate-spin" /> : <RefreshCw className="w-3 h-3" />}Pull
-              </button>
-              <button onClick={handleGitPush} className="flex items-center gap-1 px-2 py-1.5 text-xs text-ink-300 hover:text-tech-400 border border-ink-700/60 rounded transition-all">
-                <Upload className="w-3 h-3" />Push
-              </button>
+              <DevGitMenu project={selectedProject} onRefresh={afterGitRefresh} />
               <button onClick={() => handleBuild('mvn compile')} disabled={execLoading} className="px-2 py-1.5 text-xs text-ink-300 hover:text-tech-400 border border-ink-700/60 rounded transition-all disabled:opacity-50">构建</button>
               <button onClick={handleRun} disabled={execLoading} className="px-2 py-1.5 text-xs text-ink-300 hover:text-tech-400 border border-ink-700/60 rounded transition-all disabled:opacity-50">运行</button>
             </>

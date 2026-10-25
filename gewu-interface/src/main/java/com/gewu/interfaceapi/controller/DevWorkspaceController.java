@@ -3,7 +3,12 @@ package com.gewu.interfaceapi.controller;
 import com.gewu.application.project.ProjectRepoService;
 import com.gewu.application.workspace.DevWorkspaceService;
 import com.gewu.application.workspace.dto.DevWorkspaceDTO;
+import com.gewu.application.workspace.dto.GitBranchesDTO;
+import com.gewu.application.workspace.dto.GitLogEntryDTO;
+import com.gewu.application.workspace.dto.GitOpCommand;
 import com.gewu.application.workspace.dto.GitProjectDTO;
+import com.gewu.application.workspace.dto.GitStashDTO;
+import com.gewu.application.workspace.dto.GitStatusDTO;
 import com.gewu.common.result.Result;
 import com.gewu.common.dto.sandbox.ExecCommandResponse;
 import com.gewu.common.dto.sandbox.SandboxDTO;
@@ -133,9 +138,9 @@ public class DevWorkspaceController {
     }
 
     @PostMapping("/projects/{projectId}/push")
-    @Operation(summary = "Git commit + push")
-    public Result<String> gitPush(@PathVariable String projectId, @RequestBody Map<String, String> request) {
-        return Result.success(devWorkspaceService.gitCommitPush(projectId, request.get("message")));
+    @Operation(summary = "Git push", description = "推送当前分支到远程（-u 建立跟踪）；提交请先走 commit")
+    public Result<String> gitPush(@PathVariable String projectId) {
+        return Result.success(devWorkspaceService.gitPush(projectId));
     }
 
     @PostMapping("/projects/{projectId}/build")
@@ -150,6 +155,102 @@ public class DevWorkspaceController {
     public Result<ExecCommandResponse> run(
             @PathVariable String projectId, @RequestBody Map<String, String> request) {
         return Result.success(devWorkspaceService.run(projectId, request.get("command")));
+    }
+
+    // ==================== Git 常规操作（IDEA 式 Git 菜单） ====================
+
+    @GetMapping("/projects/{projectId}/git/status")
+    @Operation(summary = "工作区状态", description = "当前分支/上游/领先落后/变更清单（提交与回滚对话框数据源）")
+    public Result<GitStatusDTO> gitStatus(@PathVariable String projectId) {
+        return Result.success(devWorkspaceService.gitStatus(projectId));
+    }
+
+    @GetMapping("/projects/{projectId}/git/log")
+    @Operation(summary = "提交历史")
+    public Result<List<GitLogEntryDTO>> gitLog(@PathVariable String projectId,
+                                               @RequestParam(required = false) Integer limit) {
+        return Result.success(devWorkspaceService.gitLog(projectId, limit));
+    }
+
+    @GetMapping("/projects/{projectId}/git/branches")
+    @Operation(summary = "分支列表", description = "本地分支（含当前）与远程跟踪分支")
+    public Result<GitBranchesDTO> gitBranches(@PathVariable String projectId) {
+        return Result.success(devWorkspaceService.gitBranches(projectId));
+    }
+
+    @GetMapping("/projects/{projectId}/git/stashes")
+    @Operation(summary = "stash 列表")
+    public Result<List<GitStashDTO>> gitStashList(@PathVariable String projectId) {
+        return Result.success(devWorkspaceService.gitStashList(projectId));
+    }
+
+    @GetMapping("/projects/{projectId}/git/diff")
+    @Operation(summary = "单文件差异", description = "工作区与 HEAD 的差异（未跟踪文件为空串）")
+    public Result<String> gitDiff(@PathVariable String projectId, @RequestParam String path) {
+        return Result.success(devWorkspaceService.gitFileDiff(projectId, path));
+    }
+
+    @PostMapping("/projects/{projectId}/git/commit")
+    @Operation(summary = "提交", description = "勾选文件 add 后 commit（无勾选提交已暂存内容），支持 amend")
+    public Result<Void> gitCommit(@PathVariable String projectId, @RequestBody GitOpCommand command) {
+        devWorkspaceService.gitCommit(projectId, command);
+        return Result.success();
+    }
+
+    @PostMapping("/projects/{projectId}/git/fetch")
+    @Operation(summary = "获取", description = "fetch --prune")
+    public Result<Void> gitFetch(@PathVariable String projectId) {
+        devWorkspaceService.gitFetch(projectId);
+        return Result.success();
+    }
+
+    @PostMapping("/projects/{projectId}/git/branch")
+    @Operation(summary = "创建分支", description = "可选创建后立即检出")
+    public Result<Void> gitCreateBranch(@PathVariable String projectId, @RequestBody GitOpCommand command) {
+        devWorkspaceService.gitCreateBranch(projectId, command.getName(), command.getCheckout());
+        return Result.success();
+    }
+
+    @PostMapping("/projects/{projectId}/git/checkout")
+    @Operation(summary = "切换分支")
+    public Result<Void> gitCheckout(@PathVariable String projectId, @RequestBody GitOpCommand command) {
+        devWorkspaceService.gitCheckout(projectId, command.getBranch());
+        return Result.success();
+    }
+
+    @PostMapping("/projects/{projectId}/git/branch-delete")
+    @Operation(summary = "删除本地分支", description = "-d 安全删除：未合入分支拒绝删除；当前分支不可删")
+    public Result<Void> gitDeleteBranch(@PathVariable String projectId, @RequestBody GitOpCommand command) {
+        devWorkspaceService.gitDeleteBranch(projectId, command.getName());
+        return Result.success();
+    }
+
+    @PostMapping("/projects/{projectId}/git/merge")
+    @Operation(summary = "合并分支", description = "合并指定分支到当前分支（冲突时错误透出）")
+    public Result<Void> gitMerge(@PathVariable String projectId, @RequestBody GitOpCommand command) {
+        devWorkspaceService.gitMerge(projectId, command.getBranch());
+        return Result.success();
+    }
+
+    @PostMapping("/projects/{projectId}/git/stash")
+    @Operation(summary = "暂存更改", description = "stash push -u（含未跟踪文件）")
+    public Result<Void> gitStash(@PathVariable String projectId, @RequestBody GitOpCommand command) {
+        devWorkspaceService.gitStash(projectId, command.getMessage());
+        return Result.success();
+    }
+
+    @PostMapping("/projects/{projectId}/git/stash-pop")
+    @Operation(summary = "弹出 stash", description = "stash pop 应用到工作区并出栈")
+    public Result<Void> gitStashPop(@PathVariable String projectId, @RequestBody GitOpCommand command) {
+        devWorkspaceService.gitStashPop(projectId, command.getIndex());
+        return Result.success();
+    }
+
+    @PostMapping("/projects/{projectId}/git/rollback")
+    @Operation(summary = "回滚更改", description = "跟踪文件还原到 HEAD；未跟踪/新增文件从磁盘清除")
+    public Result<Void> gitRollback(@PathVariable String projectId, @RequestBody GitOpCommand command) {
+        devWorkspaceService.gitRollback(projectId, command.getPaths(), command.getUntrackedPaths());
+        return Result.success();
     }
 
     // ==================== 辅助 ====================

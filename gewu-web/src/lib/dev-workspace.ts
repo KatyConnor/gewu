@@ -124,8 +124,105 @@ export async function gitPull(projectId: string): Promise<void> {
   await unwrap<void>(request.post<ApiResponse<void>>(`/v1/dev-workspaces/projects/${projectId}/pull`));
 }
 
-export async function gitPush(projectId: string, message: string): Promise<string> {
-  return unwrap<string>(request.post<ApiResponse<string>>(`/v1/dev-workspaces/projects/${projectId}/push`, { message }));
+/** 单条工作区变更（git status porcelain 解析，已按暂存/未跟踪归类） */
+export interface GitChange {
+  path: string;
+  renameFrom?: string;
+  staged: boolean;
+  untracked: boolean;
+  statusDesc: string;
+}
+
+export interface GitStatus {
+  branch: string;
+  upstream?: string;
+  ahead: number;
+  behind: number;
+  changes: GitChange[];
+}
+
+export interface GitLogEntry {
+  hash: string;
+  shortHash: string;
+  author: string;
+  timestamp: number;
+  message: string;
+}
+
+export interface GitBranches {
+  current: string;
+  local: string[];
+  remote: string[];
+}
+
+export interface GitStash {
+  index: number;
+  message: string;
+}
+
+// ==================== Git 常规操作（IDEA 式 Git 菜单） ====================
+
+export async function gitStatus(projectId: string): Promise<GitStatus> {
+  return unwrap<GitStatus>(request.get<ApiResponse<GitStatus>>(`/v1/dev-workspaces/projects/${projectId}/git/status`));
+}
+
+export async function gitLog(projectId: string, limit?: number): Promise<GitLogEntry[]> {
+  return unwrap<GitLogEntry[]>(request.get<ApiResponse<GitLogEntry[]>>(`/v1/dev-workspaces/projects/${projectId}/git/log`, { params: { limit } }));
+}
+
+export async function gitBranches(projectId: string): Promise<GitBranches> {
+  return unwrap<GitBranches>(request.get<ApiResponse<GitBranches>>(`/v1/dev-workspaces/projects/${projectId}/git/branches`));
+}
+
+export async function gitStashList(projectId: string): Promise<GitStash[]> {
+  return unwrap<GitStash[]>(request.get<ApiResponse<GitStash[]>>(`/v1/dev-workspaces/projects/${projectId}/git/stashes`));
+}
+
+/** 单文件差异（vs HEAD；未跟踪新文件返回空串，调用方回落展示全文） */
+export async function gitFileDiff(projectId: string, path: string): Promise<string> {
+  return unwrap<string>(request.get<ApiResponse<string>>(`/v1/dev-workspaces/projects/${projectId}/git/diff`, { params: { path } }));
+}
+
+export async function gitCommit(projectId: string, data: { message: string; files?: string[]; amend?: boolean }): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/dev-workspaces/projects/${projectId}/git/commit`, data));
+}
+
+/** 推送当前分支（远程无同名分支时 -u 建立跟踪） */
+export async function gitPush(projectId: string): Promise<string> {
+  return unwrap<string>(request.post<ApiResponse<string>>(`/v1/dev-workspaces/projects/${projectId}/push`));
+}
+
+export async function gitFetch(projectId: string): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/dev-workspaces/projects/${projectId}/git/fetch`));
+}
+
+export async function gitCreateBranch(projectId: string, name: string, checkout?: boolean): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/dev-workspaces/projects/${projectId}/git/branch`, { name, checkout }));
+}
+
+export async function gitCheckout(projectId: string, branch: string): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/dev-workspaces/projects/${projectId}/git/checkout`, { branch }));
+}
+
+export async function gitDeleteBranch(projectId: string, name: string): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/dev-workspaces/projects/${projectId}/git/branch-delete`, { name }));
+}
+
+export async function gitMerge(projectId: string, branch: string): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/dev-workspaces/projects/${projectId}/git/merge`, { branch }));
+}
+
+export async function gitStash(projectId: string, message?: string): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/dev-workspaces/projects/${projectId}/git/stash`, { message }));
+}
+
+export async function gitStashPop(projectId: string, index: number): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/dev-workspaces/projects/${projectId}/git/stash-pop`, { index }));
+}
+
+/** 回滚：跟踪文件还原到 HEAD；未跟踪/新增文件从磁盘清除 */
+export async function gitRollback(projectId: string, paths: string[], untrackedPaths: string[]): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/dev-workspaces/projects/${projectId}/git/rollback`, { paths, untrackedPaths }));
 }
 
 export async function buildProject(projectId: string, command: string): Promise<ExecResult> {
