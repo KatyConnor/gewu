@@ -31,6 +31,7 @@ export interface DevWorkspaceInfo {
   mountPath?: string;
 }
 
+/** 工作空间项目 = 我的项目中分配给当前用户的项目（Git 地址与凭证来自项目配置） */
 export interface GitProject {
   projectId: string;
   projectName: string;
@@ -38,18 +39,17 @@ export interface GitProject {
   repoBranch: string;
   localPath: string;
   cloneStatus: string;
+  /** 最近一次 clone 失败的 stderr 摘要（ready 时为空） */
+  cloneError?: string;
   lastSyncAt?: number;
   headCommit?: string;
   createdAt?: number;
-}
-
-export interface GitCredential {
-  credentialId: string;
-  credName: string;
-  credType: string;
-  gitHost?: string;
-  hasPublicKey?: boolean;
-  createdAt?: number;
+  /** 项目级凭证类型: token/ssh_key/password（密文不出后端） */
+  repoCredentialType?: string;
+  /** 项目级仓库用户名（password 型配套展示） */
+  repoUsername?: string;
+  /** 项目是否已配置仓库凭证 */
+  hasRepoCredential?: boolean;
 }
 
 export interface ExecResult {
@@ -57,6 +57,14 @@ export interface ExecResult {
   stdout: string;
   stderr: string;
   duration: number;
+}
+
+/** 结构化文件树条目（IDEA 式工作台文件树数据源） */
+export interface FileEntry {
+  name: string;
+  dir: boolean;
+  size: number;
+  mtime: number;
 }
 
 // ==================== API ====================
@@ -107,16 +115,13 @@ export async function execCommand(command: string, timeout?: number): Promise<Ex
   return unwrap<ExecResult>(request.post<ApiResponse<ExecResult>>('/v1/dev-workspaces/exec', { command, timeout }));
 }
 
-export async function cloneRepo(repoUrl: string, projectName: string, repoBranch?: string): Promise<GitProject> {
-  return unwrap<GitProject>(request.post<ApiResponse<GitProject>>('/v1/dev-workspaces/projects/clone', { repoUrl, projectName, repoBranch }));
-}
-
 export async function listProjects(): Promise<GitProject[]> {
   return unwrap<GitProject[]>(request.get<ApiResponse<GitProject[]>>('/v1/dev-workspaces/projects'));
 }
 
-export async function gitPull(projectId: string): Promise<GitProject> {
-  return unwrap<GitProject>(request.post<ApiResponse<GitProject>>(`/v1/dev-workspaces/projects/${projectId}/pull`));
+/** 拉取项目代码：仓库未就绪时后端按项目配置的 Git 地址与凭证自动克隆 */
+export async function gitPull(projectId: string): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/dev-workspaces/projects/${projectId}/pull`));
 }
 
 export async function gitPush(projectId: string, message: string): Promise<string> {
@@ -131,14 +136,7 @@ export async function runProject(projectId: string, command: string): Promise<Ex
   return unwrap<ExecResult>(request.post<ApiResponse<ExecResult>>(`/v1/dev-workspaces/projects/${projectId}/run`, { command }));
 }
 
-export async function addGitCredential(credName: string, credType: string, credValue: string, gitHost?: string): Promise<void> {
-  await unwrap<void>(request.post<ApiResponse<void>>('/v1/dev-workspaces/git-credentials', { credName, credType, credValue, gitHost }));
-}
-
-export async function listGitCredentials(): Promise<GitCredential[]> {
-  return unwrap<GitCredential[]>(request.get<ApiResponse<GitCredential[]>>('/v1/dev-workspaces/git-credentials'));
-}
-
-export async function deleteGitCredential(credentialId: string): Promise<void> {
-  await unwrap<void>(request.delete<ApiResponse<void>>(`/v1/dev-workspaces/git-credentials/${credentialId}`));
+/** 结构化目录列表（文件树数据源；path 为卷内相对路径） */
+export async function listFileEntries(path: string): Promise<FileEntry[]> {
+  return unwrap<FileEntry[]>(request.get<ApiResponse<FileEntry[]>>('/v1/dev-workspaces/files/entries', { params: { path } }));
 }

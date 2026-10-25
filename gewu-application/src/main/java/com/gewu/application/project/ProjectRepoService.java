@@ -37,29 +37,35 @@ public class ProjectRepoService {
     private final ApiKeyCryptoService credentialCrypto;
 
     /**
-     * 克隆项目仓库到开发沙箱.
+     * 克隆项目仓库到开发沙箱（按项目配置的 Git 地址与凭证）。
      */
     @Transactional
     public Project cloneProjectRepo(String projectId, String repoUrl, String branch) {
         Project project = getProjectEntity(projectId);
-        String sandboxId = devWorkspaceService.getDevSandboxId();
+        String sandboxId = devWorkspaceService.ensureRunningSandboxId();
         String localPath = project.getRepoLocalPath() != null
                 ? project.getRepoLocalPath()
                 : "projects/" + projectId + "/repo";
-        String resolvedBranch = branch != null ? branch : "main";
+        String resolvedBranch = branch != null && !branch.isBlank() ? branch
+                : project.getRepoBranch() != null && !project.getRepoBranch().isBlank() ? project.getRepoBranch() : "main";
         String effectiveUrl = resolveCredentialUrl(project, repoUrl);
+        // ssh_key 型凭证：私钥先注入容器（token/password 已在 URL 内携带）
+        injectSshKeyIfConfigured(project, sandboxId);
 
-        // 更新状态为 cloning
+        // 更新状态为 cloning（首次克隆同时落定容器内路径，pull/push/build/run 均依赖它）
         project.setRepoUrl(repoUrl);
         project.setRepoBranch(resolvedBranch);
+        project.setRepoLocalPath(localPath);
         project.setCloneStatus("cloning");
         project.setCloneError(null);
         projectMapper.updateById(project);
 
-        // 创建目录并 clone（用户输入经 shellQuote 防注入，L3-SEC-002）
+        // 创建目录并 clone（用户输入经 shellQuote 防注入，L3-SEC-002；
+        // GIT_SSH_COMMAND：容器内首连远程无 TTY，自动接受新主机指纹 + 禁用交互提示）
         sandboxClient.execCommand(sandboxId, "mkdir -p " + shellQuote("/workspace/" + localPath), 5);
-        String cloneCmd = String.format("git clone --branch %s %s %s",
-                shellQuote(resolvedBranch), shellQuote(effectiveUrl), shellQuote("/workspace/" + localPath));
+        String cloneCmd = "GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes\""
+                + " git clone --branch " + shellQuote(resolvedBranch) + " " + shellQuote(effectiveUrl)
+                + " " + shellQuote("/workspace/" + localPath);
         ExecCommandResponse resp = sandboxClient.execCommand(sandboxId, cloneCmd, 120);
 
         if (resp.getExitCode() != null && resp.getExitCode() == 0) {
@@ -79,24 +85,76 @@ public class ProjectRepoService {
     }
 
     /**
-     * 按凭证重写 https 仓库地址：私有仓库 clone 自动携带认证信息。
-     * 优先项目级凭证（token 型注入 x-access-token，password 型注入 user:pass，ssh_key 型
-     * 依赖容器内 ssh 配置不在此处理），无项目级凭证时回落用户级 token 凭证。
-     * 匹配规则：凭证 host 与仓库 host 一致优先，否则取该用户第一个 token 型凭证。
+     * 拉取项目最新代码：仓库未就绪（未克隆/克隆失败）时先按项目配置的 Git 地址与
+     * 凭证自动克隆；已就绪则 pull 前按当前凭证刷新 origin 地址（凭证补配/变更后无需重克隆）。
+     */
+    @Transactional
+    public Project gitPull(String projectId) {
+        Project project = getProjectEntity(projectId);
+        if (project.getRepoUrl() == null || project.getRepoUrl().isBlank()) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "项目未配置 Git 仓库地址，请先在项目管理中配置");
+        }
+        if (!"ready".equals(project.getCloneStatus())) {
+            return cloneProjectRepo(projectId, project.getRepoUrl(), project.getRepoBranch());
+        }
+
+        String sandboxId = devWorkspaceService.ensureRunningSandboxId();
+        String localPath = project.getRepoLocalPath();
+        injectSshKeyIfConfigured(project, sandboxId);
+        // 凭证注入成功（地址被重写）→ 刷新 origin，防止克隆时无凭证导致后续 pull 认证失败
+        String effectiveUrl = resolveCredentialUrl(project, project.getRepoUrl());
+        if (!effectiveUrl.equals(project.getRepoUrl())) {
+            sandboxClient.execCommand(sandboxId,
+                    "git -C " + shellQuote("/workspace/" + localPath) + " remote set-url origin " + shellQuote(effectiveUrl), 10);
+        }
+
+        String pullDir = shellQuote("/workspace/" + localPath);
+        String pullBranch = shellQuote(project.getRepoBranch() != null ? project.getRepoBranch() : "main");
+        ExecCommandResponse pullResp = sandboxClient.execCommand(sandboxId,
+                "GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes\""
+                        + " git -C " + pullDir + " pull origin " + pullBranch, 60);
+        // 失败不静默：认证失败/冲突等直接抛出（与 DevWorkspace 拉取报错口径一致）
+        if (pullResp.getExitCode() == null || pullResp.getExitCode() != 0) {
+            String stderr = pullResp.getStderr() != null && !pullResp.getStderr().isBlank()
+                    ? pullResp.getStderr().trim() : pullResp.getStdout();
+            throw BusinessException.of(ResultCode.SYSTEM_ERROR,
+                    "Pull 失败: " + (stderr != null && stderr.length() > 300 ? stderr.substring(0, 300) : stderr));
+        }
+
+        ExecCommandResponse headResp = sandboxClient.execCommand(
+                sandboxId, "git -C " + pullDir + " rev-parse HEAD", 10);
+        project.setHeadCommit(headResp.getStdout().trim());
+        projectMapper.updateById(project);
+        return project;
+    }
+
+    /**
+     * 按凭证重写仓库地址：私有仓库 clone/pull 自动携带认证信息。
+     * 优先项目级凭证（token 型注入 x-access-token，password 型注入 user:pass；
+     * 两型遇到 ssh 形态地址先规范化为 https 再注入），ssh_key 型不注入 URL
+     * （私钥经 {@link #injectSshKeyIfConfigured} 注入容器）。无项目级凭证时回落用户级 token 凭证。
      */
     private String resolveCredentialUrl(Project project, String repoUrl) {
-        if (repoUrl == null || !repoUrl.startsWith("https://")) {
+        if (repoUrl == null) {
+            return repoUrl;
+        }
+        boolean sshKeyCred = "ssh_key".equals(project.getRepoCredentialType());
+        String url = repoUrl;
+        if (!url.startsWith("https://") && !sshKeyCred) {
+            url = normalizeGitUrl(url);
+        }
+        if (!url.startsWith("https://")) {
             return repoUrl;
         }
         try {
-            String injected = injectProjectCredential(project, repoUrl);
+            String injected = injectProjectCredential(project, url);
             if (injected != null) {
                 return injected;
             }
-            return injectUserCredential(project.getOwnerId(), repoUrl);
+            return injectUserCredential(project.getOwnerId(), url);
         } catch (Exception e) {
             log.warn("凭证注入失败，按原始地址克隆: {}", e.getMessage());
-            return repoUrl;
+            return url;
         }
     }
 
@@ -164,31 +222,57 @@ public class ProjectRepoService {
     }
 
     private static String shellQuote(String s) {
-        return "'" + (s == null ? "" : s.replace("'", "")) + "'";
+        return "'" + (s == null ? "" : s.replace("'", "'\\''")) + "'";
+    }
+
+    /** ssh 形式仓库地址规范化为 https（scp-like 与 ssh:// 两种）；https/其他原样返回 */
+    private static String normalizeGitUrl(String repoUrl) {
+        if (repoUrl == null) {
+            return repoUrl;
+        }
+        String t = repoUrl.trim();
+        if (t.startsWith("git@")) {
+            int colon = t.indexOf(':');
+            if (colon > 4) {
+                return "https://" + t.substring(4, colon) + "/" + t.substring(colon + 1);
+            }
+        }
+        if (t.startsWith("ssh://git@")) {
+            return "https://" + t.substring("ssh://git@".length());
+        }
+        return t;
     }
 
     /**
-     * Git pull 拉取最新代码.
+     * 项目级 ssh_key 凭证注入沙箱：私钥写 /root/.ssh/id_rsa + known_hosts 预热
+     * （token/password 型走 URL 注入，不在此处理）。失败仅告警不阻断——
+     * 匿名可读仓库无凭证也能克隆。
      */
-    @Transactional
-    public Project gitPull(String projectId) {
-        Project project = getProjectEntity(projectId);
-        if (!"ready".equals(project.getCloneStatus())) {
-            throw BusinessException.of(ResultCode.PARAM_INVALID, "仓库未就绪，请先 clone");
+    private void injectSshKeyIfConfigured(Project project, String sandboxId) {
+        if (!"ssh_key".equals(project.getRepoCredentialType())) {
+            return;
         }
-        String sandboxId = devWorkspaceService.getDevSandboxId();
-        String localPath = project.getRepoLocalPath();
-
-        String pullDir = shellQuote("/workspace/" + localPath);
-        String pullBranch = shellQuote(project.getRepoBranch() != null ? project.getRepoBranch() : "main");
-        sandboxClient.execCommand(sandboxId,
-                "git -C " + pullDir + " pull origin " + pullBranch, 60);
-
-        ExecCommandResponse headResp = sandboxClient.execCommand(
-                sandboxId, "git -C " + pullDir + " rev-parse HEAD", 10);
-        project.setHeadCommit(headResp.getStdout().trim());
-        projectMapper.updateById(project);
-        return project;
+        String encrypted = project.getRepoCredential();
+        if (encrypted == null || encrypted.isBlank()) {
+            return;
+        }
+        try {
+            String privateKey = credentialCrypto.decrypt(encrypted);
+            if (privateKey == null || privateKey.isBlank()) {
+                return;
+            }
+            String httpsUrl = normalizeGitUrl(project.getRepoUrl());
+            String host = httpsUrl.startsWith("https://") ? URI.create(httpsUrl).getHost() : null;
+            sandboxClient.execCommand(sandboxId, "mkdir -p /root/.ssh && chmod 700 /root/.ssh", 5);
+            sandboxClient.writeFile(sandboxId, ".ssh/id_rsa", privateKey);
+            sandboxClient.execCommand(sandboxId, "chmod 600 /root/.ssh/id_rsa", 5);
+            if (host != null) {
+                sandboxClient.execCommand(sandboxId,
+                        "ssh-keyscan -t rsa " + shellQuote(host) + " >> /root/.ssh/known_hosts 2>/dev/null || true", 15);
+            }
+        } catch (Exception e) {
+            log.warn("项目 SSH 私钥注入失败: projectId={}, err={}", project.getId(), e.getMessage());
+        }
     }
 
     /**

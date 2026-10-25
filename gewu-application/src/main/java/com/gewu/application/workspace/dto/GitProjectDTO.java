@@ -22,4 +22,10 @@ public class GitProjectDTO {
     private Long lastSyncAt;
     private String headCommit;
     private Long createdAt;
+    /** 项目级凭证类型: token/ssh_key/password（来自项目配置，密文不出后端） */
+    private String repoCredentialType;
+    /** 项目级仓库用户名（password 型配套展示） */
+    private String repoUsername;
+    /** 项目是否已配置仓库凭证 */
+    private Boolean hasRepoCredential;
 }

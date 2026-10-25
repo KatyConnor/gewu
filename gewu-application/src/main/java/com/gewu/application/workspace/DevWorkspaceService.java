@@ -2,10 +2,7 @@ package com.gewu.application.workspace;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.gewu.application.sandbox.SandboxClient;
-import com.gewu.application.workspace.dto.AddGitCredentialCommand;
-import com.gewu.application.workspace.dto.CloneRepoCommand;
 import com.gewu.application.workspace.dto.DevWorkspaceDTO;
-import com.gewu.application.workspace.dto.GitCredentialDTO;
 import com.gewu.application.workspace.dto.GitProjectDTO;
 import com.gewu.common.context.UserContext;
 import com.gewu.common.crypto.ApiKeyCryptoService;
@@ -14,16 +11,17 @@ import com.gewu.common.dto.sandbox.ExecCommandResponse;
 import com.gewu.common.dto.sandbox.SandboxDTO;
 import com.gewu.common.result.BusinessException;
 import com.gewu.common.result.ResultCode;
+import com.gewu.domain.project.Project;
+import com.gewu.domain.project.ProjectMember;
 import com.gewu.domain.user.Role;
 import com.gewu.domain.user.UserRole;
 import com.gewu.domain.workspace.GitCredential;
 import com.gewu.domain.workspace.Workspace;
-import com.gewu.domain.workspace.WorkspaceProject;
 import com.gewu.infrastructure.mapper.GitCredentialMapper;
+import com.gewu.infrastructure.mapper.ProjectMemberMapper;
 import com.gewu.infrastructure.mapper.RoleMapper;
 import com.gewu.infrastructure.mapper.UserRoleMapper;
 import com.gewu.infrastructure.mapper.WorkspaceMapper;
-import com.gewu.infrastructure.mapper.WorkspaceProjectMapper;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -32,7 +30,6 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
-import java.net.URI;
 import java.util.List;
 import java.util.Set;
 import java.util.regex.Pattern;
@@ -48,7 +45,7 @@ import java.util.regex.Pattern;
 public class DevWorkspaceService {
 
     private final WorkspaceMapper workspaceMapper;
-    private final WorkspaceProjectMapper workspaceProjectMapper;
+    private final ProjectMemberMapper projectMemberMapper;
     private final GitCredentialMapper credMapper;
     private final RoleMapper roleMapper;
     private final UserRoleMapper userRoleMapper;
@@ -242,18 +239,6 @@ public class DevWorkspaceService {
         return entries;
     }
 
-    /** 删除工作区项目：清理沙箱卷内目录并删除记录（clone 失败重来的通道） */
-    public void deleteRepo(String projectId) {
-        WorkspaceProject project = getProjectEntity(projectId);
-        String sandboxId = ensureRunningSandbox();
-        if (project.getLocalPath() != null && !project.getLocalPath().isBlank()) {
-            sandboxClient.execCommand(sandboxId,
-                    "rm -rf " + shellQuote("/workspace/" + sanitizeWorkspaceRel(project.getLocalPath())), 15);
-        }
-        workspaceProjectMapper.deleteById(projectId);
-        log.info("工作区项目已删除: projectId={}, path={}", projectId, project.getLocalPath());
-    }
-
     /** 读取文件内容（通过 exec cat） */
     public String readFile(String filePath) {
         String sandboxId = ensureRunningSandbox();
@@ -320,147 +305,42 @@ public class DevWorkspaceService {
 
     // ==================== Git 项目管理 ====================
 
-    /** 克隆 Git 仓库 */
-    @Transactional
-    public WorkspaceProject cloneRepo(CloneRepoCommand command) {
-        Workspace ws = getOrCreateDevWorkspace();
-        String sandboxId = ensureRunningSandbox();
-        String projectName = validateProjectName(command.getProjectName());
-        String repoUrl = validateRepoUrl(command.getRepoUrl());
-        String branch = validateBranch(command.getRepoBranch() != null ? command.getRepoBranch() : "main");
-        String localPath = "projects/" + projectName;
-        // ssh 形式地址规范化为 https(命中 Git 凭证则自动携带 token;沙箱容器内无 ssh key 基础设施)
-        String normalizedUrl = normalizeGitUrl(repoUrl);
-        String effectiveUrl = resolveCredentialUrl(normalizedUrl);
-        if (effectiveUrl.equals(normalizedUrl) && !normalizedUrl.equals(repoUrl)) {
-            // ssh→https 转换但无凭证命中:回退原 ssh 地址(匿名 https 对私有仓库必失败)
-            effectiveUrl = repoUrl;
-        }
-
-        WorkspaceProject project = new WorkspaceProject();
-        project.setWorkspaceId(ws.getId());
-        project.setProjectName(projectName);
-        project.setRepoUrl(repoUrl);
-        project.setRepoBranch(branch);
-        project.setLocalPath(localPath);
-        project.setCloneStatus("cloning");
-        project.setCreatedBy(UserContext.currentUserId());
-        workspaceProjectMapper.insert(project);
-
-        // 创建父目录
-        sandboxClient.execCommand(sandboxId, "mkdir -p " + shellQuote("/workspace/" + localPath), 5);
-
-        // 执行 git clone(GIT_SSH_COMMAND:容器内首连远程无 TTY,自动接受新主机指纹——
-        // 修用户实测 Host key verification failed;BatchMode 禁用交互提示)
-        String cloneCmd = "GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes\""
-                + " git clone --branch " + shellQuote(branch) + " " + shellQuote(effectiveUrl)
-                + " " + shellQuote("/workspace/" + localPath);
-        ExecCommandResponse resp = sandboxClient.execCommand(sandboxId, cloneCmd, 120);
-
-        if (resp.getExitCode() != null && resp.getExitCode() == 0) {
-            project.setCloneStatus("ready");
-            project.setCloneError(null);
-            ExecCommandResponse headResp = sandboxClient.execCommand(
-                    sandboxId, "git -C " + shellQuote("/workspace/" + localPath) + " rev-parse HEAD", 10);
-            project.setHeadCommit(headResp.getStdout().trim());
-        } else {
-            project.setCloneStatus("failed");
-            String stderr = resp.getStderr() != null ? resp.getStderr().trim() : "";
-            if (effectiveUrl.startsWith("git@") || effectiveUrl.startsWith("ssh://")) {
-                stderr += "\n[提示] ssh 方式需要在沙箱内配置 SSH Key;建议改用 https 仓库地址,并在「Git 凭证」中配置访问 Token。";
-            }
-            project.setCloneError(stderr.length() > 480 ? stderr.substring(0, 480) : stderr);
-            log.warn("Git clone 失败: repo={}, stderr={}", command.getRepoUrl(), stderr);
-        }
-        project.setLastSyncAt(System.currentTimeMillis());
-        workspaceProjectMapper.updateById(project);
-
-        return project;
-    }
-
     /**
-     * 按凭证重写 https 仓库地址：私有仓库 clone 自动携带 token（host 匹配优先）。
+     * 项目列表：取「我的项目」中分配给当前用户的项目（project_member 成员行驱动，
+     * 与 /projects/my 同口径）。Git 地址与凭证来自项目配置，克隆/拉取由
+     * ProjectRepoService 按项目级凭证执行，用户不再手动录入仓库信息。
      */
-    private String resolveCredentialUrl(String repoUrl) {
-        if (repoUrl == null || !repoUrl.startsWith("https://")) {
-            return repoUrl;
-        }
-        try {
-            String userId = UserContext.currentUserId();
-            if (userId == null) {
-                return repoUrl;
-            }
-            var creds = credMapper.selectList(
-                    new LambdaQueryWrapper<GitCredential>()
-                            .eq(GitCredential::getUserId, userId)
-                            .eq(GitCredential::getCredType, "token"));
-            if (creds.isEmpty()) {
-                return repoUrl;
-            }
-            String host = URI.create(repoUrl).getHost();
-            GitCredential picked = creds.stream()
-                    .filter(c -> c.getGitHost() != null && c.getGitHost().equalsIgnoreCase(host))
-                    .findFirst()
-                    .orElse(creds.get(0));
-            String credValue = cryptoService.decrypt(picked.getCredValue());
-            if (credValue == null || credValue.isBlank()) {
-                return repoUrl;
-            }
-            return repoUrl.replaceFirst("https://", "https://x-access-token:" + credValue + "@");
-        } catch (Exception e) {
-            log.warn("凭证注入失败，按原始地址克隆: {}", e.getMessage());
-            return repoUrl;
-        }
-    }
-
-    /** ssh 形式仓库地址规范化为 https(scp-like 与 ssh:// 两种);https/其他原样返回 */
-    private String normalizeGitUrl(String repoUrl) {
-        if (repoUrl == null) {
-            return repoUrl;
-        }
-        String t = repoUrl.trim();
-        if (t.startsWith("git@")) {
-            int colon = t.indexOf(':');
-            if (colon > 4) {
-                return "https://" + t.substring(4, colon) + "/" + t.substring(colon + 1);
-            }
-        }
-        if (t.startsWith("ssh://git@")) {
-            return "https://" + t.substring("ssh://git@".length());
-        }
-        return t;
-    }
-
-    /** 项目列表 */
     public List<GitProjectDTO> listProjects() {
-        Workspace ws = getOrCreateDevWorkspace();
-        List<WorkspaceProject> projects = workspaceProjectMapper.selectList(
-                new LambdaQueryWrapper<WorkspaceProject>().eq(WorkspaceProject::getWorkspaceId, ws.getId()));
-        return projects.stream().map(this::toProjectDTO).toList();
+        String userId = UserContext.currentUserId();
+        if (userId == null) {
+            throw BusinessException.of(ResultCode.UNAUTHORIZED);
+        }
+        List<ProjectMember> members = projectMemberMapper.selectList(
+                new LambdaQueryWrapper<ProjectMember>().eq(ProjectMember::getUserId, userId));
+        if (members.isEmpty()) {
+            return List.of();
+        }
+        List<String> projectIds = members.stream().map(ProjectMember::getProjectId).toList();
+        return projectEntityMapper.selectBatchIds(projectIds).stream()
+                .map(this::toProjectDTO)
+                .toList();
     }
 
-    /** Git pull */
-    public WorkspaceProject gitPull(String projectId) {
-        WorkspaceProject project = getProjectEntity(projectId);
-        String sandboxId = ensureRunningSandbox();
-
-        String dir = "/workspace/" + sanitizeWorkspaceRel(project.getLocalPath());
-        ExecCommandResponse pullResp = sandboxClient.execCommand(sandboxId,
-                "GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes\""
-                + " git -C " + shellQuote(dir) + " pull origin " + shellQuote(project.getRepoBranch()), 60);
-        // 失败不静默：认证失败/冲突等此前被误报为成功（用户实报"拉取失败"无详情的姊妹问题）
-        if (pullResp.getExitCode() == null || pullResp.getExitCode() != 0) {
-            String stderr = pullResp.getStderr() != null ? pullResp.getStderr().trim() : pullResp.getStdout();
-            throw BusinessException.of(ResultCode.SYSTEM_ERROR,
-                    "Pull 失败: " + (stderr.length() > 300 ? stderr.substring(0, 300) : stderr));
-        }
-
-        ExecCommandResponse headResp = sandboxClient.execCommand(sandboxId,
-                "git -C " + shellQuote(dir) + " rev-parse HEAD", 10);
-        project.setHeadCommit(headResp.getStdout().trim());
-        project.setLastSyncAt(System.currentTimeMillis());
-        workspaceProjectMapper.updateById(project);
-        return project;
+    /** 领域项目 → 工作空间项目 DTO（localPath 取仓库容器内路径，未克隆时按约定路径预置） */
+    public GitProjectDTO toProjectDTO(Project p) {
+        return GitProjectDTO.builder()
+                .projectId(p.getId())
+                .projectName(p.getProjectName())
+                .repoUrl(p.getRepoUrl())
+                .repoBranch(p.getRepoBranch() != null ? p.getRepoBranch() : "main")
+                .localPath(p.getRepoLocalPath() != null ? p.getRepoLocalPath() : "projects/" + p.getId() + "/repo")
+                .cloneStatus(p.getCloneStatus() != null ? p.getCloneStatus() : "pending")
+                .cloneError(p.getCloneError())
+                .headCommit(p.getHeadCommit())
+                .repoCredentialType(p.getRepoCredentialType())
+                .repoUsername(p.getRepoUsername())
+                .hasRepoCredential(p.getRepoCredential() != null && !p.getRepoCredential().isBlank())
+                .build();
     }
 
     /** Git commit + push（基于项目仓库路径） */
@@ -509,12 +389,6 @@ public class DevWorkspaceService {
 
     // ==================== 路径与命令安全 ====================
 
-    /** 项目名白名单：仅字母/数字/点/下划线/连字符（防路径拼接与 shell 注入） */
-    private static final Pattern SAFE_NAME = Pattern.compile("^[A-Za-z0-9._-]+$");
-
-    /** Git 分支名白名单 */
-    private static final Pattern SAFE_BRANCH = Pattern.compile("^[A-Za-z0-9._/-]+$");
-
     /** Git 主机名白名单（用于拼接 git config 键，不允许 shell 元字符） */
     private static final Pattern SAFE_HOST = Pattern.compile("^[A-Za-z0-9._-]+(:\\d{1,5})?$");
 
@@ -547,28 +421,6 @@ public class DevWorkspaceService {
         return "'" + s.replace("'", "'\\''") + "'";
     }
 
-    static String validateProjectName(String name) {
-        if (name == null || name.isBlank() || !SAFE_NAME.matcher(name).matches()) {
-            throw BusinessException.of(ResultCode.PARAM_INVALID, "项目名仅允许字母/数字/._-");
-        }
-        return name;
-    }
-
-    static String validateRepoUrl(String url) {
-        if (url == null || !(url.startsWith("https://") || url.startsWith("http://")
-                || url.startsWith("git@") || url.startsWith("ssh://"))) {
-            throw BusinessException.of(ResultCode.PARAM_INVALID, "仓库地址仅支持 http(s)/ssh 协议");
-        }
-        return url;
-    }
-
-    static String validateBranch(String branch) {
-        if (branch == null || branch.isBlank() || !SAFE_BRANCH.matcher(branch).matches()) {
-            throw BusinessException.of(ResultCode.PARAM_INVALID, "分支名非法");
-        }
-        return branch;
-    }
-
     static String validateGitHost(String host) {
         if (host == null || !SAFE_HOST.matcher(host).matches()) {
             throw BusinessException.of(ResultCode.PARAM_INVALID, "Git 主机名非法: " + host);
@@ -576,45 +428,10 @@ public class DevWorkspaceService {
         return host;
     }
 
-    // ==================== Git 凭证管理 ====================
-
-    /** 添加 Git 凭证 */
-    @Transactional
-    public GitCredential addGitCredential(AddGitCredentialCommand command) {
-        GitCredential cred = new GitCredential();
-        cred.setUserId(UserContext.currentUserId());
-        cred.setCredName(command.getCredName());
-        cred.setCredType(command.getCredType());
-        cred.setGitHost(command.getGitHost());
-        cred.setCredValue(cryptoService.encrypt(command.getCredValue()));
-        credMapper.insert(cred);
-        log.info("Git 凭证添加: userId={}, name={}, type={}", cred.getUserId(), cred.getCredName(), cred.getCredType());
-        return cred;
-    }
-
-    /** 凭证列表（不含明文） */
-    public List<GitCredentialDTO> listGitCredentials() {
-        String userId = UserContext.currentUserId();
-        List<GitCredential> creds = credMapper.selectList(
-                new LambdaQueryWrapper<GitCredential>().eq(GitCredential::getUserId, userId));
-        return creds.stream().map(c -> GitCredentialDTO.builder()
-                .credentialId(c.getId())
-                .credName(c.getCredName())
-                .credType(c.getCredType())
-                .gitHost(c.getGitHost())
-                .hasPublicKey(c.getSshPublicKey() != null)
-                .createdAt(c.getCreatedAt())
-                .build()).toList();
-    }
-
-    /** 删除凭证 */
-    public void deleteGitCredential(String credentialId) {
-        GitCredential cred = credMapper.selectById(credentialId);
-        if (cred == null || !cred.getUserId().equals(UserContext.currentUserId())) {
-            throw BusinessException.of(ResultCode.NOT_FOUND, "凭证不存在或无权访问");
-        }
-        credMapper.deleteById(credentialId);
-    }
+    // ==================== Git 凭证 ====================
+    // 凭证来源已收敛到项目配置（管理端下发，见 ProjectRepoService.resolveCredentialUrl）；
+    // 用户侧增删改入口随「+ 克隆」一并移除，此处仅保留沙箱启动时的用户级凭证注入
+    // （存量数据兼容，token 注入 git credential store 供匿名克隆兜底）。
 
     /** 注入 Git 凭证到沙箱容器 */
     private void injectGitCredentials(String userId, String sandboxId) {
@@ -736,28 +553,16 @@ public class DevWorkspaceService {
         return sandboxId;
     }
 
-    private WorkspaceProject getProjectEntity(String projectId) {
+    /**
+     * 确保开发沙箱可用并运行（不存在则创建、未运行则启动），返回 sandboxId。
+     * 供项目仓库按项目配置自动克隆/拉取等流程复用——用户选中项目即拉代码，
+     * 不应再被"先启动沙箱"的手动步骤卡住。
+     */
+    public String ensureRunningSandboxId() {
         Workspace ws = getOrCreateDevWorkspace();
-        WorkspaceProject project = workspaceProjectMapper.selectById(projectId);
-        if (project == null || !project.getWorkspaceId().equals(ws.getId())) {
-            throw BusinessException.of(ResultCode.NOT_FOUND, "项目不存在或无权访问");
+        if (ws.getDevSandboxId() == null) {
+            ensureDevSandboxForUser(ws.getUserId());
         }
-        return project;
-    }
-
-    public GitProjectDTO toProjectDTO(WorkspaceProject p) {
-        return GitProjectDTO.builder()
-                .projectId(p.getId())
-                .workspaceId(p.getWorkspaceId())
-                .projectName(p.getProjectName())
-                .repoUrl(p.getRepoUrl())
-                .repoBranch(p.getRepoBranch())
-                .localPath(p.getLocalPath())
-                .cloneStatus(p.getCloneStatus())
-                .cloneError(p.getCloneError())
-                .lastSyncAt(p.getLastSyncAt())
-                .headCommit(p.getHeadCommit())
-                .createdAt(p.getCreatedAt())
-                .build();
+        return ensureRunningSandbox();
     }
 }

@@ -2,17 +2,13 @@ package com.gewu.interfaceapi.controller;
 
 import com.gewu.application.project.ProjectRepoService;
 import com.gewu.application.workspace.DevWorkspaceService;
-import com.gewu.application.workspace.dto.AddGitCredentialCommand;
-import com.gewu.application.workspace.dto.CloneRepoCommand;
 import com.gewu.application.workspace.dto.DevWorkspaceDTO;
-import com.gewu.application.workspace.dto.GitCredentialDTO;
 import com.gewu.application.workspace.dto.GitProjectDTO;
 import com.gewu.common.result.Result;
 import com.gewu.common.dto.sandbox.ExecCommandResponse;
 import com.gewu.common.dto.sandbox.SandboxDTO;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.MediaType;
@@ -106,6 +102,13 @@ public class DevWorkspaceController {
         return Result.success();
     }
 
+    @GetMapping("/files/entries")
+    @Operation(summary = "结构化目录列表", description = "返回名称/类型/大小/修改时间条目（文件树数据源）")
+    public Result<List<com.gewu.application.workspace.dto.WorkspaceFileEntry>> listEntries(
+            @RequestParam(required = false, defaultValue = "") String path) {
+        return Result.success(devWorkspaceService.listEntries(path));
+    }
+
     @PostMapping("/exec")
     @Operation(summary = "执行命令", description = "在开发沙箱中执行 shell 命令（宽松校验）")
     public Result<ExecCommandResponse> execCommand(@RequestBody ExecRequest request) {
@@ -113,21 +116,17 @@ public class DevWorkspaceController {
     }
 
     // ==================== Git 项目管理 ====================
-
-    @PostMapping("/projects/clone")
-    @Operation(summary = "克隆 Git 仓库到工作空间")
-    public Result<GitProjectDTO> cloneRepo(@Valid @RequestBody CloneRepoCommand command) {
-        return Result.success(devWorkspaceService.toProjectDTO(devWorkspaceService.cloneRepo(command)));
-    }
+    // 项目来源：我的项目分配（listProjects 按成员行过滤）；克隆/拉取统一走
+    // ProjectRepoService 按项目配置的 Git 地址与凭证执行，用户侧无手动克隆入口。
 
     @GetMapping("/projects")
-    @Operation(summary = "项目列表")
+    @Operation(summary = "项目列表", description = "我的项目中分配给当前用户的项目")
     public Result<List<GitProjectDTO>> listProjects() {
         return Result.success(devWorkspaceService.listProjects());
     }
 
     @PostMapping("/projects/{projectId}/pull")
-    @Operation(summary = "Git pull", description = "拉取项目仓库最新代码（通过 ProjectRepoService）")
+    @Operation(summary = "Git pull / 自动克隆", description = "拉取项目仓库最新代码；仓库未就绪时按项目配置的 Git 地址与凭证自动克隆")
     public Result<Void> gitPull(@PathVariable String projectId) {
         projectRepoService.gitPull(projectId);
         return Result.success();
@@ -151,28 +150,6 @@ public class DevWorkspaceController {
     public Result<ExecCommandResponse> run(
             @PathVariable String projectId, @RequestBody Map<String, String> request) {
         return Result.success(devWorkspaceService.run(projectId, request.get("command")));
-    }
-
-    // ==================== Git 凭证管理 ====================
-
-    @PostMapping("/git-credentials")
-    @Operation(summary = "添加 Git 凭证", description = "SSH key 或 Personal Access Token（SM4 加密存储）")
-    public Result<GitCredentialDTO> addGitCredential(@Valid @RequestBody AddGitCredentialCommand command) {
-        devWorkspaceService.addGitCredential(command);
-        return Result.success();
-    }
-
-    @GetMapping("/git-credentials")
-    @Operation(summary = "凭证列表", description = "不含明文内容")
-    public Result<List<GitCredentialDTO>> listGitCredentials() {
-        return Result.success(devWorkspaceService.listGitCredentials());
-    }
-
-    @DeleteMapping("/git-credentials/{credentialId}")
-    @Operation(summary = "删除凭证")
-    public Result<Void> deleteGitCredential(@PathVariable String credentialId) {
-        devWorkspaceService.deleteGitCredential(credentialId);
-        return Result.success();
     }
 
     // ==================== 辅助 ====================

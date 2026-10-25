@@ -71,40 +71,9 @@ class DevWorkspaceServicePathSanitizeTest {
         assertEquals("'projects/demo'", DevWorkspaceService.shellQuote("projects/demo"));
     }
 
-    @Test
-    @DisplayName("项目名含空格拒绝")
-    void rejectBadProjectName() {
-        assertThrows(BusinessException.class,
-                () -> DevWorkspaceService.validateProjectName("a b"));
-    }
-
-    @Test
-    @DisplayName("项目名路径穿越拒绝")
-    void rejectDotDotProjectName() {
-        assertThrows(BusinessException.class,
-                () -> DevWorkspaceService.validateProjectName("../evil"));
-    }
-
-    @Test
-    @DisplayName("非 git 协议仓库地址拒绝")
-    void rejectNonGitUrl() {
-        assertThrows(BusinessException.class,
-                () -> DevWorkspaceService.validateRepoUrl("file:///etc/passwd"));
-    }
-
-    @Test
-    @DisplayName("https 仓库地址通过")
-    void acceptHttpsUrl() {
-        assertEquals("https://github.com/a/b.git",
-                DevWorkspaceService.validateRepoUrl("https://github.com/a/b.git"));
-    }
-
-    @Test
-    @DisplayName("分支名含分号拒绝")
-    void rejectBadBranch() {
-        assertThrows(BusinessException.class,
-                () -> DevWorkspaceService.validateBranch("main;reboot"));
-    }
+    // 项目名/仓库地址/分支校验用例随手动克隆入口移除而下线
+    // （P0-1 改造：项目来源收敛为「我的项目」分配，地址/分支由管理端项目配置下发，
+    // 拼接处统一 shellQuote 转义；此处保留路径净化、shell 转义与主机名校验回归）
 
     @Test
     @DisplayName("git 主机名含注入拒绝")
