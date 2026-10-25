@@ -1,12 +1,9 @@
 'use client';
 import { useState, useEffect, useCallback } from 'react';
-import { Plus, Search, LayoutGrid, List, Eye, Edit, X } from 'lucide-react';
-import { useToast } from '@/components/ui/Toast';
+import { Search, LayoutGrid, List, Eye } from 'lucide-react';
 import {
-  listRequirements, createRequirement, updateRequirement, updateRequirementStatus,
-  submitReview, getRequirementStats, type RequirementDTO, type RequirementStatsDTO,
+  listMyRequirements, getRequirementStats, type RequirementDTO, type RequirementStatsDTO,
 } from '@/lib/requirement';
-import RequirementEditor from './RequirementEditor';
 import RequirementBoard from './RequirementBoard';
 
 // ==================== 常量定义 ====================
@@ -51,8 +48,6 @@ export default function RequirementsPage() {
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<RequirementStatsDTO | null>(null);
   const [viewType, setViewType] = useState<ViewType>('table');
-  const [showCreate, setShowCreate] = useState(false);
-  const [editingRequirement, setEditingRequirement] = useState<RequirementDTO | null>(null);
   const [keyword, setKeyword] = useState('');
   const [filterType, setFilterType] = useState('');
   const [filterPriority, setFilterPriority] = useState<number | undefined>(undefined);
@@ -60,13 +55,11 @@ export default function RequirementsPage() {
   const [currentPage, setCurrentPage] = useState(1);
   const [total, setTotal] = useState(0);
 
-  const toast = useToast();
-
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
       const [result, statsResult] = await Promise.all([
-        listRequirements({
+        listMyRequirements({
           page: currentPage,
           size: 20,
           keyword: keyword || undefined,
@@ -102,76 +95,6 @@ export default function RequirementsPage() {
     setCurrentPage(1);
   };
 
-  const handleCreate = async (data: Record<string, unknown>) => {
-    try {
-      await createRequirement(data);
-      toast('需求创建成功', 'success');
-      setShowCreate(false);
-      loadData();
-    } catch {
-      toast('创建失败', 'error');
-    }
-  };
-
-  const handleEditSubmit = async (data: Record<string, unknown>) => {
-    if (!editingRequirement) return;
-    try {
-      await updateRequirement(editingRequirement.id, data);
-      toast('需求已更新', 'success');
-      setEditingRequirement(null);
-      loadData();
-    } catch {
-      toast('更新失败', 'error');
-    }
-  };
-
-  const handleCancel = async (id: string, title: string) => {
-    if (!confirm(`确定要取消需求 "${title}" 吗？此操作不可恢复。`)) return;
-    try {
-      await updateRequirementStatus(id, 'CANCELLED');
-      toast('需求已取消', 'success');
-      loadData();
-    } catch {
-      toast('操作失败', 'error');
-    }
-  };
-
-  const handleAdvance = async (requirement: RequirementDTO) => {
-    const cfg = statusConfig[requirement.status];
-    if (!cfg?.nextStatus) return;
-    try {
-      if (requirement.status === 'DRAFT') {
-        await submitReview(requirement.id, 'REQUIREMENT');
-      } else {
-        await updateRequirementStatus(requirement.id, cfg.nextStatus);
-      }
-      toast('操作成功', 'success');
-      loadData();
-    } catch {
-      toast('操作失败', 'error');
-    }
-  };
-
-  const handleStatusChange = async (id: string, newStatus: string) => {
-    try {
-      await updateRequirementStatus(id, newStatus);
-      toast('状态更新成功', 'success');
-      loadData();
-    } catch {
-      toast('操作失败', 'error');
-    }
-  };
-
-  const handleBoardDragEnd = async (requirementId: string, newStatus: string) => {
-    try {
-      await updateRequirementStatus(requirementId, newStatus);
-      toast('状态已更新', 'success');
-      loadData();
-    } catch {
-      toast('操作失败', 'error');
-    }
-  };
-
   const handleRequirementClick = (id: string) => {
     window.location.hash = `#/requirements/${id}`;
   };
@@ -187,17 +110,9 @@ export default function RequirementsPage() {
   return (
     <div>
       {/* 页面标题 */}
-      <header className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-semibold text-ink-50">需求管理</h1>
-          <p className="text-ink-400 text-sm mt-1">跟踪和管理产品需求全生命周期</p>
-        </div>
-        <button
-          onClick={() => setShowCreate(true)}
-          className="flex items-center gap-2 px-4 py-2 btn-primary text-white text-sm rounded-lg"
-        >
-          <Plus className="w-4 h-4" />新建需求
-        </button>
+      <header className="mb-6">
+        <h1 className="text-2xl font-semibold text-ink-50">我的需求</h1>
+        <p className="text-ink-400 text-sm mt-1">需求由管理后台统一创建并分派给您，此处展示分派给您的需求</p>
       </header>
 
       {/* 统计卡片 */}
@@ -319,14 +234,6 @@ export default function RequirementsPage() {
                     <td className="py-3 px-4 text-ink-400">{r.dueDate ? new Date(r.dueDate).toLocaleDateString('zh-CN') : '-'}</td>
                     <td className="py-3 px-4">
                       <div className="flex items-center gap-1">
-                        {statusCfg.nextStatus && (
-                          <button
-                            onClick={() => handleAdvance(r)}
-                            className="text-[10px] px-2 py-1 text-tech-400 hover:bg-tech-500/10 rounded whitespace-nowrap"
-                          >
-                            {statusCfg.nextLabel}
-                          </button>
-                        )}
                         <button
                           onClick={() => { window.location.hash = `#/requirements/${r.id}`; }}
                           className="text-tech-400 hover:bg-tech-500/10 rounded p-1"
@@ -334,24 +241,6 @@ export default function RequirementsPage() {
                         >
                           <Eye className="w-3.5 h-3.5" />
                         </button>
-                        {r.status === 'DRAFT' && (
-                          <button
-                            onClick={() => setEditingRequirement(r)}
-                            className="text-gold-400 hover:bg-gold-500/10 rounded p-1"
-                            title="编辑"
-                          >
-                            <Edit className="w-3.5 h-3.5" />
-                          </button>
-                        )}
-                        {r.status !== 'ARCHIVED' && r.status !== 'CANCELLED' && (
-                          <button
-                            onClick={() => handleCancel(r.id, r.title)}
-                            className="text-cinnabar-400 hover:bg-cinnabar-500/10 rounded p-1"
-                            title="取消"
-                          >
-                            <X className="w-3.5 h-3.5" />
-                          </button>
-                        )}
                       </div>
                     </td>
                   </tr>
@@ -365,11 +254,10 @@ export default function RequirementsPage() {
         </div>
       )}
 
-      {/* 看板视图 */}
+      {/* 看板视图（只读：需求状态流转已迁移管理端） */}
       {viewType === 'board' && (
         <RequirementBoard
           requirements={requirements}
-          onStatusChange={handleBoardDragEnd}
           onRequirementClick={handleRequirementClick}
         />
       )}
@@ -396,23 +284,6 @@ export default function RequirementsPage() {
             </button>
           </div>
         </div>
-      )}
-
-      {/* 新建需求弹框 */}
-      {showCreate && (
-        <RequirementEditor
-          onClose={() => setShowCreate(false)}
-          onSubmit={handleCreate}
-        />
-      )}
-
-      {/* 编辑需求弹框 */}
-      {editingRequirement && (
-        <RequirementEditor
-          requirement={editingRequirement}
-          onClose={() => setEditingRequirement(null)}
-          onSubmit={handleEditSubmit}
-        />
       )}
     </div>
   );

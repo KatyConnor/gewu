@@ -29,7 +29,7 @@ const navGroups: { label: string; items: NavItem[] }[] = [
     { id: 'projects', label: '我的项目', icon: FolderOpen },
     { id: 'workspace' as PageType, label: '我的文件', icon: FolderOpen },
     { id: 'dev-workspace' as PageType, label: '开发空间', icon: GitBranch },
-    { id: 'requirements', label: '需求管理', icon: FileText, badge: '12' },
+    { id: 'requirements', label: '我的需求', icon: FileText },
     { id: 'prototype', label: '原型', icon: PenTool },
     { id: 'workflow', label: '工作流', icon: GitBranch },
     { id: 'orchestration' as PageType, label: '编排引擎', icon: Network },

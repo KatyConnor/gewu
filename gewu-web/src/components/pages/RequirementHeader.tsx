@@ -42,9 +42,10 @@ const statusConfig: Record<string, { label: string; color: string; nextStatus?: 
 interface RequirementHeaderProps {
   requirement: RequirementDTO;
   onBack: () => void;
-  onEdit: () => void;
-  onDelete: () => void;
-  onStatusChange: (newStatus: string) => void;
+  /** 只读模式（我的需求）不传：隐藏编辑/删除/状态流转按钮 */
+  onEdit?: () => void;
+  onDelete?: () => void;
+  onStatusChange?: (newStatus: string) => void;
 }
 
 // ==================== 主组件 ====================
@@ -68,7 +69,7 @@ export default function RequirementHeader({ requirement, onBack, onEdit, onDelet
           </div>
         </div>
         <div className="flex items-center gap-2">
-          {statusCfg.nextStatus && (
+          {onStatusChange && statusCfg.nextStatus && (
             <button
               onClick={() => onStatusChange(statusCfg.nextStatus!)}
               className="flex items-center gap-1.5 px-4 py-2 text-sm btn-primary text-white rounded-lg"
@@ -76,18 +77,22 @@ export default function RequirementHeader({ requirement, onBack, onEdit, onDelet
               <CheckCircle className="w-4 h-4" />{statusCfg.nextLabel}
             </button>
           )}
-          <button
-            onClick={onEdit}
-            className="px-3 py-2 text-sm text-gold-400 border border-gold-500/20 rounded-lg hover:bg-gold-500/10"
-          >
-            <Edit className="w-4 h-4 inline mr-1" />编辑
-          </button>
-          <button
-            onClick={onDelete}
-            className="px-3 py-2 text-sm text-cinnabar-400 border border-cinnabar-500/20 rounded-lg hover:bg-cinnabar-500/10"
-          >
-            <Trash2 className="w-4 h-4 inline mr-1" />删除
-          </button>
+          {onEdit && (
+            <button
+              onClick={onEdit}
+              className="px-3 py-2 text-sm text-gold-400 border border-gold-500/20 rounded-lg hover:bg-gold-500/10"
+            >
+              <Edit className="w-4 h-4 inline mr-1" />编辑
+            </button>
+          )}
+          {onDelete && (
+            <button
+              onClick={onDelete}
+              className="px-3 py-2 text-sm text-cinnabar-400 border border-cinnabar-500/20 rounded-lg hover:bg-cinnabar-500/10"
+            >
+              <Trash2 className="w-4 h-4 inline mr-1" />删除
+            </button>
+          )}
         </div>
       </div>
 

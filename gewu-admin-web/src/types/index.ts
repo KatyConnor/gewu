@@ -1,4 +1,4 @@
-export type PageType = 'login' | 'dashboard' | 'user-manage' | 'role-manage' | 'menu-manage' | 'org-manage' | 'skill-audit' | 'quota-manage' | 'sandbox-audit' | 'appsystem-manage' | 'project-manage';
+export type PageType = 'login' | 'dashboard' | 'user-manage' | 'role-manage' | 'menu-manage' | 'org-manage' | 'skill-audit' | 'quota-manage' | 'sandbox-audit' | 'appsystem-manage' | 'project-manage' | 'requirement-manage';
 
 export type ThemeType = 'ink' | 'deepsea' | 'jade' | 'celadon';
 

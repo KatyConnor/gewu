@@ -15,6 +15,7 @@ import DashboardPage from '@/components/pages/AdminDashboardPage';
 import LoginPage from '@/components/pages/LoginPage';
 import AppSystemManagePage from '@/components/pages/AppSystemManagePage';
 import ProjectManagePage from '@/components/pages/ProjectManagePage';
+import RequirementManagePage from '@/components/pages/RequirementManagePage';
 
 /** 后台管理端页面注册表 */
 const pages: Record<string, React.ComponentType> = {
@@ -29,6 +30,7 @@ const pages: Record<string, React.ComponentType> = {
   'sandbox-audit': SandboxAuditPage,
   'appsystem-manage': AppSystemManagePage,
   'project-manage': ProjectManagePage,
+  'requirement-manage': RequirementManagePage,
 };
 
 export default function Home() {

@@ -361,6 +361,47 @@ public class RequirementService {
                 .build();
     }
 
+    // ==================== 我的需求（迁移后用户侧唯一列表语义） ====================
+
+    /** 我的需求：仅分派给当前用户的需求（管理端分派 assignee_id），支持原筛选条件 */
+    public PageResult<RequirementDTO> listMyRequirements(RequirementQuery query) {
+        query.setAssigneeId(currentUserId());
+        return listRequirements(query);
+    }
+
+    /** 我的需求统计：按分派给当前用户的需求聚合 */
+    public RequirementStatsDTO getMyStats() {
+        List<Requirement> all = requirementMapper.selectList(
+                new LambdaQueryWrapper<Requirement>()
+                        .eq(Requirement::getDeleted, 0)
+                        .eq(Requirement::getAssigneeId, currentUserId()));
+
+        Map<String, Long> statusCount = new HashMap<>();
+        Map<String, Long> typeCount = new HashMap<>();
+        Map<String, Long> priorityCount = new HashMap<>();
+
+        for (Requirement req : all) {
+            statusCount.merge(req.getStatus(), 1L, Long::sum);
+            typeCount.merge(req.getType(), 1L, Long::sum);
+            priorityCount.merge("P" + req.getPriority(), 1L, Long::sum);
+        }
+
+        return RequirementStatsDTO.builder()
+                .statusCount(statusCount)
+                .typeCount(typeCount)
+                .priorityCount(priorityCount)
+                .totalCount((long) all.size())
+                .build();
+    }
+
+    /** 需求可见性铁律：仅分派给当前用户的需求可见（管理端分派模型） */
+    public void requireVisible(String requirementId) {
+        Requirement req = getOrThrow(requirementId);
+        if (!currentUserId().equals(req.getAssigneeId())) {
+            throw BusinessException.of(ResultCode.PERMISSION_DENIED, "仅可查看分派给您的需求");
+        }
+    }
+
     // ==================== 内部方法 ====================
 
     private LambdaQueryWrapper<Requirement> buildQueryWrapper(RequirementQuery query) {
