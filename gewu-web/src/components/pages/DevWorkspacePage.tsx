@@ -7,6 +7,7 @@ import { Loader2, Play, Square, GitBranch, Terminal, Save, RefreshCw, Pencil, Un
 import { useToast } from '@/components/ui/Toast';
 import MarkdownReader from '@/components/ui/MarkdownReader';
 import DevGitMenu from './DevGitMenu';
+import DevQuickOpen from './DevQuickOpen';
 import { isMarkdownPath, isProbablyBinary, monacoLangOf } from '@/lib/fileLanguage';
 import {
   getDevWorkspace, startSandbox, stopSandbox, readFile, writeFile,
@@ -19,6 +20,21 @@ const TerminalPanel = dynamic(() => import('@/components/ui/TerminalPanel'), { s
 
 // Monaco 懒加载（自托管 public/monaco，免 CDN）
 const MonacoFileEditor = dynamic(() => import('./MonacoEditor'), { ssr: false });
+
+/** 编辑器状态栏语言标签 */
+const LANG_LABELS: Record<string, string> = {
+  java: 'Java', typescript: 'TypeScript', javascript: 'JavaScript', jsx: 'JavaScript',
+  python: 'Python', go: 'Go', rust: 'Rust', cpp: 'C++', c: 'C', csharp: 'C#',
+  html: 'HTML', css: 'CSS', scss: 'SCSS', less: 'Less', json: 'JSON', yaml: 'YAML',
+  xml: 'XML', markdown: 'Markdown', sql: 'SQL', shell: 'Shell', ini: 'INI',
+  groovy: 'Groovy', kotlin: 'Kotlin', swift: 'Swift', php: 'PHP', ruby: 'Ruby',
+  dart: 'Dart', 'objective-c': 'Objective-C', lua: 'Lua', perl: 'Perl', dockerfile: 'Dockerfile',
+  plaintext: '纯文本',
+};
+const langLabelOf = (path: string): string => {
+  const lang = monacoLangOf(path);
+  return LANG_LABELS[lang] || lang;
+};
 
 /** 仓库地址 → host 展示（git@host:path / ssh:// / https:// 均归一） */
 const hostOf = (url?: string): string => {
@@ -64,6 +80,18 @@ export default function DevWorkspacePage() {
   const [pulling, setPulling] = useState(false);
   const [termOpen, setTermOpen] = useState(false);
   const [termFullscreen, setTermFullscreen] = useState(false);
+  // ===== IDEA 式编辑区增强 =====
+  /** 快速检索面板（file=文件检索/最近文件，search=全局搜索） */
+  const [quick, setQuick] = useState<'file' | 'search' | null>(null);
+  /** 最近打开的文件（工作空间相对路径，最多 20 条） */
+  const [recentFiles, setRecentFiles] = useState<string[]>([]);
+  /** 光标位置（状态栏 行,列 展示） */
+  const [cursor, setCursor] = useState({ line: 0, col: 0 });
+  /** 打开文件后定位到指定行（全局搜索命中跳转；无值不定位） */
+  const [gotoLine, setGotoLine] = useState<number | undefined>(undefined);
+  /** 编辑器主题（持久化到 localStorage，默认格物暗色） */
+  const [editorTheme, setEditorTheme] = useState<string>(() =>
+    (typeof window !== 'undefined' && window.localStorage.getItem('dw-editor-theme')) || 'gewu-dark');
   // 文件树（IDEA 式工作台）：path → entries 懒加载缓存 + 展开集合
   const [tree, setTree] = useState<Record<string, FileEntry[]>>({});
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
@@ -272,8 +300,10 @@ export default function DevWorkspacePage() {
     );
   };
 
-  const handleReadFile = async (path: string) => {
+  const handleReadFile = async (path: string, line?: number) => {
     setCurrentPath(path);
+    setGotoLine(line);
+    setCursor({ line: 0, col: 0 });
     setContentLoading(true);
     setViewMode('preview');
     setDirty(false);
@@ -281,6 +311,7 @@ export default function DevWorkspacePage() {
       const content = await readFile(path);
       setFileContent(content);
       setSavedContent(content);
+      setRecentFiles(prev => [path, ...prev.filter(p => p !== path)].slice(0, 20));
     } catch (e) {
       toast('读取失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
       setFileContent('');
@@ -288,6 +319,13 @@ export default function DevWorkspacePage() {
     } finally {
       setContentLoading(false);
     }
+  };
+
+  /** 快速检索/搜索命中打开（入参为仓库内相对路径，拼接工作空间前缀） */
+  const openRepoFile = (repoRel: string, line?: number) => {
+    if (!selectedProject?.localPath) return;
+    setQuick(null);
+    handleReadFile(`${selectedProject.localPath}/${repoRel}`, line);
   };
 
   const handleSaveFile = async () => {
@@ -313,18 +351,38 @@ export default function DevWorkspacePage() {
     setViewMode('preview');
   };
 
-  // Ctrl+S 保存（仅编辑态生效）
+  // 编辑区快捷键：Ctrl+S 保存（编辑态）；IDEA 式导航——Ctrl+Shift+N/Ctrl+P 文件检索、
+  // Ctrl+E 最近文件、Ctrl+Shift+F 全局搜索（检索面板打开时让位给面板自身的键处理）
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
         if (viewMode === 'edit') handleSaveFile();
+        return;
+      }
+      if (!(e.ctrlKey || e.metaKey) || e.altKey || quick) return;
+      if (!selectedProject || selectedProject.cloneStatus !== 'ready') return;
+      const k = e.key.toLowerCase();
+      if ((k === 'n' && e.shiftKey) || (k === 'p' && !e.shiftKey)) {
+        e.preventDefault();
+        setQuick('file');
+      } else if (k === 'f' && e.shiftKey) {
+        e.preventDefault();
+        setQuick('search');
+      } else if (k === 'e' && !e.shiftKey) {
+        e.preventDefault();
+        setQuick('file');
       }
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, currentPath, fileContent, saving]);
+  }, [viewMode, currentPath, fileContent, saving, quick, selectedProject]);
+
+  // 编辑器主题持久化
+  useEffect(() => {
+    if (typeof window !== 'undefined') window.localStorage.setItem('dw-editor-theme', editorTheme);
+  }, [editorTheme]);
 
   /** Git 菜单操作完成后：刷新项目状态 + 按展开状态重载文件树 */
   const afterGitRefresh = async () => {
@@ -604,6 +662,9 @@ export default function DevWorkspacePage() {
                 language={monacoLangOf(currentPath)}
                 path={`dw-${currentPath}`}
                 wordWrap="on"
+                theme={editorTheme}
+                gotoLine={gotoLine}
+                onCursor={(line, col) => setCursor({ line, col })}
                 onChange={(v) => { setFileContent(v ?? ''); setDirty(true); }}
               />
             </div>
@@ -623,16 +684,53 @@ export default function DevWorkspacePage() {
                 path={`dw-${currentPath}`}
                 readOnly
                 wordWrap="off"
+                theme={editorTheme}
+                gotoLine={gotoLine}
+                onCursor={(line, col) => setCursor({ line, col })}
               />
             </div>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center py-20 text-ink-500">
               <p className="text-sm">{projectReady ? '从左侧文件树选择文件进行查看或编辑' : '选择项目后自动拉取代码，或点击顶部「拉取代码」'}</p>
+              {projectReady && <p className="text-xs mt-2 text-ink-600">Ctrl+Shift+N 文件检索 · Ctrl+Shift+F 全局搜索 · Ctrl+E 最近文件</p>}
             </div>
           )}
+
+          {/* 状态栏（IDEA 式）：语言 · 行列 · 编码缩进 · 主题切换 */}
+          <div className="flex items-center justify-between px-2 py-1 mt-2 flex-shrink-0 border-t border-tech-500/10 text-[10px] text-ink-500">
+            <div className="flex items-center gap-3 min-w-0">
+              <span className="truncate">{currentPath ? langLabelOf(currentPath) : '—'}</span>
+              {cursor.line > 0 && <span className="flex-shrink-0">行 {cursor.line}，列 {cursor.col}</span>}
+            </div>
+            <div className="flex items-center gap-3 flex-shrink-0">
+              <span>UTF-8</span>
+              <span>4 空格缩进</span>
+              <select
+                value={editorTheme}
+                onChange={(e) => setEditorTheme(e.target.value)}
+                className="bg-transparent outline-none cursor-pointer text-ink-400 hover:text-tech-400"
+                title="代码显示主题">
+                <option value="gewu-dark">格物暗色</option>
+                <option value="vs-dark">VS Dark+</option>
+                <option value="hc-black">高对比暗色</option>
+                <option value="vs">浅色</option>
+              </select>
+            </div>
+          </div>
         </div>
 
       </div>
+
+      {/* 快速检索/全局搜索面板（IDEA 式 Ctrl+Shift+N / Ctrl+Shift+F / Ctrl+E） */}
+      {quick && projectReady && selectedProject && (
+        <DevQuickOpen
+          project={selectedProject}
+          mode={quick}
+          recentPaths={recentFiles}
+          onClose={() => setQuick(null)}
+          onOpenFile={openRepoFile}
+        />
+      )}
 
       {/* 网页终端抽屉（设计文档 44，与"我的文件"同款）：默认隐藏，按钮开关 */}
       {termOpen && (

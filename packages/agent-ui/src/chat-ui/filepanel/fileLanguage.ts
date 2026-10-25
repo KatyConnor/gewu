@@ -3,13 +3,21 @@
  * 从 FileEditorPanel 迁出供文件面板 / 文件卡片 / 工作空间页共用。
  */
 
-/** Monaco 语言映射（未命中回退 plaintext） */
+/** Monaco 语言映射（未命中回退 plaintext）——覆盖 Java/Go/Python/Rust/C++/前端等主流语言 */
 const MONACO_LANG_BY_EXT: Record<string, string> = {
   ts: 'typescript', tsx: 'typescript', js: 'javascript', jsx: 'javascript',
   java: 'java', py: 'python', go: 'go', rs: 'rust', c: 'c', h: 'c',
-  cpp: 'cpp', cs: 'csharp', sh: 'shell', bash: 'shell', yml: 'yaml', yaml: 'yaml',
-  json: 'json', xml: 'xml', md: 'markdown', sql: 'sql', html: 'html', css: 'css',
+  cpp: 'cpp', cc: 'cpp', cxx: 'cpp', hpp: 'cpp', hxx: 'cpp', hh: 'cpp',
+  cs: 'csharp', sh: 'shell', bash: 'shell', yml: 'yaml', yaml: 'yaml',
+  json: 'json', xml: 'xml', md: 'markdown', sql: 'sql', html: 'html', htm: 'html',
+  css: 'css', scss: 'scss', sass: 'scss', less: 'less',
   toml: 'ini', ini: 'ini', properties: 'ini', gradle: 'groovy',
+  // 前端单文件组件：Vue SFC 走 html 词法（模板标签高亮最贴近）
+  vue: 'html',
+  // 其余主流语言（Monaco basic-languages 内置词法）
+  kt: 'kotlin', kts: 'kotlin', scala: 'scala', swift: 'swift',
+  php: 'php', rb: 'ruby', dart: 'dart', m: 'objective-c', mm: 'objective-c',
+  lua: 'lua', pl: 'perl', r: 'r', dockerfile: 'dockerfile',
 };
 
 /** 按路径扩展名推断 Monaco 语言名 */

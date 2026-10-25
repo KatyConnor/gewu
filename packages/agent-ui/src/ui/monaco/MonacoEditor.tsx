@@ -1,8 +1,12 @@
 'use client';
 // Monaco 文件编辑器（S9 F3）：自托管 public/monaco 资源加载（免 CDN）。
 // 仅客户端渲染（React.lazy 客户端懒加载引入）。
+// 编辑工作空间增强（IDEA 对齐）：默认主题可配（含 gewu-dark 定制主题）、
+// 自动补全（词级 + 语言 live 模板）、括号配对着色、Ctrl+滚轮缩放、
+// 光标位置回调与跳行定位（全局搜索命中跳转用）。新 props 全部可选，旧调用点行为不变。
 import { useEffect, useRef } from 'react';
-import Editor, { loader } from '@monaco-editor/react';
+import Editor, { loader, type Monaco } from '@monaco-editor/react';
+import type { Position, editor as MonacoEditorAPI } from 'monaco-editor';
 
 let configured = false;
 function ensureLoader() {
@@ -15,7 +19,111 @@ function ensureLoader() {
   loader.config({ paths: { vs: g.__GEWU_MONACO_VS_PATH__ || './monaco/vs' } });
 }
 
-export default function MonacoEditor({ value, language, path, onChange, readOnly = false, wordWrap = 'on' }: {
+/** gewu-dark 定制主题（墨绿暗色，对齐开发工作空间界面色系） */
+const GEWU_DARK_THEME = {
+  base: 'vs-dark' as const,
+  inherit: true,
+  rules: [
+    { token: 'comment', foreground: '6b8578', fontStyle: 'italic' },
+    { token: 'keyword', foreground: '7dd3fc' },
+    { token: 'string', foreground: 'a5d6a7' },
+    { token: 'number', foreground: 'fbbf72' },
+    { token: 'type', foreground: '86efac' },
+    { token: 'identifier', foreground: 'd6e5dd' },
+  ],
+  colors: {
+    'editor.background': '#0a1614',
+    'editor.foreground': '#d6e5dd',
+    'editor.lineHighlightBackground': '#11281f',
+    'editorLineNumber.foreground': '3f5b4f',
+    'editorLineNumber.activeForeground': '86efac',
+    'editorCursor.foreground': '#34d399',
+    'editor.selectionBackground': '#1e4638',
+    'editorIndentGuide.background': '#163029',
+    'editorIndentGuide.activeBackground': '#28544a',
+    'editorWidget.background': '#0d1f1a',
+    'editorWidget.border': '#1e3a32',
+    'editorSuggestWidget.selectedBackground': '#1e4638',
+  },
+};
+
+/** IDEA live 模板子集（高频骨架代码，label → 触发词） */
+const LIVE_TEMPLATES: Record<string, Array<{ label: string; detail: string; body: string }>> = {
+  java: [
+    { label: 'psvm', detail: 'public static void main', body: 'public static void main(String[] args) {\n\t$0\n}' },
+    { label: 'sout', detail: 'System.out.println()', body: 'System.out.println($0);' },
+    { label: 'souf', detail: 'System.out.printf()', body: 'System.out.printf($0);' },
+    { label: 'fori', detail: 'for 循环（索引）', body: 'for (int ${1:i} = 0; ${1:i} < ${2:limit}; ${1:i}++) {\n\t$0\n}' },
+    { label: 'psfi', detail: 'public static final int', body: 'public static final int ${1:NAME} = $0;' },
+  ],
+  python: [
+    { label: 'main', detail: 'if __name__ == "__main__"', body: 'def main():\n\t$0\n\n\nif __name__ == "__main__":\n\tmain()\n' },
+    { label: 'p', detail: 'print()', body: 'print($0)' },
+    { label: 'def', detail: '函数定义', body: 'def ${1:fn}(${2:args}):\n\t$0' },
+  ],
+  go: [
+    { label: 'main', detail: 'func main()', body: 'func main() {\n\t$0\n}' },
+    { label: 'pf', detail: 'fmt.Println()', body: 'fmt.Println($0)' },
+    { label: 'forr', detail: 'for range 循环', body: 'for ${1:k}, ${2:v} := range ${3:coll} {\n\t$0\n}' },
+  ],
+  rust: [
+    { label: 'fnm', detail: 'fn main()', body: 'fn main() {\n\t$0\n}' },
+    { label: 'pln', detail: 'println!()', body: 'println!($0);' },
+    { label: 'impl', detail: 'impl 块', body: 'impl ${1:Trait} for ${2:Type} {\n\t$0\n}' },
+  ],
+  cpp: [
+    { label: 'main', detail: 'int main()（含 iostream）', body: '#include <iostream>\n\nint main() {\n\t$0\n\treturn 0;\n}\n' },
+    { label: 'cout', detail: 'std::cout', body: 'std::cout << $0 << std::endl;' },
+  ],
+  javascript: [
+    { label: 'clg', detail: 'console.log()', body: 'console.log($0);' },
+    { label: 'fn', detail: '箭头函数', body: 'const ${1:fn} = (${2:args}) => {\n\t$0\n};' },
+  ],
+  typescript: [
+    { label: 'clg', detail: 'console.log()', body: 'console.log($0);' },
+    { label: 'fn', detail: '箭头函数', body: 'const ${1:fn} = (${2:args}: ${3:type}) => {\n\t$0\n};' },
+    { label: 'rfc', detail: 'React 函数组件', body: 'export default function ${1:Component}() {\n\treturn (\n\t\t<div>$0</div>\n\t);\n}' },
+  ],
+  html: [
+    { label: 'html5', detail: 'HTML5 骨架', body: '<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n\t<meta charset="UTF-8">\n\t<meta name="viewport" content="width=device-width, initial-scale=1.0">\n\t<title>${1:标题}</title>\n</head>\n<body>\n\t$0\n</body>\n</html>' },
+  ],
+};
+
+let extrasRegistered = false;
+/** 主题注册 + live 模板补全注册（monaco 就绪后执行一次） */
+function ensureEditorExtras(monaco: Monaco) {
+  monaco.editor.defineTheme('gewu-dark', GEWU_DARK_THEME);
+  if (extrasRegistered) return;
+  extrasRegistered = true;
+  for (const [lang, templates] of Object.entries(LIVE_TEMPLATES)) {
+    monaco.languages.registerCompletionItemProvider(lang, {
+      provideCompletionItems(model: MonacoEditorAPI.ITextModel, position: Position) {
+        const word = model.getWordUntilPosition(position);
+        const range = {
+          startLineNumber: position.lineNumber,
+          endLineNumber: position.lineNumber,
+          startColumn: word.startColumn,
+          endColumn: word.endColumn,
+        };
+        return {
+          suggestions: templates.map((t) => ({
+            label: t.label,
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            detail: `模板: ${t.detail}`,
+            insertText: t.body,
+            insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            range,
+          })),
+        };
+      },
+    });
+  }
+}
+
+export default function MonacoEditor({
+  value, language, path, onChange, readOnly = false, wordWrap = 'on',
+  theme, minimap = false, gotoLine, onCursor,
+}: {
   value: string;
   language: string;
   path: string;
@@ -24,10 +132,26 @@ export default function MonacoEditor({ value, language, path, onChange, readOnly
   readOnly?: boolean;
   /** 自动换行：预览关（横向滚动贴近 IDE），编辑默认开 */
   wordWrap?: 'on' | 'off';
+  /** 编辑器主题（默认 vs-dark；开发工作空间传 gewu-dark 等可选项） */
+  theme?: string;
+  /** 右侧缩略图（IDEA 无此件，默认关；需要时开启） */
+  minimap?: boolean;
+  /** 打开后定位到指定行并居中（全局搜索命中跳转） */
+  gotoLine?: number;
+  /** 光标位置变化回调（状态栏 Ln,Col 展示） */
+  onCursor?: (line: number, column: number) => void;
 }) {
   void ensureLoader();
-  const ref = useRef(false);
-  useEffect(() => { ref.current = true; }, []);
+  const editorRef = useRef<MonacoEditorAPI.IStandaloneCodeEditor | null>(null);
+
+  // 跳行定位：文件打开或 gotoLine 变化时居中目标行
+  useEffect(() => {
+    const ed = editorRef.current;
+    if (!ed || !gotoLine || gotoLine < 1) return;
+    ed.revealLineInCenter(gotoLine);
+    ed.setPosition({ lineNumber: gotoLine, column: 1 });
+    if (!readOnly) ed.focus();
+  }, [gotoLine, path, readOnly]);
 
   return (
     <Editor
@@ -35,10 +159,18 @@ export default function MonacoEditor({ value, language, path, onChange, readOnly
       language={language}
       path={path}
       value={value}
-      theme="vs-dark"
+      theme={theme || 'vs-dark'}
       onChange={onChange}
+      onMount={(ed, monaco) => {
+        editorRef.current = ed;
+        ensureEditorExtras(monaco);
+        if (theme && theme !== 'vs-dark') monaco.editor.setTheme(theme);
+        if (onCursor) {
+          ed.onDidChangeCursorPosition((e) => onCursor(e.position.lineNumber, e.position.column));
+        }
+      }}
       options={{
-        minimap: { enabled: false },
+        minimap: { enabled: minimap },
         fontSize: 12,
         lineNumbersMinChars: 3,
         scrollBeyondLastLine: false,
@@ -49,6 +181,25 @@ export default function MonacoEditor({ value, language, path, onChange, readOnly
         domReadOnly: readOnly,
         // 新版 Monaco 默认开启作用域固定条（stickyScroll），透明底与代码行重叠发花，阅读视图关闭
         stickyScroll: { enabled: false },
+        // ===== IDEA 对齐编辑能力（S 编辑区升级） =====
+        // 自动编码提示：词级 + 语言 live 模板 + 触发字符（字符串内提示路径/补全）
+        quickSuggestions: { other: true, comments: false, strings: true },
+        suggestOnTriggerCharacters: true,
+        wordBasedSuggestions: 'currentDocument',
+        tabCompletion: 'on',
+        snippetSuggestions: 'top',
+        // 括号配对着色与缩进参考线
+        bracketPairColorization: { enabled: true },
+        guides: { bracketPairs: 'active', indentation: true },
+        // 交互手感：Ctrl+滚轮缩放（IDEA 同款）、平滑滚动/光标动画、粘贴自动格式化
+        mouseWheelZoom: true,
+        smoothScrolling: true,
+        cursorSmoothCaretAnimation: 'on',
+        formatOnPaste: true,
+        // HTML/XML 标签联动重命名
+        linkedEditing: true,
+        renderLineHighlight: 'all',
+        showFoldingControls: 'mouseover',
       }}
     />
   );

@@ -3,6 +3,7 @@ package com.gewu.interfaceapi.controller;
 import com.gewu.application.project.ProjectRepoService;
 import com.gewu.application.workspace.DevWorkspaceService;
 import com.gewu.application.workspace.dto.DevWorkspaceDTO;
+import com.gewu.application.workspace.dto.GrepHitDTO;
 import com.gewu.application.workspace.dto.GitBranchesDTO;
 import com.gewu.application.workspace.dto.GitLogEntryDTO;
 import com.gewu.application.workspace.dto.GitOpCommand;
@@ -188,6 +189,22 @@ public class DevWorkspaceController {
     @Operation(summary = "单文件差异", description = "工作区与 HEAD 的差异（未跟踪文件为空串）")
     public Result<String> gitDiff(@PathVariable String projectId, @RequestParam String path) {
         return Result.success(devWorkspaceService.gitFileDiff(projectId, path));
+    }
+
+    @GetMapping("/projects/{projectId}/git/files")
+    @Operation(summary = "项目文件清单", description = "按名称模糊检索项目文件（Ctrl+Shift+N 快速检索数据源）")
+    public Result<List<String>> gitFiles(@PathVariable String projectId,
+                                         @RequestParam(required = false) String query,
+                                         @RequestParam(required = false) Integer limit) {
+        return Result.success(devWorkspaceService.gitListFiles(projectId, query, limit));
+    }
+
+    @GetMapping("/projects/{projectId}/git/search")
+    @Operation(summary = "全局文本搜索", description = "项目文件内容字面量搜索（Ctrl+Shift+F 数据源）")
+    public Result<List<GrepHitDTO>> gitSearch(@PathVariable String projectId,
+                                              @RequestParam String query,
+                                              @RequestParam(required = false) Integer limit) {
+        return Result.success(devWorkspaceService.gitGrep(projectId, query, limit));
     }
 
     @PostMapping("/projects/{projectId}/git/commit")

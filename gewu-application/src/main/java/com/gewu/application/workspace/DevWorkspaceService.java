@@ -3,6 +3,7 @@ package com.gewu.application.workspace;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.gewu.application.sandbox.SandboxClient;
 import com.gewu.application.workspace.dto.DevWorkspaceDTO;
+import com.gewu.application.workspace.dto.GrepHitDTO;
 import com.gewu.application.workspace.dto.GitBranchesDTO;
 import com.gewu.application.workspace.dto.GitLogEntryDTO;
 import com.gewu.application.workspace.dto.GitOpCommand;
@@ -639,6 +640,103 @@ public class DevWorkspaceService {
 
     private String currentBranchOf(com.gewu.domain.project.Project project) {
         return gitExec(project, "rev-parse --abbrev-ref HEAD", 10).trim();
+    }
+
+    /** 全项目文件清单（快速检索数据源）：已跟踪 + 未忽略新文件，Java 侧模糊过滤排序 */
+    public List<String> gitListFiles(String projectId, String query, Integer limit) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        int cap = limit != null && limit > 0 && limit <= 200 ? limit : 50;
+        // -z：NUL 分隔，规避路径内空格/特殊字符解析歧义
+        String out = gitExec(project, "ls-files --cached --others --exclude-standard -z", 30);
+        List<String> files = new ArrayList<>();
+        for (String f : out.split("\u0000", -1)) {
+            if (!f.isBlank()) {
+                files.add(f);
+            }
+        }
+        if (query == null || query.isBlank()) {
+            return files.size() > cap ? new ArrayList<>(files.subList(0, cap)) : files;
+        }
+        String q = query.trim().toLowerCase();
+        List<int[]> scored = new ArrayList<>(); // [score, index]，score 越小越靠前
+        for (int i = 0; i < files.size(); i++) {
+            int s = fuzzyScore(files.get(i), q);
+            if (s >= 0) {
+                scored.add(new int[]{s, i});
+            }
+        }
+        scored.sort((a, b) -> a[0] != b[0] ? Integer.compare(a[0], b[0]) : Integer.compare(a[1], b[1]));
+        List<String> result = new ArrayList<>();
+        for (int i = 0; i < Math.min(cap, scored.size()); i++) {
+            result.add(files.get(scored.get(i)[1]));
+        }
+        return result;
+    }
+
+    /** 模糊匹配得分（IDEA 检索手感）：文件名包含 0 分最优，全路径包含次之，子序列按跳转数递增；不命中 -1 */
+    private static int fuzzyScore(String path, String lowerQuery) {
+        String p = path.toLowerCase();
+        String name = p.substring(p.lastIndexOf('/') + 1);
+        if (name.contains(lowerQuery)) {
+            return 0;
+        }
+        if (p.contains(lowerQuery)) {
+            return 10;
+        }
+        int pi = 0;
+        int jumps = 0;
+        for (char c : lowerQuery.toCharArray()) {
+            int found = p.indexOf(c, pi);
+            if (found < 0) {
+                return -1;
+            }
+            if (found > pi) {
+                jumps++;
+            }
+            pi = found + 1;
+        }
+        return 100 + jumps;
+    }
+
+    /** 项目全局文本搜索（-F 字面量匹配规避正则注入；限行数防大结果；exit=1 无命中非错误） */
+    public List<GrepHitDTO> gitGrep(String projectId, String query, Integer limit) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        String q = query != null ? query.trim() : "";
+        if (q.isEmpty()) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "搜索内容不能为空");
+        }
+        int cap = limit != null && limit > 0 && limit <= 300 ? limit : 100;
+        String repo = "/workspace/" + sanitizeWorkspaceRel(project.getRepoLocalPath());
+        ExecCommandResponse resp = sandboxClient.execCommand(ensureRunningSandboxId(),
+                "grep -rnIF --exclude-dir=.git -e " + shellQuote(q) + " " + shellQuote(repo), 30);
+        if (resp.getExitCode() != null && resp.getExitCode() == 2) {
+            String err = resp.getStderr() != null ? resp.getStderr() : "";
+            throw BusinessException.of(ResultCode.SYSTEM_ERROR,
+                    "搜索失败: " + (err.length() > 300 ? err.substring(0, 300) : err));
+        }
+        List<GrepHitDTO> hits = new ArrayList<>();
+        String prefix = repo + "/";
+        for (String line : (resp.getStdout() != null ? resp.getStdout() : "").split("\n")) {
+            if (line.isBlank() || hits.size() >= cap) {
+                continue;
+            }
+            int c1 = line.indexOf(':');
+            int c2 = c1 >= 0 ? line.indexOf(':', c1 + 1) : -1;
+            if (c1 <= 0 || c2 <= c1) {
+                continue;
+            }
+            GrepHitDTO h = new GrepHitDTO();
+            String path = line.substring(0, c1);
+            h.setPath(path.startsWith(prefix) ? path.substring(prefix.length()) : path);
+            try {
+                h.setLine(Integer.parseInt(line.substring(c1 + 1, c2)));
+            } catch (NumberFormatException e) {
+                continue;
+            }
+            h.setText(line.substring(c2 + 1));
+            hits.add(h);
+        }
+        return hits;
     }
 
     /** 构建项目（基于项目仓库路径） */

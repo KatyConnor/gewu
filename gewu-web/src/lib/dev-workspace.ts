@@ -183,6 +183,23 @@ export async function gitFileDiff(projectId: string, path: string): Promise<stri
   return unwrap<string>(request.get<ApiResponse<string>>(`/v1/dev-workspaces/projects/${projectId}/git/diff`, { params: { path } }));
 }
 
+/** 项目文件名模糊检索（快速检索框数据源，返回仓库内相对路径） */
+export async function gitListFiles(projectId: string, query?: string, limit?: number): Promise<string[]> {
+  return unwrap<string[]>(request.get<ApiResponse<string[]>>(`/v1/dev-workspaces/projects/${projectId}/git/files`, { params: { query, limit } }));
+}
+
+/** 全局文本搜索命中条目 */
+export interface GrepHit {
+  path: string;
+  line: number;
+  text: string;
+}
+
+/** 项目全局文本搜索（字面量匹配，Ctrl+Shift+F 数据源） */
+export async function gitSearch(projectId: string, query: string, limit?: number): Promise<GrepHit[]> {
+  return unwrap<GrepHit[]>(request.get<ApiResponse<GrepHit[]>>(`/v1/dev-workspaces/projects/${projectId}/git/search`, { params: { query, limit } }));
+}
+
 export async function gitCommit(projectId: string, data: { message: string; files?: string[]; amend?: boolean }): Promise<void> {
   await unwrap<void>(request.post<ApiResponse<void>>(`/v1/dev-workspaces/projects/${projectId}/git/commit`, data));
 }
