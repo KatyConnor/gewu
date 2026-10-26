@@ -35,8 +35,9 @@ const GEWU_DARK_THEME = {
     'editor.background': '#0a1614',
     'editor.foreground': '#d6e5dd',
     'editor.lineHighlightBackground': '#11281f',
-    'editorLineNumber.foreground': '3f5b4f',
-    'editorLineNumber.activeForeground': '86efac',
+    // Monaco 主题色值必须带 # 前缀——缺 # 解析失败会回退纯红（用户实报：行号变红）
+    'editorLineNumber.foreground': '#3f5b4f',
+    'editorLineNumber.activeForeground': '#86efac',
     'editorCursor.foreground': '#34d399',
     'editor.selectionBackground': '#1e4638',
     'editorIndentGuide.background': '#163029',
