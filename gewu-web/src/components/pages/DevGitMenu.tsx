@@ -12,8 +12,10 @@ import {
   gitCommit, gitPush, gitCreateBranch, gitCheckout, gitDeleteBranch, gitMerge,
   gitStash, gitStashPop, gitRollback, gitFileDiff, readFile,
   listTags, createTag, deleteTag, compareBranches,
-  type GitProject, type GitStatus, type GitLogEntry, type GitBranches, type GitStash, type GitTag, type BranchCompare,
+  listReflog, resetHard, cherryPick, revertCommit, downloadArchive,
+  type GitProject, type GitStatus, type GitLogEntry, type GitBranches, type GitStash, type GitTag, type BranchCompare, type ReflogEntry,
 } from '@/lib/dev-workspace';
+import { listReleases, createRelease, type VcsRelease } from '@/lib/vcs';
 import DevCollabModal from './DevCollabModal';
 
 /**
@@ -27,7 +29,7 @@ interface Props {
   onRefresh: () => void | Promise<void>;
 }
 
-type DialogKind = 'commit' | 'push' | 'branches' | 'unstash' | 'rollback' | 'history' | 'tags' | 'compare' | 'collab' | null;
+type DialogKind = 'commit' | 'push' | 'branches' | 'unstash' | 'rollback' | 'history' | 'tags' | 'compare' | 'collab' | 'reflog' | null;
 
 const fmtTime = (epochSec?: number) => {
   if (!epochSec) return '';
@@ -63,6 +65,8 @@ export default function DevGitMenu({ project, onRefresh }: Props) {
   const [cmpBase, setCmpBase] = useState('');
   const [cmpResult, setCmpResult] = useState<BranchCompare | null>(null);
   const [collabOpen, setCollabOpen] = useState(false);
+  const [releases, setReleases] = useState<VcsRelease[] | null>(null);
+  const [reflogList, setReflogList] = useState<ReflogEntry[] | null>(null);
 
   const projectId = project.projectId;
 
@@ -129,7 +133,10 @@ export default function DevGitMenu({ project, onRefresh }: Props) {
       }
     } else if (kind === 'tags') {
       setTags(await listTags(projectId).catch(() => []));
+      setReleases(await listReleases(projectId).catch(() => []));
       setTagForm({ name: '', message: '', push: true });
+    } else if (kind === 'reflog') {
+      setReflogList(await listReflog(projectId).catch(() => []));
     } else if (kind === 'unstash') {
       setStashList(await gitStashList(projectId).catch(() => []));
       setStashMsg('');
@@ -214,6 +221,47 @@ export default function DevGitMenu({ project, onRefresh }: Props) {
       });
   };
 
+  const doPublishRelease = (tagName: string) => {
+    const name = prompt(`Release 名称（基于 tag ${tagName}）:`, tagName);
+    if (name === null) return;
+    const notes = prompt('Release 说明（可空）:', '') ?? '';
+    run(`release-${tagName}`, () => createRelease(projectId, { tagName, name: name.trim() || tagName, notes }),
+      `Release ${name.trim() || tagName} 已创建`,
+      async () => setReleases(await listReleases(projectId).catch(() => [])));
+  };
+
+  const doCherryPick = (hash: string, message: string) => {
+    if (!confirm(`摘取提交 ${message || hash} 到当前分支？`)) return;
+    run(`cp-${hash}`, () => cherryPick(projectId, hash), '摘取成功', async () => {
+      await onRefresh();
+    });
+  };
+
+  const doRevert = (hash: string, message: string) => {
+    if (!confirm(`撤销提交 ${message || hash}？（生成反向提交，不改历史）`)) return;
+    run(`rv-${hash}`, () => revertCommit(projectId, hash), '撤销成功', async () => {
+      await onRefresh();
+    });
+  };
+
+  const doExport = async (hash: string) => {
+    try {
+      const p = await downloadArchive(projectId, hash);
+      toast(`已导出归档: ${p}`, 'success');
+    } catch (e) {
+      toast('归档导出失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    }
+  };
+
+  const doResetHard = (selector: string, sha: string, subject: string) => {
+    if (!confirm(`危险操作：将工作区与分支强制回退到 ${selector}（${subject}）？\n未提交的修改将全部丢失！`)) return;
+    if (!confirm('再次确认：确定硬重置？')) return;
+    run(`reset-${sha}`, () => resetHard(projectId, sha), '已硬重置', async () => {
+      setReflogList(await listReflog(projectId).catch(() => []));
+      await onRefresh();
+    });
+  };
+
   const doDeleteTag = (name: string) => {
     if (!confirm(`确认删除标签 ${name}？`)) return;
     run(`tag-del-${name}`, () => deleteTag(projectId, name, true), `标签 ${name} 已删除`,
@@ -292,6 +340,7 @@ export default function DevGitMenu({ project, onRefresh }: Props) {
           {menuItem('标签…', <TagIcon className="w-4 h-4" />, () => openDialog('tags'), undefined, 'tags-open')}
           {menuItem('分支对比…', <GitCompare className="w-4 h-4" />, () => openDialog('compare'), undefined, 'compare-open')}
           {menuItem('显示历史', <History className="w-4 h-4" />, () => openDialog('history'), undefined, 'history-open')}
+          {menuItem('恢复…', <Undo2 className="w-4 h-4" />, () => openDialog('reflog'), undefined, 'reflog-open')}
         </div>
       )}
 
@@ -520,8 +569,21 @@ export default function DevGitMenu({ project, onRefresh }: Props) {
               <TagIcon className="w-3.5 h-3.5 text-gold-400 flex-shrink-0" />
               <span className="text-sm text-ink-200 flex-1 truncate">{t.name}</span>
               <span className="text-[10px] text-ink-600 flex-shrink-0">{t.date} · {t.sha}</span>
+              <button onClick={() => doPublishRelease(t.name)} disabled={!!busy}
+                className="text-[11px] text-ink-500 hover:text-tech-400 disabled:opacity-50 flex-shrink-0" title="基于此 tag 创建 Release">发布</button>
               <button onClick={() => doDeleteTag(t.name)} disabled={!!busy}
                 className="text-[11px] text-ink-600 hover:text-cinnabar-400 disabled:opacity-50 flex-shrink-0">删除</button>
+            </div>
+          ))}
+        </div>
+        <div className="mt-3 pt-2 border-t border-tech-500/10">
+          <p className="text-[10px] text-ink-500 mb-1 px-1">已发布 Release</p>
+          {releases !== null && releases.length === 0 && <p className="text-[10px] text-ink-600 px-1">（无）</p>}
+          {releases !== null && releases.map(r => (
+            <div key={r.tagName} className="flex items-center gap-2 px-1 py-0.5 text-[11px]">
+              <span className="text-gold-400 flex-shrink-0">{r.tagName}</span>
+              <span className="text-ink-300 truncate flex-1">{r.name}</span>
+              {r.webUrl && <a href={r.webUrl} target="_blank" rel="noreferrer" className="text-ink-600 hover:text-tech-400 flex-shrink-0">打开</a>}
             </div>
           ))}
         </div>
@@ -570,6 +632,29 @@ export default function DevGitMenu({ project, onRefresh }: Props) {
         )}
       </Modal>
 
+      {/* ============ 误操作恢复对话框（reflog，危险操作） ============ */}
+      <Modal open={dialog === 'reflog'} onClose={() => setDialog(null)}
+        panelClassName={`${modalShell} max-w-xl max-h-[80vh] flex flex-col`} ariaLabel="误操作恢复">
+        <div className="flex items-center justify-between mb-2 flex-shrink-0">
+          <h3 className="text-base font-semibold text-ink-50 flex items-center gap-2"><Undo2 className="w-4 h-4 text-cinnabar-400" />误操作恢复（reflog）</h3>
+          <button onClick={() => setDialog(null)} className="p-1 text-ink-500 hover:text-ink-200"><X className="w-4 h-4" /></button>
+        </div>
+        <p className="text-[11px] text-cinnabar-300/80 mb-2 px-1 flex-shrink-0">将工作区与分支强制回退到所选操作点；未提交的修改将全部丢失。</p>
+        <div className="flex-1 min-h-0 overflow-y-auto rounded-lg border border-tech-500/10 bg-ink-900/30 p-1.5 space-y-0.5">
+          {reflogList === null && <div className="flex justify-center py-8"><Loader2 className="w-5 h-5 text-tech-400 animate-spin" /></div>}
+          {reflogList !== null && reflogList.length === 0 && <div className="text-center py-6 text-xs text-ink-500">无操作记录</div>}
+          {reflogList !== null && reflogList.map(r => (
+            <div key={r.selector} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-tech-500/5">
+              <span className="font-mono text-[10px] text-ink-600 flex-shrink-0">{r.selector}</span>
+              <span className="font-mono text-[11px] text-tech-400 flex-shrink-0">{r.shortSha}</span>
+              <span className="text-xs text-ink-300 truncate flex-1" title={r.subject}>{r.subject}</span>
+              <button onClick={() => doResetHard(r.selector, r.sha, r.subject)} disabled={!!busy}
+                className="text-[11px] text-cinnabar-300 hover:text-cinnabar-400 disabled:opacity-50 flex-shrink-0">恢复到这里</button>
+            </div>
+          ))}
+        </div>
+      </Modal>
+
       {/* ============ 托管平台协作面板（MR/Issue，适配层） ============ */}
       {collabOpen && (
         <DevCollabModal
@@ -598,6 +683,11 @@ export default function DevGitMenu({ project, onRefresh }: Props) {
               <div className="flex-1 min-w-0">
                 <p className="text-sm text-ink-100 truncate" title={l.message}>{l.message}</p>
                 <p className="text-[10px] text-ink-600">{l.author} · {fmtTime(l.timestamp)}</p>
+              </div>
+              <div className="flex items-center gap-1.5 flex-shrink-0 text-[10px] mt-0.5">
+                <button onClick={() => doCherryPick(l.hash, l.message)} disabled={!!busy} className="text-ink-500 hover:text-tech-400 disabled:opacity-50">摘取</button>
+                <button onClick={() => doRevert(l.hash, l.message)} disabled={!!busy} className="text-ink-500 hover:text-gold-400 disabled:opacity-50">撤销</button>
+                <button onClick={() => doExport(l.hash)} disabled={!!busy} className="text-ink-500 hover:text-ink-200 disabled:opacity-50">导出</button>
               </div>
             </div>
           ))}

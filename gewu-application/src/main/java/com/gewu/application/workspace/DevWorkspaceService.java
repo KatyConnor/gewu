@@ -12,6 +12,7 @@ import com.gewu.application.workspace.dto.GitLogEntryDTO;
 import com.gewu.application.workspace.dto.GitOpCommand;
 import com.gewu.application.workspace.dto.GitProjectDTO;
 import com.gewu.application.workspace.dto.GitStashDTO;
+import com.gewu.application.workspace.dto.ReflogEntryDTO;
 import com.gewu.application.workspace.dto.GitStatusDTO;
 import com.gewu.common.context.UserContext;
 import com.gewu.common.crypto.ApiKeyCryptoService;
@@ -641,6 +642,11 @@ public class DevWorkspaceService {
         }
     }
 
+    /** 项目沙箱 id（归档等跨仓场景复用） */
+    private String devWorkspaceSandbox() {
+        return ensureRunningSandboxId();
+    }
+
     private String currentBranchOf(com.gewu.domain.project.Project project) {
         return gitExec(project, "rev-parse --abbrev-ref HEAD", 10).trim();
     }
@@ -829,6 +835,63 @@ public class DevWorkspaceService {
             }
         }
         return list;
+    }
+
+    // ==================== 历史操作扩展（cherry-pick / revert / 归档 / reflog 恢复） ====================
+
+    /** 摘取提交到当前分支（冲突时 git 非零退出透出错误） */
+    public void cherryPick(String projectId, String sha) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        gitExec(project, "cherry-pick " + shellQuote(sha), 60);
+    }
+
+    /** 撤销提交（生成反向提交，安全不改历史） */
+    public void revertCommit(String projectId, String sha) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        gitExec(project, "revert --no-edit " + shellQuote(sha), 60);
+    }
+
+    /** 归档导出：指定引用打包 zip 到工作空间（供 /files/download 下载），返回工作空间相对路径 */
+    public String archiveRef(String projectId, String ref) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        String r = validateBranch(ref);
+        String safeRef = r.replace('/', '-');
+        String rel = "projects/" + project.getId() + "/archive/" + safeRef + ".zip";
+        sandboxClient.execCommand(devWorkspaceSandbox(), "mkdir -p " + shellQuote("/workspace/projects/" + project.getId() + "/archive"), 5);
+        gitExec(project, "archive --format=zip -o " + shellQuote("/workspace/" + rel) + " " + shellQuote(r), 120);
+        return rel;
+    }
+
+    /** reflog 条目（误操作恢复数据源，最新在前） */
+    public List<ReflogEntryDTO> reflog(String projectId) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        String out = gitExec(project, "reflog -n 30 --format=%H%x1f%gd%x1f%gs", 15);
+        List<ReflogEntryDTO> list = new ArrayList<>();
+        for (String line : out.split("\n")) {
+            if (line.isBlank()) {
+                continue;
+            }
+            String[] parts = line.split("\u001f", 3);
+            if (parts.length < 3) {
+                continue;
+            }
+            ReflogEntryDTO e = new ReflogEntryDTO();
+            e.setSha(parts[0]);
+            e.setShortSha(parts[0].length() > 7 ? parts[0].substring(0, 7) : parts[0]);
+            e.setSelector(parts[1]);
+            e.setSubject(parts[2]);
+            list.add(e);
+        }
+        return list;
+    }
+
+    /** 硬重置到指定 reflog 条目（危险操作，前端二次确认；工作区未提交内容将丢失） */
+    public void resetHard(String projectId, String sha) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        if (sha == null || !sha.matches("[0-9a-fA-F]{6,40}")) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "非法的目标提交");
+        }
+        gitExec(project, "reset --hard " + shellQuote(sha), 30);
     }
 
     /** 双分支对比（base..head 独有提交 + 三点差异 stat） */

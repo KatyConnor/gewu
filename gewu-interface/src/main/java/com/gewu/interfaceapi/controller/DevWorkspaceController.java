@@ -7,6 +7,7 @@ import com.gewu.application.workspace.dto.DebugOpCommand;
 import com.gewu.application.workspace.dto.DebugStateDTO;
 import com.gewu.application.workspace.dto.DevWorkspaceDTO;
 import com.gewu.application.workspace.dto.BlameLineDTO;
+import com.gewu.application.workspace.dto.ReflogEntryDTO;
 import com.gewu.application.workspace.dto.CompareDTO;
 import com.gewu.application.workspace.dto.GrepHitDTO;
 import com.gewu.application.workspace.dto.TagDTO;
@@ -240,6 +241,39 @@ public class DevWorkspaceController {
     @Operation(summary = "行级归属", description = "git blame 逐行作者/提交（编辑器 Annotate 数据源）")
     public Result<List<BlameLineDTO>> blame(@PathVariable String projectId, @RequestParam String path) {
         return Result.success(devWorkspaceService.blame(projectId, path));
+    }
+
+    @PostMapping("/projects/{projectId}/git/cherry-pick")
+    @Operation(summary = "摘取提交", description = "将指定提交摘取到当前分支（冲突时错误透出）")
+    public Result<Void> cherryPick(@PathVariable String projectId, @RequestBody Map<String, String> request) {
+        devWorkspaceService.cherryPick(projectId, request.get("sha"));
+        return Result.success();
+    }
+
+    @PostMapping("/projects/{projectId}/git/revert")
+    @Operation(summary = "撤销提交", description = "生成反向提交（不改历史）")
+    public Result<Void> revertCommit(@PathVariable String projectId, @RequestBody Map<String, String> request) {
+        devWorkspaceService.revertCommit(projectId, request.get("sha"));
+        return Result.success();
+    }
+
+    @PostMapping("/projects/{projectId}/git/archive")
+    @Operation(summary = "归档导出", description = "指定引用打包 zip 到工作空间，返回工作空间相对路径（供下载）")
+    public Result<String> archive(@PathVariable String projectId, @RequestBody Map<String, String> request) {
+        return Result.success(devWorkspaceService.archiveRef(projectId, request.get("ref")));
+    }
+
+    @GetMapping("/projects/{projectId}/git/reflog")
+    @Operation(summary = "reflog 条目", description = "本地操作历史（最新在前，误操作恢复数据源）")
+    public Result<List<ReflogEntryDTO>> reflog(@PathVariable String projectId) {
+        return Result.success(devWorkspaceService.reflog(projectId));
+    }
+
+    @PostMapping("/projects/{projectId}/git/reset-hard")
+    @Operation(summary = "硬重置（危险）", description = "工作区与分支强制回退到目标提交，未提交内容丢失——前端必须二次确认")
+    public Result<Void> resetHard(@PathVariable String projectId, @RequestBody Map<String, String> request) {
+        devWorkspaceService.resetHard(projectId, request.get("sha"));
+        return Result.success();
     }
 
     @GetMapping("/projects/{projectId}/git/compare")

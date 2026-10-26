@@ -71,3 +71,35 @@ export async function listIssues(projectId: string, state: 'open' | 'closed' | '
 export async function getIssue(projectId: string, number: number): Promise<VcsIssue> {
   return unwrap<VcsIssue>(request.get<ApiResponse<VcsIssue>>(`/v1/vcs/${projectId}/issues/${number}`));
 }
+
+// ==================== P2 写操作（评论 / Release） ====================
+
+export interface VcsRelease {
+  tagName: string;
+  name?: string;
+  notes?: string;
+  state?: string;
+  prerelease?: boolean;
+  webUrl?: string;
+  createdAt?: number;
+  assets: string[];
+}
+
+/** Issue 评论（按平台原生评论通道） */
+export async function commentIssue(projectId: string, number: number, body: string): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/vcs/${projectId}/issues/${number}/comments`, { body }));
+}
+
+/** MR 评论（按平台原生评论通道） */
+export async function commentMR(projectId: string, number: number, body: string): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/vcs/${projectId}/mrs/${number}/comments`, { body }));
+}
+
+export async function listReleases(projectId: string): Promise<VcsRelease[]> {
+  return unwrap<VcsRelease[]>(request.get<ApiResponse<VcsRelease[]>>(`/v1/vcs/${projectId}/releases`));
+}
+
+/** 基于已推送的 tag 创建 Release */
+export async function createRelease(projectId: string, data: { tagName: string; name?: string; notes?: string; prerelease?: boolean }): Promise<VcsRelease> {
+  return unwrap<VcsRelease>(request.post<ApiResponse<VcsRelease>>(`/v1/vcs/${projectId}/releases`, data));
+}

@@ -45,6 +45,10 @@ public class Project extends BaseEntity {
     private String repoCredential;
     /** 默认分支 */
     private String repoBranch;
+    /** 托管平台类型（github/gitlab/gitee/gitea；NULL=按 repoUrl 域名自动推断，协作适配层用） */
+    private String platformType;
+    /** 自建实例 REST API 根地址（NULL=按平台默认推导） */
+    private String apiBase;
     /** clone 状态: pending/cloning/ready/failed */
     private String cloneStatus;
     /** 最近一次 clone 失败的 stderr 摘要（成功时清空） */

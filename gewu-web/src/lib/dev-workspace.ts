@@ -389,3 +389,47 @@ export async function runProject(projectId: string, command: string): Promise<Ex
 export async function listFileEntries(path: string): Promise<FileEntry[]> {
   return unwrap<FileEntry[]>(request.get<ApiResponse<FileEntry[]>>('/v1/dev-workspaces/files/entries', { params: { path } }));
 }
+
+// ==================== git 层历史操作扩展（P2） ====================
+
+export interface ReflogEntry {
+  sha: string;
+  shortSha: string;
+  /** reflog 选择器（HEAD@{0}） */
+  selector: string;
+  subject: string;
+}
+
+export async function listReflog(projectId: string): Promise<ReflogEntry[]> {
+  return unwrap<ReflogEntry[]>(request.get<ApiResponse<ReflogEntry[]>>(`/v1/dev-workspaces/projects/${projectId}/git/reflog`));
+}
+
+/** 硬重置（危险：未提交内容丢失，前端必须二次确认） */
+export async function resetHard(projectId: string, sha: string): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/dev-workspaces/projects/${projectId}/git/reset-hard`, { sha }));
+}
+
+/** 摘取提交到当前分支 */
+export async function cherryPick(projectId: string, sha: string): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/dev-workspaces/projects/${projectId}/git/cherry-pick`, { sha }));
+}
+
+/** 撤销提交（生成反向提交） */
+export async function revertCommit(projectId: string, sha: string): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/dev-workspaces/projects/${projectId}/git/revert`, { sha }));
+}
+
+/** 归档导出：打包 zip 并触发浏览器下载，返回工作空间相对路径 */
+export async function downloadArchive(projectId: string, ref: string): Promise<string> {
+  const path = await unwrap<string>(request.post<ApiResponse<string>>(`/v1/dev-workspaces/projects/${projectId}/git/archive`, { ref }));
+  const blob = await request.get<Blob>(`/v1/dev-workspaces/files/download`, { params: { path }, responseType: 'blob' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${ref.replace(/\//g, '-')}.zip`;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+  return path;
+}

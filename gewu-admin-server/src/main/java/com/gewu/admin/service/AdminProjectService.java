@@ -143,6 +143,8 @@ public class AdminProjectService {
         project.setIconUrl(command.getIconUrl());
         project.setIconColor(command.getIconColor());
         project.setRepoUrl(command.getRepoUrl());
+        project.setPlatformType(command.getPlatformType());
+        project.setApiBase(command.getApiBase());
         applyRepoCredential(project, command.getRepoCredentialType(), command.getRepoUsername(), command.getRepoCredential());
         project.setRepoLocalPath("projects/" + project.getId() + "/repo");
         projectMapper.insert(project);
@@ -183,6 +185,8 @@ public class AdminProjectService {
         if (command.getIconUrl() != null) project.setIconUrl(command.getIconUrl());
         if (command.getIconColor() != null) project.setIconColor(command.getIconColor());
         if (command.getRepoUrl() != null) project.setRepoUrl(command.getRepoUrl());
+        if (command.getPlatformType() != null) project.setPlatformType(command.getPlatformType());
+        if (command.getApiBase() != null) project.setApiBase(command.getApiBase());
         if (command.getRepoCredential() != null && !command.getRepoCredential().isBlank()) {
             applyRepoCredential(project, command.getRepoCredentialType(), command.getRepoUsername(), command.getRepoCredential());
         }
@@ -403,6 +407,8 @@ public class AdminProjectService {
                 .iconUrl(project.getIconUrl())
                 .iconColor(project.getIconColor())
                 .repoUrl(project.getRepoUrl())
+                .platformType(project.getPlatformType())
+                .apiBase(project.getApiBase())
                 .repoBranch(project.getRepoBranch())
                 .cloneStatus(project.getCloneStatus())
                 .headCommit(project.getHeadCommit())

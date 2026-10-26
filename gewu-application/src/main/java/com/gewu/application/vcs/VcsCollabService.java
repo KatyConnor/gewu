@@ -38,7 +38,9 @@ public class VcsCollabService {
 
     private static final Map<PlatformType, PlatformAdapter> ADAPTERS = Map.of(
             PlatformType.GITHUB, new GithubAdapter(),
-            PlatformType.GITLAB, new GitlabAdapter());
+            PlatformType.GITLAB, new GitlabAdapter(),
+            PlatformType.GITEE, new GiteeAdapter(),
+            PlatformType.GITEA, new GiteaAdapter());
 
     // ==================== 主流程委托 ====================
 
@@ -66,6 +68,28 @@ public class VcsCollabService {
         return withAdapter(projectId, (ref, a) -> a.getIssue(ref, number));
     }
 
+    public void commentIssue(String projectId, long number, String body) {
+        withAdapter(projectId, (ref, a) -> {
+            a.commentIssue(ref, number, body);
+            return null;
+        });
+    }
+
+    public void commentMR(String projectId, long number, String body) {
+        withAdapter(projectId, (ref, a) -> {
+            a.commentMR(ref, number, body);
+            return null;
+        });
+    }
+
+    public List<com.gewu.application.vcs.dto.ReleaseDTO> listReleases(String projectId) {
+        return withAdapter(projectId, (ref, a) -> a.listReleases(ref));
+    }
+
+    public com.gewu.application.vcs.dto.ReleaseDTO createRelease(String projectId, String tagName, String name, String notes, boolean prerelease) {
+        return withAdapter(projectId, (ref, a) -> a.createRelease(ref, tagName, name, notes, prerelease));
+    }
+
     // ==================== 解析与鉴权 ====================
 
     private ProjectRef resolve(String projectId) {
@@ -86,10 +110,21 @@ public class VcsCollabService {
             throw BusinessException.of(ResultCode.PARAM_INVALID, "项目未配置 Git 仓库地址");
         }
         String host = parseHost(repoUrl);
-        PlatformType platform = PlatformType.detect(host);
+        // 平台识别双轨：项目显式配置（自建实例）优先，否则按域名推断
+        PlatformType platform;
+        String ptCfg = project.getPlatformType();
+        if (ptCfg != null && !ptCfg.isBlank()) {
+            try {
+                platform = PlatformType.valueOf(ptCfg.trim().toUpperCase());
+            } catch (IllegalArgumentException e) {
+                throw BusinessException.of(ResultCode.PARAM_INVALID, "无效的托管平台类型配置: " + ptCfg);
+            }
+        } else {
+            platform = PlatformType.detect(host);
+        }
         if (platform == null) {
             throw BusinessException.of(ResultCode.PARAM_INVALID,
-                    "无法识别托管平台（支持 github/gitee/gitlab/gitea，自建实例平台类型配置即将支持）");
+                    "无法识别托管平台（支持 github/gitee/gitlab/gitea）——自建实例请在项目管理中显式配置平台类型与 API 地址");
         }
         PlatformAdapter adapter = ADAPTERS.get(platform);
         if (adapter == null) {
@@ -113,7 +148,7 @@ public class VcsCollabService {
         ref.setPlatform(platform);
         ref.setToken(token);
         ref.setRepoPath(repoPath);
-        applyEndpoints(ref, host, schemeOf(repoUrl));
+        applyEndpoints(ref, host, schemeOf(repoUrl), project.getApiBase());
         return ref;
     }
 
@@ -177,8 +212,14 @@ public class VcsCollabService {
     }
 
     /** 按平台推导 API/网页根地址（自建显式 apiBase 配置为后续增强） */
-    private static void applyEndpoints(ProjectRef ref, String host, String scheme) {
+    private static void applyEndpoints(ProjectRef ref, String host, String scheme, String explicitApiBase) {
         String web = scheme + host;
+        // 自建实例显式 API 地址优先（须为完整 http(s) 根地址）
+        if (explicitApiBase != null && !explicitApiBase.isBlank() && explicitApiBase.trim().startsWith("http")) {
+            ref.setApiBase(explicitApiBase.trim());
+            ref.setWebBase(web);
+            return;
+        }
         switch (ref.getPlatform()) {
             case GITHUB -> {
                 ref.setApiBase("https://api.github.com");

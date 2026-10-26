@@ -65,11 +65,45 @@ public class VcsCollabController {
         return Result.success(vcsCollabService.getIssue(projectId, number));
     }
 
+    @PostMapping("/issues/{number}/comments")
+    @Operation(summary = "Issue 评论", description = "P2 写操作（按平台原生评论通道）")
+    public Result<Void> commentIssue(@PathVariable String projectId, @PathVariable long number, @RequestBody CommentRequest request) {
+        vcsCollabService.commentIssue(projectId, number, request.getBody());
+        return Result.success();
+    }
+
+    @GetMapping("/releases")
+    @Operation(summary = "Release 列表", description = "基于 tag 的平台发布记录（按创建时间倒序）")
+    public Result<List<com.gewu.application.vcs.dto.ReleaseDTO>> listReleases(@PathVariable String projectId) {
+        return Result.success(vcsCollabService.listReleases(projectId));
+    }
+
+    @PostMapping("/releases")
+    @Operation(summary = "创建 Release", description = "基于已推送的 tag 创建（P2；产物附件上传留 P3）")
+    public Result<com.gewu.application.vcs.dto.ReleaseDTO> createRelease(@PathVariable String projectId, @RequestBody ReleaseCreateRequest request) {
+        return Result.success(vcsCollabService.createRelease(projectId,
+                request.getTagName(), request.getName(), request.getNotes(),
+                Boolean.TRUE.equals(request.getPrerelease())));
+    }
+
     @lombok.Data
     public static class MRCreateRequest {
         private String sourceBranch;
         private String targetBranch;
         private String title;
         private String description;
+    }
+
+    @lombok.Data
+    public static class CommentRequest {
+        private String body;
+    }
+
+    @lombok.Data
+    public static class ReleaseCreateRequest {
+        private String tagName;
+        private String name;
+        private String notes;
+        private Boolean prerelease;
     }
 }

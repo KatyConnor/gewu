@@ -43,6 +43,8 @@ export interface AdminProjectDTO {
   iconUrl: string | null;
   iconColor: string | null;
   repoUrl: string | null;
+  platformType?: string;
+  apiBase?: string;
   repoBranch: string | null;
   cloneStatus: string | null;
   headCommit: string | null;
@@ -72,6 +74,8 @@ export interface ProjectPayload {
   worktree?: string;
   iconColor?: string;
   repoUrl?: string;
+  platformType?: string;
+  apiBase?: string;
   repoCredentialType?: string;
   repoUsername?: string;
   /** 非空白时重新加密落库；不传保持现有凭证 */

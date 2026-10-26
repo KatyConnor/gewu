@@ -97,6 +97,8 @@ interface ProjectForm {
   worktree: string;
   iconColor: string;
   repoUrl: string;
+  platformType: string;
+  apiBase: string;
   authMode: 'credential' | 'password';
   credType: 'token' | 'ssh_key';
   credential: string;
@@ -110,7 +112,7 @@ interface ProjectForm {
 const EMPTY_FORM: ProjectForm = {
   projectId: '', projectName: '', shortName: '', systemName: '', description: '',
   visibility: 0, status: 1, techStack: '', vcs: 'git', worktree: '', iconColor: '#00b894',
-  repoUrl: '', authMode: 'credential', credType: 'token', credential: '',
+  repoUrl: '', platformType: '', apiBase: '', authMode: 'credential', credType: 'token', credential: '',
   repoUsername: '', repoPassword: '',
   techLeadUserId: '', techLeadName: '', memberUsers: [],
 };
@@ -189,6 +191,8 @@ export default function ProjectManagePage() {
     worktree: p.worktree || '',
     iconColor: p.iconColor || '#00b894',
     repoUrl: p.repoUrl || '',
+    platformType: p.platformType || '',
+    apiBase: p.apiBase || '',
     authMode: 'credential',
     credType: 'token',
     credential: '',
@@ -280,6 +284,8 @@ export default function ProjectManagePage() {
       worktree: form.worktree.trim() || undefined,
       iconColor: form.iconColor || undefined,
       repoUrl: form.repoUrl.trim() || undefined,
+      platformType: form.platformType || undefined,
+      apiBase: form.apiBase.trim() || undefined,
       repoCredentialType,
       repoUsername,
       // 编辑时留空 = 不改现有凭证；新建时留空 = 不设凭证
@@ -530,6 +536,22 @@ export default function ProjectManagePage() {
                   <div>
                     <label className={labelCls}>仓库地址</label>
                     <input value={form.repoUrl} onChange={e => setForm({ ...form, repoUrl: e.target.value })} placeholder="如：https://github.com/org/repo.git" className={inputCls} />
+                    <div className="grid grid-cols-2 gap-3">
+                      <div>
+                        <label className="block text-xs text-ink-500 mb-1">托管平台（可选，自建实例必选）</label>
+                        <select value={form.platformType} onChange={e => setForm({ ...form, platformType: e.target.value })} className={inputCls}>
+                          <option value="">自动识别域名</option>
+                          <option value="github">GitHub</option>
+                          <option value="gitlab">GitLab（含自建）</option>
+                          <option value="gitee">Gitee</option>
+                          <option value="gitea">Gitea/Gogs（自建）</option>
+                        </select>
+                      </div>
+                      <div>
+                        <label className="block text-xs text-ink-500 mb-1">自建 API 地址（可选）</label>
+                        <input value={form.apiBase} onChange={e => setForm({ ...form, apiBase: e.target.value })} placeholder="如 https://git.internal/api/v4" className={inputCls} />
+                      </div>
+                    </div>
                   </div>
                   <div>
                     <label className={labelCls}>访问认证（二选一，可选）</label>

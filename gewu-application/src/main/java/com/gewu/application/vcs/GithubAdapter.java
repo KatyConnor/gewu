@@ -144,6 +144,52 @@ public class GithubAdapter implements PlatformAdapter {
         return issue;
     }
 
+    @Override
+    public void commentIssue(ProjectRef ref, long number, String body) {
+        VcsHttp.post(api(ref, "/issues/" + number + "/comments"), headers(ref), Map.of("body", body));
+    }
+
+    @Override
+    public void commentMR(ProjectRef ref, long number, String body) {
+        // GitHub PR 评论 = Issue 评论通道（编号空间一致）
+        VcsHttp.post(api(ref, "/issues/" + number + "/comments"), headers(ref), Map.of("body", body));
+    }
+
+    @Override
+    public List<com.gewu.application.vcs.dto.ReleaseDTO> listReleases(ProjectRef ref) {
+        JsonNode arr = VcsHttp.get(api(ref, "/releases?per_page=30"), headers(ref));
+        List<com.gewu.application.vcs.dto.ReleaseDTO> list = new ArrayList<>();
+        for (JsonNode n : arr) {
+            list.add(toRelease(n));
+        }
+        return list;
+    }
+
+    @Override
+    public com.gewu.application.vcs.dto.ReleaseDTO createRelease(ProjectRef ref, String tagName, String name, String notes, boolean prerelease) {
+        JsonNode n = VcsHttp.post(api(ref, "/releases"), headers(ref), Map.of(
+                "tag_name", tagName,
+                "name", name != null ? name : tagName,
+                "body", notes != null ? notes : "",
+                "prerelease", prerelease));
+        return toRelease(n);
+    }
+
+    private com.gewu.application.vcs.dto.ReleaseDTO toRelease(JsonNode n) {
+        com.gewu.application.vcs.dto.ReleaseDTO r = new com.gewu.application.vcs.dto.ReleaseDTO();
+        r.setTagName(n.path("tag_name").asText());
+        r.setName(n.path("name").asText());
+        r.setNotes(n.path("body").asText(null));
+        r.setState(n.path("draft").asBoolean(false) ? "draft" : "published");
+        r.setPrerelease(n.path("prerelease").asBoolean(false));
+        r.setWebUrl(n.path("html_url").asText(null));
+        r.setCreatedAt(parseTime(n.path("created_at").asText(null)));
+        for (JsonNode a : n.path("assets")) {
+            r.getAssets().add(a.path("name").asText());
+        }
+        return r;
+    }
+
     private IssueDTO toIssue(JsonNode n) {
         IssueDTO issue = new IssueDTO();
         issue.setNumber(n.path("number").asLong());

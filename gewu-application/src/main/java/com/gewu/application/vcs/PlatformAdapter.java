@@ -31,4 +31,16 @@ public interface PlatformAdapter {
 
     /** Issue 详情（含评论，时间升序） */
     IssueDTO getIssue(ProjectRef ref, long number);
+
+    /** Issue 评论（P2 写操作） */
+    void commentIssue(ProjectRef ref, long number, String body);
+
+    /** MR 评论（P2 写操作；各平台评论通道不同，实现负责归一） */
+    void commentMR(ProjectRef ref, long number, String body);
+
+    /** Release 列表（按创建时间倒序） */
+    List<com.gewu.application.vcs.dto.ReleaseDTO> listReleases(ProjectRef ref);
+
+    /** 基于已推送的 tag 创建 Release */
+    com.gewu.application.vcs.dto.ReleaseDTO createRelease(ProjectRef ref, String tagName, String name, String notes, boolean prerelease);
 }

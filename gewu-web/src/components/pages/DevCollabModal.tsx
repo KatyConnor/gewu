@@ -4,7 +4,7 @@ import { GitPullRequest, CircleDot, ExternalLink, Loader2, Plus, X, RefreshCw } 
 import Modal from '@/components/ui/Modal';
 import { useToast } from '@/components/ui/Toast';
 import {
-  listMRs, createMR, getMR, ciOf, listIssues, getIssue,
+  listMRs, createMR, getMR, ciOf, listIssues, getIssue, commentMR, commentIssue,
   type MergeRequest, type CiStatus, type VcsIssue,
 } from '@/lib/vcs';
 import {
@@ -51,6 +51,8 @@ export default function DevCollabModal({ project, currentBranch, onClose }: Prop
   const [ci, setCi] = useState<CiStatus | null>(null);
   const [ciLoading, setCiLoading] = useState(false);
   const [issueDetail, setIssueDetail] = useState<VcsIssue | null>(null);
+  const [mrComment, setMrComment] = useState('');
+  const [issueComment, setIssueComment] = useState('');
 
   const loadMRs = async (st: typeof mrState) => {
     setMrs(null);
@@ -125,6 +127,37 @@ export default function DevCollabModal({ project, currentBranch, onClose }: Prop
       toast('CI 状态查询失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     } finally {
       setCiLoading(false);
+    }
+  };
+
+  const doCommentMR = async () => {
+    if (!detail || !mrComment.trim()) return;
+    setBusy(true);
+    try {
+      await commentMR(project.projectId, detail.number, mrComment.trim());
+      setMrComment('');
+      const d = await getMR(project.projectId, detail.number);
+      setDetail(d);
+      toast('评论已发表', 'success');
+    } catch (e) {
+      toast('评论失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doCommentIssue = async () => {
+    if (!issueDetail || !issueComment.trim()) return;
+    setBusy(true);
+    try {
+      await commentIssue(project.projectId, issueDetail.number, issueComment.trim());
+      setIssueComment('');
+      setIssueDetail(await getIssue(project.projectId, issueDetail.number));
+      toast('评论已发表', 'success');
+    } catch (e) {
+      toast('评论失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    } finally {
+      setBusy(false);
     }
   };
 
@@ -231,6 +264,14 @@ export default function DevCollabModal({ project, currentBranch, onClose }: Prop
                       ))}
                     </div>
                   )}
+                  <div className="flex items-center gap-1.5 pt-1 border-t border-tech-500/10">
+                    <input value={mrComment} onChange={e => setMrComment(e.target.value)}
+                      onKeyDown={e => { if (e.key === 'Enter' && mrComment.trim()) doCommentMR(); }}
+                      placeholder="发表评论…"
+                      className="flex-1 px-2 py-1 bg-ink-800/50 border border-tech-500/10 rounded text-[11px] text-ink-100 outline-none focus:border-tech-500/30" />
+                    <button onClick={doCommentMR} disabled={!!busy || !mrComment.trim()}
+                      className="px-2 py-1 text-[11px] border border-ink-700/60 rounded text-ink-200 hover:text-tech-400 disabled:opacity-40">评论</button>
+                  </div>
                 </div>
               )}
             </>
@@ -273,6 +314,14 @@ export default function DevCollabModal({ project, currentBranch, onClose }: Prop
                       <p className="text-ink-300 whitespace-pre-wrap break-all mt-0.5">{c.body}</p>
                     </div>
                   ))}
+                </div>
+                <div className="flex items-center gap-1.5 pt-1 border-t border-tech-500/10">
+                  <input value={issueComment} onChange={e => setIssueComment(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter' && issueComment.trim()) doCommentIssue(); }}
+                    placeholder="发表评论…"
+                    className="flex-1 px-2 py-1 bg-ink-800/50 border border-tech-500/10 rounded text-[11px] text-ink-100 outline-none focus:border-tech-500/30" />
+                  <button onClick={doCommentIssue} disabled={!!busy || !issueComment.trim()}
+                    className="px-2 py-1 text-[11px] border border-ink-700/60 rounded text-ink-200 hover:text-tech-400 disabled:opacity-40">评论</button>
                 </div>
               </div>
             )}
