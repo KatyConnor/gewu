@@ -8,6 +8,24 @@ package com.gewu.application.vcs;
 public enum PlatformType {
     GITHUB, GITLAB, GITEE, GITEA;
 
+    /**
+     * 令牌作为 HTTPS 凭证时的用户名形态（各平台不同——实测校准）：
+     * GitHub/Gitea = x-access-token；GitLab/Gitee = oauth2（Gitee 对 x-access-token 报
+     * "The token username invalid" 403）。
+     */
+    public String tokenUser() {
+        return switch (this) {
+            case GITLAB, GITEE -> "oauth2";
+            default -> "x-access-token";
+        };
+    }
+
+    /** 按 host 推断令牌用户名形态（无法识别平台时回落 x-access-token，兼容 GitHub 系） */
+    public static String tokenUserForHost(String host) {
+        PlatformType t = detect(host);
+        return t != null ? t.tokenUser() : "x-access-token";
+    }
+
     /** 从仓库 host 推断平台类型；无法识别返回 null（协作功能降级） */
     public static PlatformType detect(String host) {
         if (host == null || host.isBlank()) {

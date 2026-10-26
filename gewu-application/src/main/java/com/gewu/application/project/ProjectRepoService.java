@@ -130,7 +130,7 @@ public class ProjectRepoService {
 
     /**
      * 按凭证重写仓库地址：私有仓库 clone/pull 自动携带认证信息。
-     * 优先项目级凭证（token 型注入 x-access-token，password 型注入 user:pass；
+     * 优先项目级凭证（token 型注入令牌用户名形态 x-access-token/oauth2（按平台），password 型注入 user:pass；
      * 两型遇到 ssh 形态地址先规范化为 https 再注入），ssh_key 型不注入 URL
      * （私钥经 {@link #injectSshKeyIfConfigured} 注入容器）。无项目级凭证时回落用户级 token 凭证。
      */
@@ -158,7 +158,7 @@ public class ProjectRepoService {
         }
     }
 
-    /** 项目级凭证注入：token → x-access-token:{token}，password → {user}:{pass}（均 URL 编码）。未配置返回 null。 */
+    /** 项目级凭证注入：token → {令牌用户名}:{token}（按平台），password → {user}:{pass}（均 URL 编码）。未配置返回 null。 */
     private String injectProjectCredential(Project project, String repoUrl) {
         String encrypted = project.getRepoCredential();
         if (encrypted == null || encrypted.isBlank()) {
@@ -174,8 +174,10 @@ public class ProjectRepoService {
             return repoUrl.replaceFirst("https://",
                     "https://" + urlEncode(user) + ":" + urlEncode(secret) + "@");
         }
-        // token 型（ssh_key 型走容器内 ssh 配置，不注入 URL）
-        return repoUrl.replaceFirst("https://", "https://x-access-token:" + urlEncode(secret) + "@");
+        // token 型（ssh_key 型走容器内 ssh 配置，不注入 URL）；用户名形态按托管平台（Gitee/GitLab=oauth2）
+        String host = URI.create(repoUrl).getHost();
+        String tokenUser = com.gewu.application.vcs.PlatformType.tokenUserForHost(host);
+        return repoUrl.replaceFirst("https://", "https://" + tokenUser + ":" + urlEncode(secret) + "@");
     }
 
     /** 用户级 token 凭证注入（历史逻辑：git_credential 表按 host 匹配）。 */
@@ -201,7 +203,8 @@ public class ProjectRepoService {
         if (credValue == null || credValue.isBlank()) {
             return repoUrl;
         }
-        return repoUrl.replaceFirst("https://", "https://x-access-token:" + urlEncode(credValue) + "@");
+        String tokenUser = com.gewu.application.vcs.PlatformType.tokenUserForHost(host);
+        return repoUrl.replaceFirst("https://", "https://" + tokenUser + ":" + urlEncode(credValue) + "@");
     }
 
     private static String urlEncode(String value) {
