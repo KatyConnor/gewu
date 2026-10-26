@@ -3,7 +3,10 @@ package com.gewu.application.workspace;
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.gewu.application.sandbox.SandboxClient;
 import com.gewu.application.workspace.dto.DevWorkspaceDTO;
+import com.gewu.application.workspace.dto.BlameLineDTO;
+import com.gewu.application.workspace.dto.CompareDTO;
 import com.gewu.application.workspace.dto.GrepHitDTO;
+import com.gewu.application.workspace.dto.TagDTO;
 import com.gewu.application.workspace.dto.GitBranchesDTO;
 import com.gewu.application.workspace.dto.GitLogEntryDTO;
 import com.gewu.application.workspace.dto.GitOpCommand;
@@ -737,6 +740,128 @@ public class DevWorkspaceService {
             hits.add(h);
         }
         return hits;
+    }
+
+    // ==================== 标签 / blame / 双分支对比（git 协议层，全托管平台通用） ====================
+
+    /** 标签列表（for-each-ref，按创建时间倒序） */
+    public List<TagDTO> listTags(String projectId) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        String out = gitExec(project,
+                "for-each-ref refs/tags --sort=-creatordate --format=%(refname:short)%09%(creatordate:format:%Y-%m-%d %H:%M)%09%(objectname:short)", 15);
+        List<TagDTO> list = new ArrayList<>();
+        for (String line : out.split("\n")) {
+            String[] parts = line.split("\t");
+            if (parts.length < 3 || parts[0].isBlank()) {
+                continue;
+            }
+            TagDTO t = new TagDTO();
+            t.setName(parts[0]);
+            t.setDate(parts[1]);
+            t.setSha(parts[2]);
+            list.add(t);
+        }
+        return list;
+    }
+
+    /** 创建附注标签（可选推送到远程） */
+    public List<TagDTO> createTag(String projectId, String name, String message, boolean push) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        String tag = validateBranch(name);
+        if (message == null || message.isBlank()) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "标签说明不能为空");
+        }
+        gitExec(project, "tag -a " + shellQuote(tag) + " -m " + shellQuote(message.trim()), 15);
+        if (push) {
+            gitExec(project, "push origin refs/tags/" + shellQuote(tag), 60);
+        }
+        return listTags(projectId);
+    }
+
+    /** 删除标签（可选同步删除远程标签） */
+    public List<TagDTO> deleteTag(String projectId, String name, boolean pushRemote) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        String tag = validateBranch(name);
+        gitExec(project, "tag -d " + shellQuote(tag), 15);
+        if (pushRemote) {
+            gitExec(project, "push origin :refs/tags/" + shellQuote(tag), 60);
+        }
+        return listTags(projectId);
+    }
+
+    /** 行级归属（git blame --line-porcelain，每行完整头块便于解析） */
+    public List<BlameLineDTO> blame(String projectId, String path) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        String out = gitExec(project, "blame --line-porcelain -- " + shellQuote(sanitizeWorkspaceRel(path)), 30);
+        List<BlameLineDTO> list = new ArrayList<>();
+        String sha = null, author = null, summary = null;
+        Long time = null;
+        int lineNo = 0;
+        for (String line : out.split("\n", -1)) {
+            if (line.startsWith("\t")) {
+                lineNo++;
+                BlameLineDTO b = new BlameLineDTO();
+                b.setLine(lineNo);
+                b.setSha(sha != null && sha.length() > 8 ? sha.substring(0, 8) : sha);
+                b.setAuthor(author);
+                b.setTime(time);
+                b.setSummary(summary);
+                b.setContent(line.substring(1));
+                list.add(b);
+                continue;
+            }
+            if (line.length() >= 40 && line.substring(0, 40).matches("[0-9a-f]{40}.*")) {
+                sha = line.substring(0, 40);
+                author = null;
+                summary = null;
+                time = null;
+                continue;
+            }
+            if (line.startsWith("author ")) {
+                author = line.substring("author ".length());
+            } else if (line.startsWith("author-time ")) {
+                try {
+                    time = Long.parseLong(line.substring("author-time ".length())) * 1000;
+                } catch (NumberFormatException ignored) {
+                }
+            } else if (line.startsWith("summary ")) {
+                summary = line.substring("summary ".length());
+            }
+        }
+        return list;
+    }
+
+    /** 双分支对比（base..head 独有提交 + 三点差异 stat） */
+    public CompareDTO compareBranches(String projectId, String base, String head) {
+        com.gewu.domain.project.Project project = requireGitProject(projectId);
+        String b = validateBranch(base);
+        String h = validateBranch(head);
+        CompareDTO dto = new CompareDTO();
+        dto.setBase(b);
+        dto.setHead(h);
+        String logOut = gitExec(project,
+                "log --pretty=format:%H%x1f%an%x1f%at%x1f%s " + shellQuote(b) + ".." + shellQuote(h) + " -n 50", 20);
+        for (String line : logOut.split("\n")) {
+            if (line.isBlank()) {
+                continue;
+            }
+            String[] parts = line.split("\u001f", 4);
+            if (parts.length < 4) {
+                continue;
+            }
+            GitLogEntryDTO e = new GitLogEntryDTO();
+            e.setHash(parts[0]);
+            e.setShortHash(parts[0].length() > 7 ? parts[0].substring(0, 7) : parts[0]);
+            e.setAuthor(parts[1]);
+            try {
+                e.setTimestamp(Long.parseLong(parts[2]));
+            } catch (NumberFormatException ignored) {
+            }
+            e.setMessage(parts[3]);
+            dto.getCommits().add(e);
+        }
+        dto.setStatText(gitExec(project, "diff --stat " + shellQuote(b) + "..." + shellQuote(h), 30));
+        return dto;
     }
 
     /** 构建项目（基于项目仓库路径） */

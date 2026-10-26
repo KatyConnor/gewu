@@ -378,3 +378,8 @@ div[onclick], [role="button"] {
   font-style: italic;
   opacity: 0.85;
 }
+.dw-annotate {
+  color: #9aa7a0;
+  font-style: italic;
+  opacity: 0.8;
+}

@@ -123,7 +123,7 @@ function ensureEditorExtras(monaco: Monaco) {
 export default function MonacoEditor({
   value, language, path, onChange, readOnly = false, wordWrap = 'on',
   theme, minimap = false, gotoLine, onCursor,
-  breakpoints, conditionalBreakpoints, onToggleBreakpoint, currentLine, inlineValue, valueLookup,
+  breakpoints, conditionalBreakpoints, onToggleBreakpoint, currentLine, inlineValue, lineAfter, valueLookup,
 }: {
   value: string;
   language: string;
@@ -151,6 +151,8 @@ export default function MonacoEditor({
   currentLine?: number;
   /** 行尾内联变量值（IDEA inline values，调试停点快照） */
   inlineValue?: { line: number; text: string };
+  /** 多行行尾标注（blame Annotate：每行作者/提交摘要） */
+  lineAfter?: Array<{ line: number; text: string }>;
   /** 悬停取值（IDEA hover 求值：word → 变量值） */
   valueLookup?: (word: string) => string | undefined;
 }) {
@@ -217,7 +219,18 @@ export default function MonacoEditor({
       });
     }
     collection.set(decorations);
-  }, [breakpoints, conditionalBreakpoints, currentLine, inlineValue, path]);
+    (lineAfter || []).forEach((la) => {
+      if (la.line > 0 && la.text) {
+        decorations.push({
+          range: new monaco.Range(la.line, 1, la.line, 1),
+          options: {
+            after: { content: '   ' + la.text, inlineClassName: 'dw-annotate' },
+          },
+        });
+      }
+    });
+    collection.set(decorations);
+  }, [breakpoints, conditionalBreakpoints, currentLine, inlineValue, lineAfter, path]);
 
   return (
     <Editor

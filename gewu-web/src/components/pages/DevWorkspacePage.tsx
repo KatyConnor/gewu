@@ -13,7 +13,7 @@ import { isMarkdownPath, isProbablyBinary, monacoLangOf } from '@/lib/fileLangua
 import {
   getDevWorkspace, startSandbox, stopSandbox, readFile, writeFile,
   listProjects, gitPull, buildProject, runProject,
-  listFileEntries,
+  listFileEntries, blame as fetchBlame,
   debugStart, debugState as fetchDebugState, debugStop, debugBreakpoint, debugAction, debugEval, debugWatch,
   type DevWorkspaceInfo, type GitProject, type FileEntry, type DebugState,
 } from '@/lib/dev-workspace';
@@ -104,6 +104,9 @@ export default function DevWorkspacePage() {
   const [bpLines, setBpLines] = useState<Set<string>>(new Set());
   /** 停点自动定位去重（同停点只自动打开一次） */
   const lastAutoOpen = useRef<string>('');
+  // ===== blame 行级归属（IDEA Annotate） =====
+  const [blameOn, setBlameOn] = useState(false);
+  const [blameLines, setBlameLines] = useState<Array<{ line: number; text: string }>>([]);
   /** 调试会话是否进行中 */
   const debugActive = !!debugState && debugState.status !== 'inactive';
   // 文件树（IDEA 式工作台）：path → entries 懒加载缓存 + 展开集合
@@ -317,6 +320,8 @@ export default function DevWorkspacePage() {
   const handleReadFile = async (path: string, line?: number) => {
     setCurrentPath(path);
     setGotoLine(line);
+    setBlameOn(false);
+    setBlameLines([]);
     setCursor({ line: 0, col: 0 });
     setContentLoading(true);
     setViewMode('preview');
@@ -603,6 +608,26 @@ export default function DevWorkspacePage() {
       toast('运行到光标失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     } finally {
       setDebugBusy(null);
+    }
+  };
+
+  /** Annotate 开关：拉取当前文件行级归属（IDEA blame 标注） */
+  const toggleBlame = async () => {
+    if (blameOn) {
+      setBlameOn(false);
+      setBlameLines([]);
+      return;
+    }
+    if (!selectedProject?.localPath || !currentPath) return;
+    try {
+      const lines = await fetchBlame(selectedProject.projectId, currentPath);
+      setBlameLines(lines.map(l => ({
+        line: l.line,
+        text: `${l.sha || ''} ${l.author || ''} ${l.time ? new Date(l.time).toLocaleDateString('zh-CN') : ''}`,
+      })));
+      setBlameOn(true);
+    } catch (e) {
+      toast('blame 加载失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     }
   };
 
@@ -955,6 +980,7 @@ export default function DevWorkspacePage() {
                 onToggleBreakpoint={toggleBreakpoint}
                 currentLine={debugCurrentLine}
                 inlineValue={inlineValue}
+                lineAfter={blameOn ? blameLines : undefined}
                 valueLookup={debugValueLookup}
               />
             </div>
@@ -986,6 +1012,12 @@ export default function DevWorkspacePage() {
             <div className="flex items-center gap-3 min-w-0">
               <span className="truncate">{currentPath ? langLabelOf(currentPath) : '—'}</span>
               {cursor.line > 0 && <span className="flex-shrink-0">行 {cursor.line}，列 {cursor.col}</span>}
+              {projectReady && currentPath && (
+                <button onClick={toggleBlame} disabled={contentLoading}
+                  className={`flex-shrink-0 hover:text-tech-400 disabled:opacity-50 ${blameOn ? 'text-tech-400' : ''}`} title="行级归属标注（IDEA Annotate）">
+                  Annotate
+                </button>
+              )}
             </div>
             <div className="flex items-center gap-3 flex-shrink-0">
               <span>UTF-8</span>

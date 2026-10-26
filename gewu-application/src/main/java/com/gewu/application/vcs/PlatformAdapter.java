@@ -1,0 +1,34 @@
+package com.gewu.application.vcs;
+
+import com.gewu.application.vcs.dto.CiStatusDTO;
+import com.gewu.application.vcs.dto.IssueDTO;
+import com.gewu.application.vcs.dto.MergeRequestDTO;
+
+import java.util.List;
+
+/**
+ * 托管平台适配器（协作层主流程，P1 范围：MR 主流程 + CI 聚合 + Issue 只读）。
+ * 实现按平台隔离（GitHub/GitLab/Gitee/Gitea），统一经 ProjectRef 访问。
+ */
+public interface PlatformAdapter {
+
+    PlatformType platform();
+
+    /** 合并请求列表（state: open/all/merged/closed，实现按平台归一） */
+    List<MergeRequestDTO> listMRs(ProjectRef ref, String state);
+
+    /** 发起合并请求 */
+    MergeRequestDTO createMR(ProjectRef ref, String sourceBranch, String targetBranch, String title, String description);
+
+    /** 合并请求详情（含 headSha 供 CI 查询） */
+    MergeRequestDTO getMR(ProjectRef ref, long number);
+
+    /** CI 状态聚合（分支名或 SHA） */
+    CiStatusDTO ciOf(ProjectRef ref, String refName);
+
+    /** Issue 列表（只读，state: open/closed/all） */
+    List<IssueDTO> listIssues(ProjectRef ref, String state);
+
+    /** Issue 详情（含评论，时间升序） */
+    IssueDTO getIssue(ProjectRef ref, long number);
+}

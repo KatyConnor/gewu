@@ -331,6 +331,52 @@ export async function debugEval(projectId: string, expr: string): Promise<DebugS
   return unwrap<DebugState>(request.post<ApiResponse<DebugState>>(`/v1/dev-workspaces/projects/${projectId}/debug/eval`, { expr }));
 }
 
+// ==================== git 协议层扩展（标签/blame/双分支对比，全托管平台通用） ====================
+
+export interface GitTag {
+  name: string;
+  date: string;
+  sha: string;
+}
+
+export interface BlameLine {
+  line: number;
+  sha: string;
+  author?: string;
+  time?: number;
+  summary?: string;
+  content: string;
+}
+
+export interface BranchCompare {
+  base: string;
+  head: string;
+  commits: GitLogEntry[];
+  statText: string;
+}
+
+export async function listTags(projectId: string): Promise<GitTag[]> {
+  return unwrap<GitTag[]>(request.get<ApiResponse<GitTag[]>>(`/v1/dev-workspaces/projects/${projectId}/git/tags`));
+}
+
+export async function createTag(projectId: string, name: string, message: string, push?: boolean): Promise<GitTag[]> {
+  return unwrap<GitTag[]>(request.post<ApiResponse<GitTag[]>>(`/v1/dev-workspaces/projects/${projectId}/git/tag`, { name, message, push }));
+}
+
+export async function deleteTag(projectId: string, name: string, pushRemote?: boolean): Promise<GitTag[]> {
+  return unwrap<GitTag[]>(request.delete<ApiResponse<GitTag[]>>(`/v1/dev-workspaces/projects/${projectId}/git/tag`, { params: { name, pushRemote } }));
+}
+
+/** 行级归属（编辑器 Annotate 数据源） */
+export async function blame(projectId: string, path: string): Promise<BlameLine[]> {
+  return unwrap<BlameLine[]>(request.get<ApiResponse<BlameLine[]>>(`/v1/dev-workspaces/projects/${projectId}/git/blame`, { params: { path } }));
+}
+
+/** 双分支对比（base..head 独有提交 + 三点差异 stat） */
+export async function compareBranches(projectId: string, base: string, head: string): Promise<BranchCompare> {
+  return unwrap<BranchCompare>(request.get<ApiResponse<BranchCompare>>(`/v1/dev-workspaces/projects/${projectId}/git/compare`, { params: { base, head } }));
+}
+
 export async function buildProject(projectId: string, command: string): Promise<ExecResult> {
   return unwrap<ExecResult>(request.post<ApiResponse<ExecResult>>(`/v1/dev-workspaces/projects/${projectId}/build`, { command }));
 }

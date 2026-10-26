@@ -6,7 +6,10 @@ import com.gewu.application.workspace.DevWorkspaceService;
 import com.gewu.application.workspace.dto.DebugOpCommand;
 import com.gewu.application.workspace.dto.DebugStateDTO;
 import com.gewu.application.workspace.dto.DevWorkspaceDTO;
+import com.gewu.application.workspace.dto.BlameLineDTO;
+import com.gewu.application.workspace.dto.CompareDTO;
 import com.gewu.application.workspace.dto.GrepHitDTO;
+import com.gewu.application.workspace.dto.TagDTO;
 import com.gewu.application.workspace.dto.GitBranchesDTO;
 import com.gewu.application.workspace.dto.GitLogEntryDTO;
 import com.gewu.application.workspace.dto.GitOpCommand;
@@ -209,6 +212,41 @@ public class DevWorkspaceController {
                                               @RequestParam String query,
                                               @RequestParam(required = false) Integer limit) {
         return Result.success(devWorkspaceService.gitGrep(projectId, query, limit));
+    }
+
+    @GetMapping("/projects/{projectId}/git/tags")
+    @Operation(summary = "标签列表")
+    public Result<List<TagDTO>> listTags(@PathVariable String projectId) {
+        return Result.success(devWorkspaceService.listTags(projectId));
+    }
+
+    @PostMapping("/projects/{projectId}/git/tag")
+    @Operation(summary = "创建附注标签", description = "可选推送到远程")
+    public Result<List<TagDTO>> createTag(@PathVariable String projectId, @RequestBody Map<String, Object> request) {
+        return Result.success(devWorkspaceService.createTag(projectId,
+                (String) request.get("name"), (String) request.get("message"),
+                Boolean.TRUE.equals(request.get("push"))));
+    }
+
+    @DeleteMapping("/projects/{projectId}/git/tag")
+    @Operation(summary = "删除标签", description = "可选同步删除远程标签")
+    public Result<List<TagDTO>> deleteTag(@PathVariable String projectId,
+                                          @RequestParam String name,
+                                          @RequestParam(defaultValue = "false") boolean pushRemote) {
+        return Result.success(devWorkspaceService.deleteTag(projectId, name, pushRemote));
+    }
+
+    @GetMapping("/projects/{projectId}/git/blame")
+    @Operation(summary = "行级归属", description = "git blame 逐行作者/提交（编辑器 Annotate 数据源）")
+    public Result<List<BlameLineDTO>> blame(@PathVariable String projectId, @RequestParam String path) {
+        return Result.success(devWorkspaceService.blame(projectId, path));
+    }
+
+    @GetMapping("/projects/{projectId}/git/compare")
+    @Operation(summary = "双分支对比", description = "base..head 独有提交 + 三点差异 stat")
+    public Result<CompareDTO> compare(@PathVariable String projectId,
+                                      @RequestParam String base, @RequestParam String head) {
+        return Result.success(devWorkspaceService.compareBranches(projectId, base, head));
     }
 
     @PostMapping("/projects/{projectId}/git/commit")
