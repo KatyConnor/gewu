@@ -108,8 +108,12 @@ class EngineSupervisor extends EventEmitter {
     // ${gewu.desktop.data-dir:./data} 占位符生效（Spring 宽松绑定）；现全模式直接传
     // CLI 参数，不再依赖 env/yml 链路——打包态从任意 cwd 启动数据目录恒定
     const engineDataDir = this.opts.isolatedDataDir || this.opts.dataDir;
+    // 默认工作区显式化:随模式/隔离环境解析后传给引擎(修 ./workspace 相对启动目录漂移)
     if (engineDataDir) {
       args.push(`--gewu.desktop.data-dir=${engineDataDir}`);
+    if (this.opts.workspaceRoot) {
+      args.push(`--gewu.desktop.workspace-root=${this.opts.workspaceRoot}`);
+    }
     }
     const env = {
       ...process.env,

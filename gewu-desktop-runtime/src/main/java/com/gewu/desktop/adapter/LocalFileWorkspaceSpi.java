@@ -32,16 +32,16 @@ public class LocalFileWorkspaceSpi implements FileWorkspaceSpi {
 
     @Override
     public String readFile(ToolContext ctx, String path) throws Exception {
-        return fileService.readFile(ctx.getSessionId(), path);
+        return fileService.readFile(ctx, path);
     }
 
     @Override
     public void writeFile(ToolContext ctx, String path, String content) throws Exception {
-        fileService.writeFile(ctx.getSessionId(), path, content);
+        fileService.writeFile(ctx, path, content);
     }
 
     @Override
     public List<String> listDir(ToolContext ctx, String path) throws Exception {
-        return fileService.listDir(ctx.getSessionId(), path);
+        return fileService.listDir(ctx, path);
     }
 }

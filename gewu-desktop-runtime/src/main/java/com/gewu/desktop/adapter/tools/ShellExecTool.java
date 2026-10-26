@@ -72,7 +72,7 @@ public class ShellExecTool implements Tool {
             if (deny != null) {
                 return ToolResult.failure(deny, System.currentTimeMillis() - start);
             }
-            Path root = fileService.rootFor(context.getSessionId());
+            Path root = fileService.rootFor(context);
             Path cwdPath = cwd == null || cwd.isBlank() ? root
                     : com.gewu.desktop.security.PathGuard.secureResolve(root, cwd);
             if (!Files.isDirectory(cwdPath)) {

@@ -26,9 +26,9 @@ final class GitCliSupport {
         return cmd;
     }
 
-    static String run(LocalFileService fileService, String sessionId, String subcommand) {
+    static String run(LocalFileService fileService, com.gewu.agent.engine.tool.ToolContext ctx, String subcommand) {
         try {
-            Path root = fileService.rootFor(sessionId);
+            Path root = fileService.rootFor(ctx);
             PathGuard.secureResolve(root, "."); // 确认工作区可达
             ProcessBuilder pb = new ProcessBuilder(concat("git", subcommand.split("\\s+")));
             pb.directory(root.toFile());

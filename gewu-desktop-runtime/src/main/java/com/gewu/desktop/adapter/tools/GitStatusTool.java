@@ -31,7 +31,7 @@ public class GitStatusTool implements Tool {
     @Override
     public ToolResult invoke(String arguments, ToolContext context) {
         long start = System.currentTimeMillis();
-        String out = GitCliSupport.run(fileService, context.getSessionId(), "status --short --branch");
+        String out = GitCliSupport.run(fileService, context, "status --short --branch");
         return ToolResult.success(out, System.currentTimeMillis() - start);
     }
 }

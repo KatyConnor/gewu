@@ -31,7 +31,7 @@ public class GitLogTool implements Tool {
     @Override
     public ToolResult invoke(String arguments, ToolContext context) {
         long start = System.currentTimeMillis();
-        String out = GitCliSupport.run(fileService, context.getSessionId(), "log --oneline -n 20");
+        String out = GitCliSupport.run(fileService, context, "log --oneline -n 20");
         return ToolResult.success(out, System.currentTimeMillis() - start);
     }
 }

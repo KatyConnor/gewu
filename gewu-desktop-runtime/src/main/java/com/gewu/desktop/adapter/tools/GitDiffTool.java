@@ -31,7 +31,7 @@ public class GitDiffTool implements Tool {
     @Override
     public ToolResult invoke(String arguments, ToolContext context) {
         long start = System.currentTimeMillis();
-        String out = GitCliSupport.run(fileService, context.getSessionId(), "diff");
+        String out = GitCliSupport.run(fileService, context, "diff");
         return ToolResult.success(out, System.currentTimeMillis() - start);
     }
 }

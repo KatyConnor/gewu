@@ -23,9 +23,11 @@ interface TermRec {
   ro?: ResizeObserver;
 }
 
-export default function TerminalPanel({ cwd, height = 220, onAllClosed }: {
+export default function TerminalPanel({ cwd, height = 220, visible = true, onAllClosed }: {
   cwd?: string;
   height?: number;
+  /** 收起=CSS 隐藏（PTY 与 xterm 缓冲保持存活，重开即恢复——用户实测收起重开丢内容） */
+  visible?: boolean;
   onAllClosed?: () => void;
 }) {
   const [tabs, setTabs] = useState<TabMeta[]>([]);
@@ -111,13 +113,26 @@ export default function TerminalPanel({ cwd, height = 220, onAllClosed }: {
     }
   }, [onAllClosed]);
 
-  // ===== 首次展开自动建一个 Tab（点「终端」即得可用终端） =====
+  // ===== 首次展开自动建一个 Tab（点「终端」即得可用终端；常驻挂载后首开前不建） =====
   useEffect(() => {
-    if (!autoCreatedRef.current) {
+    if (visible && !autoCreatedRef.current) {
       autoCreatedRef.current = true;
       createTab();
     }
-  }, [createTab]);
+  }, [visible, createTab]);
+
+  // ===== 重新显示：等布局恢复后重算尺寸并聚焦（隐藏期间窗口可能已变化） =====
+  useEffect(() => {
+    if (!visible) return;
+    const key = activeRef.current;
+    if (key == null) return;
+    const rec = termsRef.current.get(key);
+    if (!rec) return;
+    requestAnimationFrame(() => {
+      try { rec.fit.fit(); } catch { /* 忽略 */ }
+      rec.term.focus();
+    });
+  }, [visible]);
 
   // ===== 确保 Tab 的 xterm/PTY 就绪（host 挂载后创建；新增 Tab 触发） =====
   useEffect(() => {
@@ -190,7 +205,7 @@ export default function TerminalPanel({ cwd, height = 220, onAllClosed }: {
   }, [tabs, active]);
 
   return (
-    <div style={{ flexShrink: 0 }}>
+    <div style={{ flexShrink: 0, display: visible ? undefined : 'none' }}>
       <div className="term-tabs">
         {tabs.map((t) => (
           <div key={t.key}

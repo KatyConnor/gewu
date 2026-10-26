@@ -24,6 +24,15 @@ declare global {
       onEngineStatus(cb: (s: { state: string; detail?: unknown; info?: EngineInfo }) => void): () => void;
       saveModelKey(p: { providerCode: string; apiKey: string; displayName?: string; baseUrl?: string; modelsJson?: string }): Promise<{ ok: boolean }>;
       listSavedProviders(): Promise<Array<{ code: string; displayName?: string; baseUrl?: string }>>;
+      getLaunchConfig(): Promise<{ mode: 'unconfigured' | 'local' | 'cloud'; cloudUrl?: string }>;
+      saveLaunchConfig(cfg: { mode: 'local' | 'cloud'; cloudUrl?: string }): Promise<{ mode: 'local' | 'cloud' }>;
+      win: {
+        minimize(): Promise<void>;
+        maximizeToggle(): Promise<void>;
+        close(): Promise<void>;
+        isMaximized(): Promise<boolean>;
+        onState(cb: (s: { maximized: boolean }) => void): () => void;
+      };
       terminal: {
         create: (opts?: { cwd?: string; cols?: number; rows?: number; shell?: string }) =>
           Promise<{ tabId: string; backend: string }>;

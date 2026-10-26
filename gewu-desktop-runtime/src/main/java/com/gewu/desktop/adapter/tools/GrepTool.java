@@ -70,7 +70,7 @@ public class GrepTool implements Tool {
             Pattern regex = Pattern.compile(pattern);
             PathMatcherLike filter = glob == null || glob.isBlank() ? null
                     : globLike(glob);
-            Path root = fileService.rootFor(context.getSessionId());
+            Path root = fileService.rootFor(context);
             List<String> hits = new ArrayList<>();
             try (Stream<Path> walk = Files.walk(root)) {
                 for (Path p : (Iterable<Path>) walk.filter(Files::isRegularFile)

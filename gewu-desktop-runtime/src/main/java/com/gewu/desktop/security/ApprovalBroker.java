@@ -1,5 +1,6 @@
 package com.gewu.desktop.security;
 
+import com.gewu.desktop.config.DesktopProps;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Component;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
@@ -24,17 +25,23 @@ import java.util.concurrent.TimeUnit;
 @Component
 public class ApprovalBroker {
 
-    private static final long DEFAULT_TIMEOUT_MS = 5 * 60 * 1000L;
-
     private final JdbcTemplate jdbc;
+    private final DesktopProps props;
 
     /** 挂起中的授权请求：approvalId → future */
     private final Map<String, PendingApproval> pending = new ConcurrentHashMap<>();
     /** 会话级流式 emitter（ChatController 注册） */
     private final Map<String, SseEmitter> emitters = new ConcurrentHashMap<>();
 
-    public ApprovalBroker(JdbcTemplate jdbc) {
+    public ApprovalBroker(JdbcTemplate jdbc, DesktopProps props) {
         this.jdbc = jdbc;
+        this.props = props;
+    }
+
+    /** 授权等待上限(毫秒):可配置(默认 35 分钟)——大于前端挂起点(30 分钟),
+     *  用户离开后回点「授权并继续」时决策仍能命中挂起中的 future,实现无缝恢复 */
+    private long timeoutMs() {
+        return Math.max(1, props.getApprovalTimeoutMinutes()) * 60 * 1000L;
     }
 
     public record PendingApproval(String approvalId, String sessionId, String tool,
@@ -92,12 +99,28 @@ public class ApprovalBroker {
             synchronized (emitter) {
                 emitter.send(SseEmitter.event().data(payload));
             }
-            Boolean decided = future.get(DEFAULT_TIMEOUT_MS, TimeUnit.MILLISECONDS);
-            return Boolean.TRUE.equals(decided);
+            Boolean decided;
+            try {
+                decided = future.get(timeoutMs(), TimeUnit.MILLISECONDS);
+                return Boolean.TRUE.equals(decided);
+            } catch (java.util.concurrent.TimeoutException te) {
+                // 超时:通知前端进入挂起态(前端可基于会话历史发起无感续跑),按拒绝收尾
+                try {
+                    synchronized (emitter) {
+                        emitter.send(SseEmitter.event().data(
+                                "{\"type\":\"approval_timeout\",\"metadata\":{\"approvalId\":\"" + approvalId + "\"}}"));
+                    }
+                } catch (Exception ignored) {
+                    // 通道已断:前端经 decide 404 兜底
+                }
+                return false;
+            } catch (Exception e) {
+                return false; // 断连/中断 → 拒绝
+            } finally {
+                pending.remove(approvalId);
+            }
         } catch (Exception e) {
-            return false; // 超时/断连/中断 → 拒绝
-        } finally {
-            pending.remove(approvalId);
+            return false; // 通道不可用等 → 拒绝
         }
     }
 

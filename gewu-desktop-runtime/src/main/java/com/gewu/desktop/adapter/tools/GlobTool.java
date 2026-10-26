@@ -65,7 +65,7 @@ public class GlobTool implements Tool {
             if (pattern == null || pattern.isBlank()) {
                 return ToolResult.failure("缺少必填参数 pattern", System.currentTimeMillis() - start);
             }
-            Path root = fileService.rootFor(context.getSessionId());
+            Path root = fileService.rootFor(context);
             if (pattern.startsWith("/")) {
                 return ToolResult.failure("pattern 必须为工作区内相对模式", System.currentTimeMillis() - start);
             }
