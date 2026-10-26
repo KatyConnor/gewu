@@ -383,3 +383,14 @@ div[onclick], [role="button"] {
   font-style: italic;
   opacity: 0.8;
 }
+
+/* Monaco 组件悬停 tooltip（如查找框 Close (Escape)）贴近面板顶部时下翻覆盖锚点，
+   会抢走悬停/点击形成显示-隐藏死循环（用户实报：Ctrl+F 查找框无法关闭）——
+   悬停类浮层不拦截指针；浮层内若含链接/按钮仍单独恢复交互 */
+.context-view:has(.workbench-hover-container) {
+  pointer-events: none !important;
+}
+.context-view .workbench-hover-container a,
+.context-view .workbench-hover-container button {
+  pointer-events: auto;
+}
