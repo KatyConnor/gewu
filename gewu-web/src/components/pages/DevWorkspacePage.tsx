@@ -3,16 +3,18 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useDispatch } from 'react-redux';
 import { setPage } from '@/store';
-import { Loader2, Play, Square, GitBranch, Terminal, Save, RefreshCw, Pencil, Undo2, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, FileText, Bug, Key } from 'lucide-react';
+import { Loader2, Play, Square, GitBranch, Terminal, Save, RefreshCw, Pencil, Undo2, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, FileText, Bug, Key, X, Bot } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import MarkdownReader from '@/components/ui/MarkdownReader';
 import DevGitMenu from './DevGitMenu';
 import DevQuickOpen from './DevQuickOpen';
 import DevDebugPanel from './DevDebugPanel';
+import DevAgentDrawer from './DevAgentDrawer';
 import { isMarkdownPath, isProbablyBinary, monacoLangOf } from '@/lib/fileLanguage';
+import { confirmDialog } from '@/components/ui/ConfirmDialog';
 import {
-  getDevWorkspace, startSandbox, stopSandbox, readFile, writeFile,
-  listProjects, gitPull, buildProject, runProject,
+  getDevWorkspace, startSandbox, readFile, writeFile,
+  listProjects, gitPull, buildProject, execCommand,
   listFileEntries, blame as fetchBlame,
   debugStart, debugState as fetchDebugState, debugStop, debugBreakpoint, debugAction, debugEval, debugWatch,
   type DevWorkspaceInfo, type GitProject, type FileEntry, type DebugState,
@@ -50,6 +52,82 @@ const hostOf = (url?: string): string => {
   }
 };
 
+/** 仓库主目录名（路径/文件树根显示用）：git@gitee.com:owner/mapper.git → mapper */
+const repoRootName = (url?: string | null): string | null => {
+  if (!url) return null;
+  const last = url.trim().replace(/\/+$/, '').split('/').pop() || '';
+  return last.replace(/\.git$/i, '') || null;
+};
+
+/** 展示用根名：仓库主目录名优先，回落 localPath 末段（repo） */
+const displayRootName = (p?: { repoUrl?: string | null; localPath?: string | null } | null): string =>
+  repoRootName(p?.repoUrl) || (p?.localPath ? p.localPath.split('/').pop() || '' : '') || 'repo';
+
+/** IDEA 目录树排序：目录在前，同类按名称不区分大小写字母序 */
+const ideaSortEntries = <T extends { name: string; dir: boolean }>(es: T[]): T[] =>
+  [...es].sort((a, b) =>
+    (a.dir === b.dir ? 0 : a.dir ? -1 : 1) ||
+    a.name.toLowerCase().localeCompare(b.name.toLowerCase()));
+
+/** 文件类型图标元数据：按扩展名着色的字母徽标（IDEA/VS Code 风格），未命中回落通用图标 */
+const FILE_TYPE_META: Array<{ test: RegExp; label: string; color: string }> = [
+  { test: /^\.git(ignore|modules|attributes|keep)?$|\.gitconfig$/i, label: 'G', color: '#8b949e' },
+  { test: /\.(java)$/i, label: 'J', color: '#e76f00' },
+  { test: /\.(md|markdown)$/i, label: 'M', color: '#519aba' },
+  { test: /\.(xml|xsd|xsl|pom)$/i, label: 'X', color: '#e37933' },
+  { test: /\.(yml|yaml)$/i, label: 'Y', color: '#cb4b16' },
+  { test: /\.properties$/i, label: 'P', color: '#8dc149' },
+  { test: /\.json$/i, label: '{', color: '#cbcb41' },
+  { test: /\.(html?|htm)$/i, label: 'H', color: '#e37933' },
+  { test: /\.css$/i, label: 'C', color: '#519aba' },
+  { test: /\.jsx?$/i, label: 'JS', color: '#cbcb41' },
+  { test: /\.tsx?$/i, label: 'TS', color: '#519aba' },
+  { test: /\.py$/i, label: 'PY', color: '#3572a5' },
+  { test: /\.go$/i, label: 'GO', color: '#00add8' },
+  { test: /\.rs$/i, label: 'RS', color: '#dea584' },
+  { test: /\.sql$/i, label: 'S', color: '#dd7c47' },
+  { test: /\.(sh|bat|cmd)$/i, label: 'SH', color: '#89e051' },
+  { test: /\.(png|jpe?g|gif|svg|ico|webp|bmp)$/i, label: 'I', color: '#a074c4' },
+  { test: /\.(zip|jar|tar|gz|tgz|bz2|xz|7z|rar|war)$/i, label: 'Z', color: '#af7a4a' },
+  { test: /\.(pdf|docx?|xlsx?|pptx?)$/i, label: 'D', color: '#c0392b' },
+  { test: /\.(c|cc|h|hpp|cpp)$/i, label: 'C', color: '#519aba' },
+  { test: /\.(php|rb|kt|scala|cs|swift|dart|m|mm)$/i, label: '·', color: '#7e8ca0' },
+  { test: /\.(iml)$/i, label: 'I', color: '#519aba' },
+  { test: /\.(txt|log)$/i, label: 'T', color: '#8b949e' },
+];
+
+const fileTypeMetaOf = (name: string): { label: string; color: string } | null => {
+  for (const m of FILE_TYPE_META) if (m.test.test(name)) return m;
+  const dot = name.lastIndexOf('.');
+  if (dot <= 0) return null; // 无扩展名（LICENSE 等）→ 通用文件图标
+  const ext = name.slice(dot + 1);
+  if (!ext) return null;
+  return { label: ext.slice(0, 2).toUpperCase(), color: '#8b949e' };
+};
+
+/** 文件类型图标：已知类型=按扩展名着色的字母徽标，未知无扩展名=通用文件图标（全类型覆盖） */
+function FileTypeIcon({ name }: { name: string }) {
+  const meta = fileTypeMetaOf(name);
+  if (!meta) return <FileText className="w-3.5 h-3.5 flex-shrink-0 text-ink-500 ml-[18px]" />;
+  return (
+    <span
+      className="flex-shrink-0 ml-[18px] inline-flex items-center justify-center rounded-[3px] text-[7px] font-bold leading-none"
+      style={{ width: 14, height: 14, color: meta.color, background: meta.color + '24', border: `1px solid ${meta.color}3d` }}
+    >
+      {meta.label}
+    </span>
+  );
+}
+
+/** 容器内路径 → 以仓库主目录名为根的展示路径（projects/{id}/repo/x → mapper/x） */
+const displayPathOf = (path: string | null, localPath: string | undefined, repoUrl?: string | null): string => {
+  if (!path) return path || '';
+  const root = repoRootName(repoUrl) || (localPath ? localPath.split('/').pop() : null) || 'repo';
+  if (localPath && path === localPath) return root;
+  if (localPath && path.startsWith(localPath + '/')) return root + path.slice(localPath.length);
+  return path;
+};
+
 /** 项目级凭证类型 → 中文描述 */
 const credTypeDesc = (p: GitProject): string => {
   if (p.repoCredentialType === 'token') return '访问令牌 (Token)';
@@ -80,6 +158,15 @@ export default function DevWorkspacePage() {
   const [contentLoading, setContentLoading] = useState(false);
   const [saving, setSaving] = useState(false);
   const [execLoading, setExecLoading] = useState(false);
+  /** IDEA 式运行：后台进程（nohup）+ 控制台轮询 + 停止 */
+  const [runProc, setRunProc] = useState<{ pid: string; cmd: string } | null>(null);
+  const [runExited, setRunExited] = useState(false);
+  const [runLog, setRunLog] = useState('');
+  const [runBusy, setRunBusy] = useState(false);
+  const [consoleOpen, setConsoleOpen] = useState(false);
+  const consoleBodyRef = useRef<HTMLDivElement>(null);
+  /** 项目绑定 Agent 会话抽屉 */
+  const [agentOpen, setAgentOpen] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [termOpen, setTermOpen] = useState(false);
   const [termFullscreen, setTermFullscreen] = useState(false);
@@ -110,7 +197,7 @@ export default function DevWorkspacePage() {
 
   const doRegisterDeployKey = async () => {
     if (!selectedProject) return;
-    if (!confirm('将生成 ed25519 密钥对并把公钥注册到托管平台（当前项目仓库），私钥自动配置到沙箱。继续？')) return;
+    if (!(await confirmDialog({ message: '将生成 ed25519 密钥对并把公钥注册到托管平台（当前项目仓库），私钥自动配置到沙箱。继续？', confirmText: '继续' }))) return;
     setDeployKeyBusy(true);
     try {
       await registerDeployKey(selectedProject.projectId, 'gewu-' + (selectedProject.projectName || 'repo').replace(/\s+/g, '-') + '-' + Date.now().toString(36));
@@ -130,6 +217,8 @@ export default function DevWorkspacePage() {
   const debugActive = !!debugState && debugState.status !== 'inactive';
   // 文件树（IDEA 式工作台）：path → entries 懒加载缓存 + 展开集合
   const [tree, setTree] = useState<Record<string, FileEntry[]>>({});
+  /** 仓库主目录（树根）折叠态：纯展示层开关，不触碰 expandedDirs/refreshTree 链 */
+  const [rootCollapsed, setRootCollapsed] = useState(false);
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
   const [treeLoading, setTreeLoading] = useState(false);
   /** 紧凑折叠子层补载去重（紧凑目录折叠，IDEA 式） */
@@ -164,16 +253,6 @@ export default function DevWorkspacePage() {
       toast('启动失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     } finally {
       setSandboxLoading(false);
-    }
-  };
-
-  const handleStopSandbox = async () => {
-    try {
-      await stopSandbox();
-      toast('沙箱已停止', 'success');
-      load();
-    } catch (e) {
-      toast('停止失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     }
   };
 
@@ -324,11 +403,11 @@ export default function DevWorkspacePage() {
               {isExpanded ? <FolderOpen className="w-3.5 h-3.5 flex-shrink-0 text-gold-400" /> : <Folder className="w-3.5 h-3.5 flex-shrink-0 text-gold-400" />}
             </>
           ) : (
-            <FileText className="w-3.5 h-3.5 flex-shrink-0 text-ink-500 ml-[18px]" />
+            <FileTypeIcon name={entry.name} />
           )}
           <span className="truncate">{label}</span>
         </button>
-        {isDir && isExpanded && (tree[nodePath] || []).map(child => renderTreeNode(child, nodePath, depth + 1))}
+        {isDir && isExpanded && ideaSortEntries(tree[nodePath] || []).map(child => renderTreeNode(child, nodePath, depth + 1))}
         {isDir && isExpanded && treeLoading && !tree[nodePath] && (
           <div className="px-2 py-1 text-[10px] text-ink-600" style={{ paddingLeft: 20 + depth * 14 }}>加载中…</div>
         )}
@@ -382,8 +461,8 @@ export default function DevWorkspacePage() {
   };
 
   /** 退出编辑：有未保存修改先确认，放弃则还原到最近保存内容 */
-  const exitEdit = () => {
-    if (dirty && !confirm('有未保存的修改，确定放弃并退出编辑？')) return;
+  const exitEdit = async () => {
+    if (dirty && !(await confirmDialog({ message: '有未保存的修改，确定放弃并退出编辑？', danger: true, confirmText: '放弃并退出' }))) return;
     setFileContent(savedContent);
     setDirty(false);
     setViewMode('preview');
@@ -462,25 +541,113 @@ export default function DevWorkspacePage() {
     }
   };
 
-  const handleRun = async () => {
-    if (!selectedProject) return;
-    const cmd = prompt('运行命令:', 'mvn spring-boot:run');
+  // ==================== 运行（IDEA 式：后台进程 + 控制台 + 停止） ====================
+
+  const b64of = (s: string) => {
+    const bytes = new TextEncoder().encode(s);
+    let bin = '';
+    for (let i = 0; i < bytes.length; i++) bin += String.fromCharCode(bytes[i]);
+    return btoa(bin);
+  };
+
+  /** 启动运行：nohup 后台进程，输出落 .gewu/run-{projectId}.log，控制台轮询输出，按钮转「停止」。
+   *  命令经 base64 中转落盘执行——接口层 XSS 过滤会转义 JSON 字符串中的 > <，
+   *  重定向符号必须写进脚本文件（容器内解码）绕开过滤，不削弱安全层。
+   *  setsid 独立进程组：停止时按组杀净 mvn→java 孙进程，不留孤儿。 */
+  const startRun = async () => {
+    if (!selectedProject || runBusy) return;
+    const stored = window.localStorage.getItem(`dw-run-cmd-${selectedProject.projectId}`);
+    const cmd = stored || prompt('运行命令（保存为该项目运行配置，可经运行按钮旁箭头修改）:', 'mvn spring-boot:run');
     if (!cmd) return;
-    setExecLoading(true);
+    setRunBusy(true); setRunExited(false); setRunLog('');
     try {
-      const r = await runProject(selectedProject.projectId, cmd);
-      if (r.exitCode === 0) {
-        toast(`运行完成: ${cmd}`, 'success');
-      } else {
-        const tail = (r.stderr || r.stdout || '').trim().split('\n').slice(-1)[0] || '';
-        toast(`运行失败 (exit ${r.exitCode})${tail ? '：' + tail.slice(0, 120) : ''}`, 'error');
-      }
+      const key = selectedProject.projectId;
+      const cmdFile = `/workspace/.gewu/run-${key}.cmd`;
+      const shFile = `/workspace/.gewu/run-${key}.sh`;
+      const pidFile = `/workspace/.gewu/run-${key}.pid`;
+      // 重定向符号写在启动器文件内（base64 落盘，容器内解码），exec 层命令不含 > <
+      const shSrc = `cd /workspace/${selectedProject.localPath}\nexec sh ${cmdFile} > /workspace/.gewu/run-${key}.log 2>&1\n`;
+      const sh = `mkdir -p /workspace/.gewu; echo ${b64of(cmd)} | base64 -d | tee ${cmdFile}; echo ${b64of(shSrc)} | base64 -d | tee ${shFile}; setsid sh ${shFile} & sleep 0.5; pgrep -fn "run-${key}\\\\.cmd" | head -1 | tee ${pidFile}`;
+      const r = await execCommand(sh, 15);
+      const pid = (r.stdout || '').trim().split('\n').pop() || '';
+      if (!pid) throw new Error(r.stderr || '未获取到进程 PID');
+      window.localStorage.setItem(`dw-run-cmd-${selectedProject.projectId}`, cmd);
+      setRunProc({ pid, cmd });
+      setConsoleOpen(true);
+      toast(`已启动运行（PID ${pid}）`, 'success');
     } catch (e) {
-      toast('运行失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+      toast('启动失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     } finally {
-      setExecLoading(false);
+      setRunBusy(false);
     }
   };
+
+  /** 停止运行：杀整个进程组（setsid 组，含 mvn→java 孙进程），TERM → 宽限 1s → KILL */
+  const stopRun = async () => {
+    if (!runProc || runBusy) return;
+    setRunBusy(true);
+    try {
+      await execCommand(
+        `kill -TERM -- -${runProc.pid}; pkill -TERM -P ${runProc.pid}; sleep 1; kill -KILL -- -${runProc.pid}; pkill -KILL -P ${runProc.pid}; echo stopped`, 15);
+      toast('已停止运行', 'success');
+    } catch (e) {
+      toast('停止失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    } finally {
+      setRunProc(null);
+      setRunExited(true);
+      setRunBusy(false);
+    }
+  };
+
+  /** 控制台轮询：日志 tail + 进程存活探测（进程退出即停轮，按钮回「运行」）。
+   *  存活判定用 ps -p 校验命令行含本项目的 cmd 文件路径——kill -0 会被容器 PID 复用欺骗。 */
+  useEffect(() => {
+    if (!runProc || !selectedProject) return;
+    let cancelled = false;
+    let timer: ReturnType<typeof setTimeout>;
+    const logAbs = `/workspace/.gewu/run-${selectedProject.projectId}.log`;
+    const tick = async () => {
+      try {
+        const log = await execCommand(`tail -c 60000 ${logAbs}`, 8);
+        if (!cancelled) setRunLog((log.stdout || '').replace(/\u0000/g, ''));
+        const alive = await execCommand(`ps -p ${runProc.pid} -o args= | grep -q "run-${selectedProject.projectId}\\\\.cmd" && echo ALIVE || echo DEAD`, 8);
+        if (!cancelled && (alive.stdout || '').trim().endsWith('DEAD')) {
+          setRunProc(null);
+          setRunExited(true);
+          return;
+        }
+      } catch { /* 瞬时错误忽略，下轮再取 */ }
+      if (!cancelled) timer = setTimeout(tick, 1500);
+    };
+    timer = setTimeout(tick, 500);
+    return () => { cancelled = true; clearTimeout(timer); };
+  }, [runProc, selectedProject?.projectId]);
+
+  /** 页面载入/项目切换：探测上次会话遗留的运行进程并恢复「运行中」状态 */
+  useEffect(() => {
+    if (!selectedProject) return;
+    let dead = false;
+    const pidFile = `/workspace/.gewu/run-${selectedProject.projectId}.pid`;
+    (async () => {
+      try {
+        const r = await execCommand(`ps -p $(cat ${pidFile}) -o args= | grep -q "run-${selectedProject.projectId}\\\\.cmd" && echo ALIVE || echo NONE`, 8);
+        if (!dead && (r.stdout || '').trim().endsWith('ALIVE')) {
+          const pid = (await execCommand(`cat ${pidFile}`, 8)).stdout?.trim() || '';
+          if (pid && !dead) {
+            setRunProc({ pid, cmd: window.localStorage.getItem(`dw-run-cmd-${selectedProject.projectId}`) || '上次会话启动' });
+            setConsoleOpen(true);
+          }
+        }
+      } catch { /* 无沙箱等场景忽略 */ }
+    })();
+    return () => { dead = true; };
+  }, [selectedProject?.projectId]);
+
+  // 控制台自动滚底
+  useEffect(() => {
+    const el = consoleBodyRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [runLog, consoleOpen]);
 
   // ==================== Debug 调试（IDEA 式 P1：Java 断点调试） ====================
 
@@ -747,10 +914,17 @@ export default function DevWorkspacePage() {
           </h1>
         </div>
 
-        {/* 文件路径（原编辑区左上角，随操作按钮一并上移） */}
+        {/* 文件路径（原编辑区左上角，随操作按钮一并上移；容器内前缀以仓库主目录名展示） */}
         <div className="flex-1 min-w-0 flex items-center px-3 py-1.5 rounded-lg bg-ink-900/40 border border-tech-500/10">
-          <span className="text-xs text-ink-300 font-mono truncate" title={currentPath || (selectedProject ? `${selectedProject.localPath}/` : undefined)}>
-            {currentPath || (projectReady ? `${selectedProject.localPath}/（从左侧文件树选择文件）` : selectedProject ? '拉取代码后从文件树选择文件' : '未选择项目')}
+          <span
+            className="text-xs text-ink-300 font-mono truncate"
+            title={currentPath ? displayPathOf(currentPath, selectedProject?.localPath, selectedProject?.repoUrl) : (selectedProject ? `${displayRootName(selectedProject)}/` : undefined)}
+          >
+            {currentPath
+              ? displayPathOf(currentPath, selectedProject?.localPath, selectedProject?.repoUrl)
+              : projectReady
+                ? `${displayRootName(selectedProject)}/（从左侧文件树选择文件）`
+                : selectedProject ? '拉取代码后从文件树选择文件' : '未选择项目'}
           </span>
         </div>
 
@@ -759,12 +933,43 @@ export default function DevWorkspacePage() {
             <>
               <DevGitMenu project={selectedProject} onRefresh={afterGitRefresh} />
               <button onClick={() => handleBuild('mvn compile')} disabled={execLoading} className="px-2 py-1.5 text-xs text-ink-300 hover:text-tech-400 border border-ink-700/60 rounded transition-all disabled:opacity-50">构建</button>
-              <button onClick={handleRun} disabled={execLoading} className="px-2 py-1.5 text-xs text-ink-300 hover:text-tech-400 border border-ink-700/60 rounded transition-all disabled:opacity-50">运行</button>
-              <button onClick={startDebug} disabled={!projectReady || debugBusy !== null}
-                className="flex items-center gap-1 px-2 py-1.5 text-xs text-ink-300 hover:text-tech-400 border border-ink-700/60 rounded transition-all disabled:opacity-50"
-                title="调试运行（Java，注入 JDWP；行号槽点击设断点）">
-                {debugBusy === 'start' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bug className="w-3 h-3" />}调试
-              </button>
+              {runProc ? (
+                <button onClick={stopRun} disabled={runBusy}
+                  className="flex items-center gap-1 px-2 py-1.5 text-xs border border-cinnabar-500/30 text-cinnabar-400 hover:bg-cinnabar-500/10 rounded transition-all disabled:opacity-50"
+                  title={`运行中（PID ${runProc.pid}）· ${runProc.cmd} · 点击停止`}>
+                  <Square className="w-3 h-3" />停止
+                </button>
+              ) : (
+                <>
+                  <button onClick={startRun} disabled={execLoading || runBusy}
+                    className="px-2 py-1.5 text-xs text-ink-300 hover:text-tech-400 border border-ink-700/60 rounded transition-all disabled:opacity-50"
+                    title="运行（后台进程 + 控制台输出；命令取自运行配置）">运行</button>
+                  <button
+                    onClick={() => {
+                      const c = prompt('运行命令（保存为该项目运行配置）:', window.localStorage.getItem(`dw-run-cmd-${selectedProject.projectId}`) || 'mvn spring-boot:run');
+                      if (c) {
+                        window.localStorage.setItem(`dw-run-cmd-${selectedProject.projectId}`, c);
+                        toast('运行配置已保存', 'success');
+                      }
+                    }}
+                    className="px-0.5 py-1.5 text-ink-500 hover:text-tech-400 transition-all" title="编辑运行配置">
+                    <ChevronDown className="w-3 h-3" />
+                  </button>
+                </>
+              )}
+              {debugActive ? (
+                <button onClick={stopDebug} disabled={debugBusy !== null}
+                  className="flex items-center gap-1 px-2 py-1.5 text-xs border border-cinnabar-500/30 text-cinnabar-400 hover:bg-cinnabar-500/10 rounded transition-all disabled:opacity-50"
+                  title="停止调试会话">
+                  <Square className="w-3 h-3" />停止
+                </button>
+              ) : (
+                <button onClick={startDebug} disabled={!projectReady || debugBusy !== null}
+                  className="flex items-center gap-1 px-2 py-1.5 text-xs text-ink-300 hover:text-tech-400 border border-ink-700/60 rounded transition-all disabled:opacity-50"
+                  title="调试运行（Java，注入 JDWP；行号槽点击设断点）">
+                  {debugBusy === 'start' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bug className="w-3 h-3" />}调试
+                </button>
+              )}
             </>
           ) : (
             <button onClick={() => handlePull(selectedProject)} disabled={pulling || selectedProject.cloneStatus === 'cloning'}
@@ -798,10 +1003,19 @@ export default function DevWorkspacePage() {
 
           <div className="w-px h-5 bg-tech-500/15 mx-0.5" />
 
-          <div className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs ${isRunning ? 'bg-green-500/10 text-green-400' : 'bg-ink-800 text-ink-500'}`}>
-            <span className={`w-1.5 h-1.5 rounded-full ${isRunning ? 'bg-green-400 animate-pulse' : 'bg-ink-600'}`} />
-            {wsInfo?.sandboxStatusDesc || '未创建'}
-          </div>
+          {/* Agent：绑定当前项目的 AI 会话（工作空间 = 项目仓库目录） */}
+          <button
+            onClick={() => setAgentOpen(true)}
+            disabled={!selectedProject}
+            className={`flex items-center gap-1.5 px-2.5 py-1.5 text-xs rounded-lg border transition-all disabled:opacity-50 ${
+              agentOpen
+                ? 'border-tech-500/30 bg-tech-500/15 text-tech-400'
+                : 'border-tech-500/20 text-ink-300 hover:text-tech-400 hover:bg-tech-500/10'
+            }`}
+            title="AI Agent（绑定当前项目，可直接对话与 AI 编码执行）">
+            <Bot className="w-3.5 h-3.5" />Agent
+          </button>
+
           <button
             onClick={() => setTermOpen((v) => !v)}
             className={`flex items-center gap-1.5 px-3 py-1.5 text-xs rounded-lg border transition-all ${
@@ -812,14 +1026,7 @@ export default function DevWorkspacePage() {
           >
             <Terminal className="w-3.5 h-3.5" /> 终端
           </button>
-          {isRunning ? (
-            <button
-              onClick={handleStopSandbox}
-              className="flex items-center gap-1.5 px-3 py-1.5 border border-cinnabar-500/20 text-cinnabar-400 text-xs rounded-lg hover:bg-cinnabar-500/10"
-            >
-              <Square className="w-3.5 h-3.5" />停止
-            </button>
-          ) : (
+          {!isRunning && (
             <button onClick={handleStartSandbox} disabled={sandboxLoading} className="flex items-center gap-1.5 px-3 py-1.5 btn-primary text-white text-xs rounded-lg disabled:opacity-50">
               {sandboxLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Play className="w-3.5 h-3.5" />}启动沙箱
             </button>
@@ -906,7 +1113,22 @@ export default function DevWorkspacePage() {
               ) : (tree[selectedProject.localPath] || []).length === 0 ? (
                 <div className="text-center py-8 text-ink-500 text-xs">目录为空</div>
               ) : (
-                (tree[selectedProject.localPath] || []).map(e => renderTreeNode(e, selectedProject.localPath, 0))
+                <>
+                  {/* 仓库主目录（根节点）：IDEA 式可折叠，目录名取自仓库地址主目录 */}
+                  <button
+                    onClick={() => setRootCollapsed(c => !c)}
+                    className={`w-full text-left flex items-center gap-1.5 px-2 py-1.5 rounded text-xs transition-all ${
+                      currentPath === selectedProject.localPath ? 'bg-tech-500/15 text-tech-400' : 'text-ink-300 hover:bg-tech-500/5'
+                    }`}
+                    style={{ paddingLeft: 8 }}
+                    title={selectedProject.localPath}
+                  >
+                    {rootCollapsed ? <ChevronRight className="w-3 h-3 flex-shrink-0 text-ink-500" /> : <ChevronDown className="w-3 h-3 flex-shrink-0 text-ink-500" />}
+                    {rootCollapsed ? <Folder className="w-3.5 h-3.5 flex-shrink-0 text-gold-400" /> : <FolderOpen className="w-3.5 h-3.5 flex-shrink-0 text-gold-400" />}
+                    <span className="truncate">{displayRootName(selectedProject)}/</span>
+                  </button>
+                  {!rootCollapsed && ideaSortEntries(tree[selectedProject.localPath] || []).map(e => renderTreeNode(e, selectedProject.localPath, 0))}
+                </>
               )}
             </div>
           </div>
@@ -981,8 +1203,8 @@ export default function DevWorkspacePage() {
               />
             </div>
           ) : isMarkdownPath(currentPath) && fileContent ? (
-            <div className="flex-1 min-h-0 overflow-y-auto">
-              <MarkdownReader content={fileContent} />
+            <div className="flex-1 min-h-0">
+              <MarkdownReader content={fileContent} showToc />
             </div>
           ) : fileContent && isProbablyBinary(fileContent) ? (
             <div className="flex-1 flex flex-col items-center justify-center py-20 text-ink-500">
@@ -1031,6 +1253,35 @@ export default function DevWorkspacePage() {
             />
           )}
 
+          {/* 运行控制台（IDEA 式 Run 工具窗）：后台进程日志轮询输出 */}
+          {consoleOpen && (
+            <div className="flex-shrink-0 border-t border-tech-500/10 bg-black/40 rounded-b-xl overflow-hidden" style={{ height: 230 }}>
+              <div className="flex items-center justify-between px-3 py-1.5 border-b border-tech-500/10">
+                <div className="flex items-center gap-2 text-[11px] text-ink-400 min-w-0">
+                  <Terminal className="w-3 h-3 text-tech-400 flex-shrink-0" />
+                  <span className="font-medium flex-shrink-0">控制台</span>
+                  {runProc ? (
+                    <span className="flex items-center gap-1.5 text-tech-400 truncate">
+                      <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
+                      运行中 · PID {runProc.pid} · {runProc.cmd}
+                    </span>
+                  ) : runExited ? (
+                    <span className="text-ink-500">已退出</span>
+                  ) : null}
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button onClick={() => setRunLog('')} className="text-[10px] text-ink-500 hover:text-ink-300">清屏</button>
+                  <button onClick={() => setConsoleOpen(false)} className="text-ink-500 hover:text-ink-200" title="隐藏控制台（再次运行时自动打开）">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+              <div ref={consoleBodyRef} className="h-[calc(100%-32px)] overflow-y-auto scrollbar-thin px-3 py-2 font-mono text-[11px] leading-5 whitespace-pre-wrap break-all text-ink-200">
+                {runLog || '（暂无输出）'}
+              </div>
+            </div>
+          )}
+
           {/* 状态栏（IDEA 式）：语言 · 行列 · 编码缩进 · 主题切换 */}
           <div className="flex items-center justify-between px-2 py-1 mt-2 flex-shrink-0 border-t border-tech-500/10 text-[10px] text-ink-500">
             <div className="flex items-center gap-3 min-w-0">
@@ -1071,6 +1322,11 @@ export default function DevWorkspacePage() {
           onClose={() => setQuick(null)}
           onOpenFile={openRepoFile}
         />
+      )}
+
+      {/* 项目 Agent 抽屉：绑定当前项目的 AI 会话 */}
+      {agentOpen && selectedProject && (
+        <DevAgentDrawer project={selectedProject} open={agentOpen} onClose={() => setAgentOpen(false)} />
       )}
 
       {/* 网页终端抽屉（设计文档 44，与"我的文件"同款）：默认隐藏，按钮开关 */}
