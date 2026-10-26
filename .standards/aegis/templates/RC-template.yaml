@@ -1,0 +1,21 @@
+# RC 根因单模板（P1 只读定位阶段强制产出；不合 schema 视同阶段未完成）
+# 规范依据：AEGIS V1.1 §5 三单结构化契约；字段与 aegis_guard.py docs 校验一致
+# V1.1 新增：双轴定级+生命周期状态+ODC 十类（关闭前定类可后补）
+issue: ""                       # 问题单号，如 "VUL-2026-0911-003"
+severity: ""                    # IEEE1044 对用户影响：Sev1 致命/Sev2 严重/Sev3 一般/Sev4 轻微
+priority: ""                    # 业务紧迫：P0 立即/P1 高/P2 中/P3 低（与 S 级独立）
+status: new                     # new/triaged/in_progress/fixed/verified/closed（状态机 §三A）
+trace_ref: ""                   # V1.2 证据互锁：AETC 留痕批次/事件号（P1 起始批次，必填——单据链↔留痕链）
+defect_type: ""                 # ODC 十类（赋值/检查/算法/时序/接口/功能/文档/构建/环境/回退），关闭前必填
+hypotheses:                     # V1.1 P1 科学调试循环：每轮假设（可证伪陈述）→实验→观察
+  - "H1: "
+symptom: ""                     # 现象一句话：何者在何处以何种方式失效
+chain:                          # 根因链（三问链）："为何告警→为何如此实现→为何未被拦截"
+  - ""
+  - ""
+  - ""
+root_cause: ""                  # 根因结论一句话（须为可检验的机制陈述，非现象复述）
+evidence: ""                    # 红基线：修前可重放的失败证据（用例/扫描命中/运行时异常）
+impact_scope:                   # 影响面：文件范围与调用链路
+  - ""
+confidence: high                # high / medium / low（low 时禁止进入 P2）

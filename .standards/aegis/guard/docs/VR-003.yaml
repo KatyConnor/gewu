@@ -1,0 +1,9 @@
+plan_ref: "FP-003"
+gates:
+  gate1_static:     {result: pass, lint_new: 0, budget_used: "35%"}
+  gate2_targeted:   {result: pass, red_case: "红转绿", related_tests: "23/23"}
+  gate3_regression: {result: pass, selected: "17/17", rescan_new: 0}
+diff_vs_plan: {planned_files: 2, actual_files: 2, deviation: "none"}
+residual_risks: []
+lessons:
+  - "签名算法应集中白名单管理；建议新增 lint 规则拦截 alg=none 硬编码"

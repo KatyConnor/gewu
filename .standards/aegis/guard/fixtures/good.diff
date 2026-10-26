@@ -1,0 +1,23 @@
+diff --git a/services/auth/token.py b/services/auth/token.py
+--- a/services/auth/token.py
++++ b/services/auth/token.py
+@@ -12,7 +12,9 @@ class TokenService:
+     def verify(self, token, key):
+         header = self._decode_header(token)
++        if header.get("alg") not in ALLOWED_ALGS:
++            raise InvalidAlgorithm(header.get("alg"))
+         payload = self._verify_sig(token, key)
+         return payload
+diff --git a/tests/regression/test_alg_none.py b/tests/regression/test_alg_none.py
+--- /dev/null
++++ b/tests/regression/test_alg_none.py
+@@ -0,0 +1,9 @@
++import pytest
++
++from services.auth.token import TokenService, InvalidAlgorithm
++
++def test_rejects_none_alg():
++    svc = TokenService(key="test-key")
++    token = svc.sign({"sub": "u1"}, alg="none")
++    with pytest.raises(InvalidAlgorithm):
++        svc.verify(token)

@@ -1,0 +1,62 @@
+# 判型决策记录：luban-doc 文档工程手艺技能（V1.9.30 候选接入）
+# 依据 STD-META-001 §六 模板填写；接入 HUB（P3 分发+技能卡入册）前本记录须过 meta_check
+
+# ── 基础信息 ──────────────────────────────────────────
+content_id: "luban-doc 文档工程手艺技能（PDF Report 线全流程）"
+content_kind: workflow
+source: external-delivery   # 另一会话生成→用户咨询收编集成（2026-10-19 判型咨询）
+version: "1.0"
+
+# ── 形态判据（META-RULES §一，五判据） ─────────────────
+form_tests:
+  q1_harm: false
+  q1_evidence: "不走六步管线/绕过 scaffold 手写构建→文档质量次优（链接丢失/字形缺失/TOC 断链）——上限损失=单产物返工，无外溢危害不可逆"
+  q2_shall_verifiable: false
+  q2_verifier: "无可拦截校验器：六步是「宜」非「应」（助动词测试不通过）；merge_qa/pdf_qa 是技能内工序自检，非体系运行时门禁"
+  q3_multisol: true
+  distribution: "retrieval（意图检索：写报告/出方案/白皮书/调研文档/PDF 交付词族触发 description）"
+form: skill
+
+# ── 层级判据（META-RULES §二，三判据） ─────────────────
+level_tests:
+  invariant: true          # PDF 工程手艺（字体注册/合并保链/踩坑断言）跨项目不变
+  repo_bound: false        # 不绑定仓库运行时目录/工具链
+  failure_radius: "project-only（单产物交付质量）"
+level: global
+
+# ── 接入判据（META-RULES §三，类型模型五型） ────────────
+type_model: "叠加约束型（文档产出场景叠加，不互斥不常驻）"
+mutex_group: false
+trigger_face: "意图词族：写报告/编制方案/出调研文档/成稿白皮书/交付 PDF 报告（与 12 号卡 document-visual-design 触发面衔接：内容/结构→12 号卡视觉规格→本技能生产管线）"
+gates: []                  # 技能无体系门禁；技能内工序断言（error 0/字形 0 缺失/链接有效/页码连续）为工序自检非运行时门
+
+# ── 依赖声明（本记录新增字段·P3 分发链核对用） ──────────
+dependencies:
+  - "skills/pdf（父技能：ReportLab 排线规范+校验器族 poster_validate/cover_validate/html2poster/pdf_qa/font.check——P3 分发必须同装）"
+  - "字体资产：NotoSerifSC（Regular/Bold/Black）+LiberationMono（/usr/share/fonts 系统位）"
+  - "Python 3.6+（纯标准库运行·零第三方依赖，与体系 G0-3 白名单纪律一致）"
+
+# ── 与既有资产关系（防重复收编核对） ────────────────────
+orthogonality_note: "与 12 号卡 document-visual-design 正交互补：12 号卡=视觉规格层（@page/分页/版式基线/QA 阈值——管「长什么样」）；luban-doc=生产管线层（六步工作流/脚手架/合并保链/踩坑断言——管「怎么生产不炸」）。12 号卡的「渲染三查+QA 阈值」正是本技能管线第 2/5 步调用的校验器——上下游衔接非重叠。"
+
+# ── 能力边界（诚实声明·用户咨询原问「所有交互阅读文档场景」） ──
+scope_note: "当前覆盖：多页中文 PDF（报告/方案/白皮书/调研——Report 线）。不覆盖：docx 交互文档（Word 线·另一技术栈）、海报/信息图（pdf 技能 Creative 线）、LaTeX 学术（Academic 线）——后两者由父技能 pdf 承载路由，本技能是 Report 线的工程化打法层。md 源稿仅作输入格式之一，产物恒为 PDF（用户「排除 md 编写」约束天然满足）。"
+
+# ── 生命周期（META-RULES §五） ─────────────────────────
+lifecycle:
+  promotion_watch:
+    - "文档交付事故计数（踩坑断言失效致错链/字形缺失/TOC 断链流出）：≥2 次/季度→触发判据校准，评估升级为交付门禁（artifact-gate）"
+    - "docx 线需求频次：用户提出 Word 交付需求≥3 次→评估扩线（架构可加线·scaffold 分线路由）"
+  exception_budget: null
+  demotion_signal: ""
+
+# ── 记录元信息 ────────────────────────────────────────
+decided_by: "鲁班（清言 AgentMore 会话·用户判型咨询 2026-10-19）"
+decided_at: "2026-10-19T09:40:00+08:00"
+evidence_refs:
+  - "META-RULES §一 五判据速查表（助动词测试：六步流程写不出可验证的「应」）"
+  - "META-RULES §二 层级判据（组织级不变量）"
+  - "skills/document-visual-design.md §1（12 号卡定位引用——正交证据）"
+  - "install.sh p3_install()（ucss:code-scan 完整技能目录分发先例）"
+  - "REFINE-MATRIX.md 混乱例句回归锚（本技能第 2 单 dogfood：REFINE 方案 PDF 10 页·error 0/字形 0/48 链接有效——2026-10-18 实证）"
+review_note: ""

@@ -1,0 +1,16 @@
+# FINDING 评审发现单 — THEMIS-STD-014
+id: F-<编号>
+rr_ref: <所属 RR 单号>
+object: <被评对象路径/标识>
+location: <精确定位（章节/页/行/字段）>
+
+severity: <S1阻断|S2重大|S3一般|S4轻微>   # 判定基准 ISO/IEC 25010 质量特性（THEMIS §四）
+standard_clause: <违反的正本条款号（如 IEEE 1028 §6.2 / ISO 20246 §x / THEMIS §x）>
+
+evidence: <证据：原文摘录/对照差异/测量数据——可复核，不接受"感觉不好">
+
+description: <问题描述：是什么、为什么构成违反、下游影响（放大链）>
+recommendation: <整改建议方向（供 CAPA 细化）>
+
+routing: <缺陷类→AEGIS-RC | 文档类→退回产出方 | 体系类→META-判型/勘误>   # §六反哺接线
+trace_ref: <AETC 留痕引用>

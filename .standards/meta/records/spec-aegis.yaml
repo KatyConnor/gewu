@@ -1,0 +1,35 @@
+# 判型决策记录（STD-META-001 §六）— AEGIS
+# 由 META 判型门产出；源模板 .standards/meta/templates/form-classification-record.yaml
+content_id: "AEGIS 代码问题修复作业"
+content_kind: workflow+checker
+source: retro-classification
+version: "V1.0"
+
+form_tests:
+  q1_harm: true          # 违反是否造成可判定危害
+  q1_evidence: "护栏被绕过=冻结清单失守；无单修复=不可审计变更"
+  q2_shall_verifiable: true   # "应/不应"可表述并机器校验
+  q2_verifier: "aegis_guard.py（机制层BLOCK）+ aegis_check.py（30项）+ 三单契约"
+  q3_multisol: partial      # 是否多解、依赖情境与品味
+  distribution: "intent-word（修复词族+问题单号）+ artifact-gate（三道门）"
+form: hybrid（规范面：.standards/AEGIS.md+本体；机制面：guard引擎模型权限外强制）
+
+level_tests:
+  invariant: true       # 组织级不变量
+  repo_bound: true     # 仓库绑定变量
+  failure_radius: "org-wide（八铁律/定级矩阵）+project（三单/预算/冻结清单）"
+level: dual
+
+type_model: 任务型·互斥（修复域）
+mutex_group: true（第五方）
+trigger_face: "修复/fix/解决bug/处理告警/关闭工单；问题单号输入"
+gates: [".standards/aegis/guard/aegis_guard.py", ".standards/aegis/scripts/aegis_check.py"]
+
+lifecycle:
+  promotion_watch: ["教训条目晋升规范条款/技能——反哺入口=META判型门（调度器§四）"]
+  exception_budget: "例外申请频次过高→校准预算/冻结默认值（AEGIS 3.3）"
+  demotion_signal: "预算例外持续超标→默认值校准"
+
+decided_by: "Nova（存量追溯判型 · META V1.6 建门后补档）"
+decided_at: "2026-09-29T18:30:00+08:00"
+evidence_refs: ["TRIGGER-MATRIX §一/§十四", "META-RULES §一/§二"]

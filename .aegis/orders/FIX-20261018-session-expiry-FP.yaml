@@ -1,0 +1,20 @@
+# FP 方案单——管理端会话过期跳转独立登录页
+trace_ref: "s-20261018-160421"
+issue: "用户报告（截图）：会话过期后登录表单嵌在管理端布局内，未呈现独立登录页"
+risk_level: S2
+root_cause_ref: "FIX-20261018-session-expiry-RC"
+test_defect_approval: false
+changes:
+  - file: "gewu-admin-web/src/app/page.tsx"
+    symbol: "Home"
+    intent: "①渲染层按认证态分壳：未认证（!isAuthed）或 currentPage==='login' 时直接返回 PageComponent 全屏渲染（不再包 Sidebar 后台壳）；②新增空闲过期主动检测：已认证状态下每 30s 检查 isTokenValid()，过期即 dispatch(clearAuth()) 立即切到登录页（覆盖无 API 调用的闲置过期场景）"
+  - file: "gewu-admin-web/src/lib/request.ts"
+    symbol: "response 拦截器 case 401"
+    intent: "401 时由整页 reload（window.location.href='/'）改为 store.dispatch(clearAuth())（reducer 内已含 clearTokens），当前帧直接切换到独立登录页，消除 reload 闪烁；保留 window guard 语义"
+budget: {files: 2, lines: 30, funcs: 2, deps: 0}
+verification:
+  red_baseline: "修复前：登录态下将 localStorage 中 gewu-access-token 替换为过期 JWT（或手工等 30min），触发任一 API 调用 → 登录表单出现在侧栏布局内（截图现象）；闲置等待过期 → 无任何跳转"
+  regression_set: "①正常登录→进入总览/各管理页正常加载（request 封装未变，仅 401 分支变更）；②侧栏'退出登录'仍正常（Sidebar 自有 handleLogout 未触碰）；③登录成功后 setAuth 切回后台壳正常；④tsc 类型检查通过 + next build 通过"
+  rescan: "非安全类缺陷，不适用复扫；401 分支仍保证 clearTokens（经 clearAuth reducer），无新增凭证滞留"
+rollback: "git revert 单一提交；两文件均为前端展示层，无数据/接口影响"
+approvals: []

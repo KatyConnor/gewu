@@ -1,0 +1,67 @@
+# 判型决策记录（STD-META-001 §六）— SDLC V1.5 修订（存量卡升级：03/04 审计 P0/P1 修复，体系首次"深化"型演进）
+# 触发：2026-10-07 用户指令"详细分析探索体系中的架构师、开发工程师的智能能力是否有可优化提升之处"→
+#       全量审计（两卡 871 行 + 五技能全读 + 15 卡机制量化对标 + 业界能力框架对标）发现五类结构性代差；
+#       用户"继续"指令确认执行（P0 全修 + P1 精选五项）。
+# 裁决要点：本版不是"补位"而是"深化"——V1.8.9 收官后角色层进入补完态，演进模式从缺口补位转为存量升级；
+#           03/04 卡是判型门建门（V1.8.6 起）之前的产物，机制代差属历史债务，走域内修订不新建规范。
+content_id: "SDLC 角色技能体系（V1.5）"
+source: promotion-candidate
+version: "V1.5"
+form_tests:
+  q1_harm: true
+  q1_evidence: "审计实证五类代差：①三处清单承诺悬空（03 卡 §3.2 承诺分布式/云原生/AI 三清单，体系内无实体文件——违反'承诺内容与实际文件一一对应'红线）②悬挂角色引用（04 卡 RISK-08 引用 DBA，15 角色中不存在）③成文标准双轨（03 自带章节结构 vs TPL 模板库，正向与逆向两套格式）④边界不对称（11/12/13/14 四卡单向声明与 03/04 的分界，03/04 自身无边界表——互斥防线只建半边）⑤能力密度缺口（QAS 推导链/ADR 留痕/契约测试/DDD/OTel/绞杀者均缺位）"
+  q2_shall_verifiable: true
+  q2_verifier: "suite_check 新增 G9 组（存量卡回填，9 断言）：两卡 V2.0+边界声明+TPL 接线+无 DBA 悬挂/三新技能存在且绑定/两技能 V2.0 要素（QAS 六元组、traceparent+场景清单）/覆盖率口径分层/计数 38 技能/判型记录在场/调度器词——回归实跑全绿（113+9=122 项）"
+  q3_multisol: partial
+  distribution: "artifact-gate（ADR 决策卡六字段+superseded 链/三张 12 项检查清单含通过判据/契约文件 schema+CI 门禁/QAS 六元组表/场景检查清单三张）+ workflow-rules（新技能 RISK 5+4+5 条；两卡 RISK 修订 2 处）"
+  q4_domain_occupied: true
+  q4_evidence: "本次为域内占用升级（q4=true 首次出现在判型记录——对象是既有卡而非空位）：03/04 卡本体升级 V2.0 + 四技能升版 + 三新技能并入 SDLC 技能池；不新建规范、不改阶段模型、不动调度器注册表语义层"
+scope: "SDLC.md / roles/03 / roles/04 / skills×8（3 新增+4 升版+1 口径修正）/ 调度器触发面 / install-profiles / 9 平台卡 / coze / suite_check G9"
+boundary_claims:
+  - claim: "ADR 与成文分界"
+    detail: "ADR 是增量决策记录（一页以内轻量卡），架构级成文仍走 TPL-ARC（12 模板库）——ADR 不构成第二成文轨道"
+  - claim: "契约测试三权分置"
+    detail: "03 管契约定义（api-contract-definition）、04 管契约的可执行验证（contract-testing）、12 管文档对账（api-doc-generation 24h）——补齐实现侧闭环断点"
+  - claim: "DBA 悬挂修复去向"
+    detail: "表结构/索引变更评审改挂角色 03（数据模型一致性/容量影响）+角色 09（变更窗口）——不新增 DBA 角色（体系裁决：DBA 职责由 03+09 分摊）"
+  - claim: "绞杀者模式双向接线"
+    detail: "LR 管文档级重构依据与分批计划，04 refactoring-guide V2.0 管代码级执行——大爆炸式整体替换列为禁止项"
+changes_summary:
+  roles_upgraded: 2
+  skills_added: 3
+  skills_upgraded: 4
+  counts: "15 角色（不变）/ 35→38 技能 / 6 阶段（不变）"
+  g9_assertions: 9
+  suite_total: 122
+defects_fixed:
+  - id: REV-001
+    defect: "03 卡 §3.2 三处清单承诺悬空（无实体文件）"
+    fix: "新技能 scenario-architecture-checklists（三清单各 12 项含通过判据+豁免登记+留痕）；卡内三行改为清单实体引用"
+  - id: REV-002
+    defect: "04 卡 §3.2 两处清单承诺悬空 + RISK-08 引用不存在的 DBA 角色"
+    fix: "fullstack-implementation V2.0 增 §9 场景检查清单三张（B 端 6/C 端高并发 8/AI 8）实体化；RISK-08 改挂 03 架构评审+09 变更窗口"
+  - id: REV-003
+    defect: "成文标准双轨（03/04 未接 TPL 模板库）"
+    fix: "system-design-doc V2.0 显式对齐 TPL-ARC/TPL-DDD；04 卡 §6.2 对齐 TPL-DDD/TPL-DBDD/TPL-IDD；边界表登记成文分界"
+  - id: REV-004
+    defect: "边界不对称（四新卡单向声明，03/04 无边界表）"
+    fix: "两卡各回填 §1.1 职责边界声明表（03 六方/04 六方，含 12/13/11/LR/AEGIS/AETC/CR-RULES 分界）"
+  - id: REV-005
+    defect: "架构决策无留痕方法（选型矩阵一次性文档）"
+    fix: "新技能 architecture-decision-records（六字段+superseded 链+AETC 留痕+'无 ADR 不编码'铁律）"
+  - id: REV-006
+    defect: "质量属性清单式而非推导式（SLA 无量化场景）"
+    fix: "system-design-doc V2.0：QAS 六元组定义+战术模式映射链；R-08 断言'无度量值 SLA 禁入容量测算'"
+  - id: REV-007
+    defect: "契约链实现侧断点（03 定义/12 对账，无 04 可执行验证）"
+    fix: "新技能 contract-testing（CDC 三路径：Pact/Spring Cloud Contract/OpenAPI schema；CI 双向门禁；漂移三态比对阻断）"
+  - id: REV-008
+    defect: "开发侧方法论缺口（DDD 战术模式/OTel 可观测性内建/AI 生成代码门槛/覆盖率口径粗糙）"
+    fix: "fullstack-implementation V2.0（DDD+traceparent+指标口径对齐 08+RISK-07 AI 代码 CR 门槛）；unit-test-generator V1.1（行 100%/分支 ≥85% 分层口径）"
+  - id: REV-009
+    defect: "重构技能模式匹配导向、无遗留系统路径"
+    fix: "refactoring-guide V2.0（Fowler 手法目录提炼优先+绞杀者模式+LR 接线）"
+decided_by: "Nova 起草并接入（用户 2026-10-07 审计指令+'继续'确认，P0 全修+P1 精选五项）"
+decided_at: "2026-10-07T15:20:00+08:00"
+evidence_refs: ["03/04 角色卡与五绑定技能全量阅读（2026-10-07 审计）", "15 卡机制量化对标表（边界/GATE/判型/接口五维）", "SDLC suite G8 先例（V1.8.6~89 参数化循环）", "templates/（TPL-ARC/DDD/DBDD/IDD/PDD 实名核对）", "README 规范表（CR-RULES V1.0 实名核对）"]
+review_note: "判型史首个 q4=true 记录（域内占用升级而非空位补位）——确立'深化型'演进的判型先例：补位看空位证据，深化看代差证据（本次为五类代差实证：悬空承诺/悬挂引用/双轨/不对称/密度缺口）。关键取舍：①三清单实体化选择'独立技能'（03）与'技能内章节'（04）两种形态——03 清单跨场景通用且 12 项级重，独立成技能；04 清单强场景绑定，并入主技能 §9 避免技能池膨胀。②DBA 悬挂修复选'03+09 分摊'而非新增角色——体系 15 角色已补完态，非必要不再扩位（与 V1.8.9 收官判型一致）。③G9 断言设计为'存量卡回填'通用模式——后续任何老卡升级直接复用。审计方法论本身沉淀为可复用路径：全量读卡→15 卡量化对标→业界框架差距→P0/P1/P2 分级→判型接入。"

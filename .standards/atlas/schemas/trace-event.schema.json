@@ -1,0 +1,37 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ATLAS TraceEvent",
+  "description": "统一事件模型（ATLAS V1.0 §3.1）——留痕最小单元，全部 Agent 事件映射后推送",
+  "type": "object",
+  "required": ["event_id", "event_type", "severity", "timestamp", "agent", "context", "event_hash"],
+  "properties": {
+    "event_id":  {"type": "string", "description": "UUID 全局唯一幂等键，平台按此去重"},
+    "event_type": {"type": "string", "description": "附录A枚举；自定义类型须 x- 前缀隔离", "pattern": "^(session\\.|task\\.|tool\\.|file\\.|command\\.|change\\.|decision\\.|command\\.|audit\\.|x-[a-z]+\\.)[a-z.]+"},
+    "severity": {"enum": ["info", "notice", "warning", "critical"], "description": "critical 触发平台即时告警"},
+    "timestamp": {"type": "string", "description": "ISO 8601 带时区偏移；单 session 内最大偏移 60 秒"},
+    "agent": {
+      "type": "object",
+      "required": ["agent_id", "agent_type", "version", "session_id"],
+      "properties": {
+        "agent_id": {"type": "string"},
+        "agent_type": {"type": "string"},
+        "version": {"type": "string"},
+        "session_id": {"type": "string"}
+      }
+    },
+    "context": {
+      "type": "object",
+      "required": ["trace_id", "task_id", "project"],
+      "properties": {
+        "trace_id": {"type": "string", "description": "串联一个任务的全部事件"},
+        "task_id": {"type": "string"},
+        "project": {"type": "string"},
+        "phase": {"type": "string"}
+      }
+    },
+    "payload": {"type": "object", "description": "事件类型相关数据，schema 按 event_type 校验"},
+    "artifact_refs": {"type": "array", "items": {"type": "string"}, "description": "大对象（diff/日志/截图）以工件引用挂接，不进 payload"},
+    "prev_event_hash": {"type": "string", "description": "哈希链：前条事件哈希（链头为 session.started 锚定）"},
+    "event_hash": {"type": "string", "description": "SHA256(prev_event_hash + 本条规范序列化 JSON)"}
+  }
+}

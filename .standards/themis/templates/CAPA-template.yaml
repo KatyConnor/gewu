@@ -1,0 +1,19 @@
+# CAPA 整改与落地追踪单（Corrective Action Plan & tracking）— THEMIS-STD-014
+id: CAPA-<编号>
+finding_refs: [<F-编号清单>]
+created_at: <ISO8601>
+
+actions:
+  - action: <整改动作（改什么、怎么改）>
+    owner: <责任人（角色/Agent·who）>
+    due: <期限（when）>
+    verify_method: <验证方式（怎么算改好：复检点/断言/门禁）>
+
+recheck:
+  rechecked_at: <复审时间（留空=未复审）>
+  result: <通过|未通过（回退·有界至多两轮，对齐 AEGIS 重试纪律）>
+  recheck_evidence: <复审证据（产物路径/断言输出）>
+
+state: <planned | in_progress | rechecked | closed>
+closed_at: <关闭时间（closed 前置条件：recheck=通过）>   # ruled ≠ rechecked ≠ closed
+trace_ref: <AETC 留痕引用>

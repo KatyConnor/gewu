@@ -1,0 +1,26 @@
+# 判型决策记录（STD-META-001 §六）— SDLC V1.8 修订（P2 收编：Conway 组织适配声明 + SBOM 交付要求）
+# 触发：2026-10-07 全体系审查（drafts/system-audit/）P2 清单落地；用户指令"对上一轮分析的结论方案进行处理"。
+content_id: "SDLC 角色技能体系（V1.8）"
+source: promotion-candidate
+version: "V1.8"
+breaking: false
+form_tests:
+  q1_harm: true
+  q1_evidence: "Conway 缺口：多人协作时角色→岗位映射无规则（互斥对可同人=分权失效）；SBOM 缺口：交付物供应链盲发（UCSS 参考级提及但无交付级要求）"
+  q2_shall_verifiable: true
+  q2_verifier: "G10 增两锚点断言（SDLC.md 含 Conway 组织适配节/cicd 技能含 SBOM·CycloneDX）——回归全绿"
+  q3_multisol: partial
+  distribution: "workflow-rules（Conway 三原则/SBOM R-11 阻断）"
+  q4_domain_occupied: false
+  q4_evidence: "SDLC 域内：协作规则归 SDLC.md §0 自有资产；SBOM 归 04 号 cicd 技能（CI 交付物语义）"
+remediation_plan:
+  - id: REV-001
+    defect: "多人组织映射规则缺失"
+    fix: "SDLC.md §0.5：默认单人扮演模型声明+映射三原则（互斥对不可同人/判型与执行分权/卡契约=接口契约）+组织反推提示"
+  - id: REV-002
+    defect: "SBOM 交付级要求缺失"
+    fix: "cicd-pipeline-config V2.1 §9.3：CycloneDX 优先/CI 同节点生成/验收对账/无 SBOM=交付不完整（R-11）"
+decided_by: "Nova 起草并接入（用户 2026-10-07 P2 收编指令）"
+decided_at: "2026-10-07T23:45:00+08:00"
+evidence_refs: ["drafts/system-audit/system-audit-2026-10-07.md（P2 清单）", "SDLC.md §0 结构", "cicd-pipeline-config V2.0"]
+review_note: "P2 收编首例：非红线演进项按判型门同路径轻量接入（一节+一技能节，零新技能零新模板）。breaking=false——兼容新增。与 rev-spec-meta-v1.1 同批，构成'P2 全清'里程碑。"

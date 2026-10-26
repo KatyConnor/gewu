@@ -1,0 +1,30 @@
+# VR 验证单——管理端会话过期跳转独立登录页
+trace_ref: "s-20261018-160421"
+plan_ref: "FIX-20261018-session-expiry-FP"
+gates:
+  gate1_static:
+    result: "PASS_WITH_DEVIATION（见 deviation 披露）——diff ⊆ FP 声明清单（两文件两符号两意图完全一致）；tsc --noEmit 零错误；next build 通过（无新增 lint 项，构建期 lint 按 next.config.mjs 既有策略跳过）"
+    lint_new: 0
+    budget_used: "files 2/2 · lines 31/30（超 1 行，+23/-8，L8 披露）· funcs 2/2 · deps 0/0"
+  gate2_targeted:
+    result: "PASS（浏览器端到端红转绿，生产构建 next start @5002 实测）"
+    red_case: "红基线=用户截图（登录表单嵌于侧栏布局内）；修复前等价复现路径：令牌失效后任一 API 401 → window.location.href='/' 整页 reload → 登录组件渲染在后台壳内"
+    related_tests: |
+      绿证据三条路径（生产构建实测）：
+      ① 401 直切：登录态下替换 access token 为无效值 → 点击用户管理触发 API 401 → URL 不变、
+         window 标记存活（未发生整页 reload）、localStorage 三键（access/refresh/user）全清、
+         页面切换为独立全屏登录页（DOM 快照无任何侧栏节点）
+      ② 空闲过期主动检测：登录态下移除 access token（模拟自然过期本地态）→ 32s 内（30s tick）
+         自动切独立登录页，无 reload（标记存活）、凭证清空
+      ③ 首次访问/过期后刷新：无凭证打开 / → 独立全屏登录页（截图确认双栏布局、无侧栏）
+  gate3_regression:
+    result: "PASS——真实凭证（V18 种子账号）登录成功进入后台壳（侧栏+总览正常渲染）；退出登录路径（Sidebar 自有 handleLogout）未触碰；request 封装 get/post/put/delete 与除 401 外的状态码分支零改动"
+    selected: "登录全流程 + 页面壳切换 + 401/403/404/500 分支（代码级未变）+ Sidebar 登出"
+    rescan_new: 0
+diff_vs_plan: {planned_files: 2, actual_files: 2, deviation: "行数超预算 1 行：FP 声明 30，实际 31（+23/-8）。护栏引擎 aegis_guard 判 BLOCK（BUDGET_EXCEED 31>30）。成因：P2 预算估算偏差 1 行，无范围蔓延（文件/符号/意图与 FP 完全一致）。处置：未删减承载约束说明的注释去凑指标（'clearAuth 内含 clearTokens'为代码不可自明的约束），按 S2 处置表走 GATE 追认（未对接 ATLAS，降级本地 GATE：待用户追认；如需严格合规可删 1 行注释复检）"}
+residual_risks:
+  - "refreshToken（auth.ts）全库无调用点——管理端无自动续期，过期即踢回登录页（本单不扩scope）；如需静默续期属新特性，走 SDLC 立项"
+  - "request.ts 401 分支移除 typeof window 守卫：该模块仅被客户端组件经 useEffect 调用，SSR 预渲染期不发请求，dispatch 不会在服务端触发（tsc/build 均过）；如未来改为 SSR 数据获取需重新评估"
+lessons:
+  - "避错：单页应用以 Redux 切页时，认证态必须在渲染层分流（独立登录壳），否则任何 401 兜底都只能得到'嵌壳登录'形态；登录页与后台壳的分离应作为脚手架默认结构"
+  - "防错：isAuthenticated（存在性）与 isTokenValid（有效期）语义不同，空闲场景必须用后者做主动检测；建议后续抽公共 useAuthExpiry hook 供 gewu-web 复用（反哺 META 判型）"

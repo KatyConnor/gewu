@@ -1,0 +1,48 @@
+# 判型决策记录（STD-META-001 §六）— LPU V1.3 修订（理解次序层+全局公共模板库）
+# 触发：2026-10-05 用户实评"生成的技术资料文档太过于概要，无法深入理解；应先看技术栈→整体架构→
+#       层次与技术能力→表结构→再一项一项理清每项功能/接口；模板按软件行业标准编写为全局公共资产"
+# 性质：内容级修订（产出深度+成文标准），另含 hub 级新公共资产（templates/ 库）
+
+content_id: "LPU 遗留项目逆向理解（V1.3）+ 全局公共模板库（STD-TPL-001）"
+source: promotion-candidate   # 用户实评+真实项目验证（webpkg）反馈
+version: "V1.3"
+
+form_tests:
+  q1_harm: true
+  q1_evidence: "产出过概→无法支撑深入理解与重构决策；模板无标准→文档质量随 Agent 漂移"
+  q2_shall_verifiable: true
+  q2_verifier: "lpu_check.py DOCS_REQUIRED 12 文档+标准模板章节校验（G2）+ SEQ 规则；模板库门禁并入 suite_check G3"
+  q3_multisol: partial
+  distribution: "artifact-gate（12 份产出+章节契约）+ template-asset（全局引用协议）"
+form: spec                     # LPU 本体不变；模板库为资产（artifact）挂 hub
+
+level_tests:
+  invariant: true
+  repo_bound: false
+  failure_radius: "org-wide（所有 LPU 产出深度标准提升；模板库供 13 规范复用）"
+level: dual                    # 不变
+
+type_model: 任务型·互斥（理解域）  # 不变
+mutex_group: true（第一方）
+
+action: 采纳并接入（修订 LPU 至 V1.3；新增全局公共模板库 .standards/templates/）
+acceptance:
+  docs_gates: "lpu_check V1.3 对 webpkg 12 文档 PASS 7/0/0（锚点 385，FD 65 居首）"
+  theory_basis: "程序理解集成元模型（vM&V 1995）/软件考古/Feathers 接缝/Chikofsky 设计恢复/C4+4+1/GB 8567-2006+IEEE 29148/1016——先搜后答（2026-10-05 web 调研）"
+  hub_gate: "suite_check G3 增 templates 三关键文件断言"
+
+# 修订明细（V1.2 → V1.3）
+revision:
+  - id: REV-004
+    defect: "产出停留在'簇级概要'，缺'一项一卡'的逐功能/接口实现逻辑；成文无行业标准对齐"
+    evidence_ref: "用户实评 2026-10-05 10:41 + webpkg 重产出实证（function-dictionary 21 卡+六文档按 GB/IEEE 模板重写）"
+    fix: "rules/12-understanding-sequence.md（SEQ-001~004：六步次序+理论映射+逐项攻克纪律）；LPU.md 产出 11→12（+function-dictionary.md）；七件成文接公共模板库 TPL-*；lpu_check 章节契约全面对齐模板"
+  - id: REV-005
+    defect: "无全局公共模板资产，各规范模板各自为政"
+    evidence_ref: "用户诉求'作为公共模板资料全局都可引用'"
+    fix: "新增 .standards/templates/（STD-TPL-001：README+TPL-SRS/PDD/DDD/DBDD/IDD/FD/ARC 八件，GB/T 8567+IEEE 29148/1016/42010+C4/4+1 双依据）；suite_check G3 断言"
+
+decided_by: "Nova（LPU V1.3+模板库判型 · 用户实评触发）"
+decided_at: "2026-10-05T11:30:00+08:00"
+evidence_refs: ["META-RULES §一/§二/§三", "webpkg/docs/lpu/ 12 文档+385 锚点", "webpkg/.lpu/check_report.md V1.3 PASS"]
+review_note: "判型变更：LPU 三判维持（spec/dual/任务型）；新增资产 STD-TPL-001（artifact 形态，hub 级，不占互斥组槽位）。产出深度第二次棘轮收紧。"

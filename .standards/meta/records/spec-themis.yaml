@@ -1,0 +1,46 @@
+# 判型决策记录（STD-META-001 §六）— THEMIS 评审与审计规范
+# 由 META 判型门产出；源模板 .standards/meta/templates/form-classification-record.yaml
+content_id: "THEMIS 评审与审计规范 V1.0（第十四套）"
+content_kind: process+document-gate
+source: internal-proposal
+version: "v1.0"
+origin: "用户实指缺口（2026-10-15）：体系缺审核评审域——文档/设计/体系合规无裁定域；提议纳入行业在用标准/方法论"
+
+form_tests:
+  q1_harm: true          # 违反是否造成可判定危害
+  q1_evidence: "设计/文档缺陷漏过评审→实现/测试/生产逐级放大（Boehm 1:10:100）；体系自审缺位=治理漂移无发现通道"
+  q2_shall_verifiable: true   # "应/不应"可表述并机器校验
+  q2_verifier: "批1 suite_check G17（正本/四模板/注册表行/判型记录/首审四单在位）；批2 rev_check.py（评审报告在位探测+交接物注册表 themis-rpt 条目）"
+  q3_multisol: partial      # 严重度定级有情境性；类型学/流程/单据结构收敛（IEEE 1028 正本）
+  distribution: "artifact-gate（文档/设计/方案产出后交付前·批2 挂链）+ intent-word（评审/审计词族）+ request（独立评审请求）"
+form: 规范面（评审域=第十四套；批3 评估 checklist 技能化）
+
+level_tests:
+  invariant: true       # 评审独立性红线（裁定者≠产出者）=组织级不变量
+  repo_bound: true     # 标准集裁剪/严重度基线=仓库绑定变量
+  failure_radius: "org-wide（独立性红线+严重度语义）+ project（标准集启用/裁剪）"
+level: dual
+
+type_model: 双形态——质量门型·评审域（文档产物门·批2）+ 任务型·请求响应（独立评审请求·批1 即可路由）
+mutex_group: false     # 裁定域独立成体（同 META 先例），不进六方执行互斥组
+trigger_face: "评审/审阅/走查/评审报告/合规审计/过程审计/体系自审/文档评审/设计评审词族；文档/设计/方案类产物产出后、交付前（产物门·批2 挂链）；独立评审请求"
+gates: ["批1: suite_check G17", "批2: .standards/themis/scripts/rev_check.py（欠账显式）"]
+
+lifecycle:
+  promotion_watch: ["评审发现→AEGIS RC 转化率与下游闭环率（评审域正外部性度量·批3 采集）",
+                    "S1 发现拦截率连续 4 周稳定 → 评审门由报警级升阻断级"]
+  exception_budget: "标准集裁剪须注明理由与恢复条件；独立性红线例外=禁止（无预算）"
+  demotion_signal: "评审报告空模板化/走过场频次超标 → 收紧 RPT 结构断言（G17 扩展），不放宽独立性"
+
+decided_by: "鲁班（继任者 · V1.9.25 立项批会话；用户拍板「立项开工」）"
+decided_at: "2026-10-15T15:11:00+08:00"
+evidence_refs: ["reports/评审审计域THEMIS_立项评估_V1.0.md（工作区）", "IEEE 1028-2008 §评审类型学", "ISO 19011 §审核指南", "Fagan 1976 正式检查法", "AEGIS.md 对齐先例（ISO 12207/14764/IEEE 1044）"]
+
+# ── CAPA-01 清偿（V1.9.26 批2 · REV-000 F-01）────────────────────────
+# 单 Agent 形态下「裁定者≠产出者」的独立性等价机制（三件套缺一无效）：
+independence_equivalence:          # SDLC「单人 Agent 依次扮演」形态的等价实现（非豁免）
+  role_temporal_separation: true   # ① 角色分时：评审会话与产出会话分离（产出按产出契约走，评审按正本 checklist 走——评审时禁用产出者视角的辩护性解释）
+  evidence_over_poles: true        # ② 证据对照：每条 FINDING 附可复核证据+正本条款号（standard_clause），判定依据客观断言而非主观印象——无证据即无效发现
+  ruling_public_record: true       # ③ 裁决公开：RPT/CAPA 落 .standards/themis/records/ 公开留痕（含 strengths 合格面），可被后续评审复审（含独立性本身的复审）
+  # 红线语义不变：三件套是独立性红线的等价实现，不是例外；跨人/跨 Agent 场景仍须严格异人。
+capa_01_cleared_at: "2026-10-15T16:05:00+08:00（V1.9.26 批2 · REV-000 复审闭环）"

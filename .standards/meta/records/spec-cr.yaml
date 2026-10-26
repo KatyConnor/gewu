@@ -1,0 +1,35 @@
+# 判型决策记录（STD-META-001 §六）— CR
+# 由 META 判型门产出；源模板 .standards/meta/templates/form-classification-record.yaml
+content_id: "CR 代码审查规则"
+content_kind: constraint
+source: retro-classification
+version: "V1.0"
+
+form_tests:
+  q1_harm: true          # 违反是否造成可判定危害
+  q1_evidence: "P0/P1 放行=带缺陷交付"
+  q2_shall_verifiable: true   # "应/不应"可表述并机器校验
+  q2_verifier: "L1-L3 规则集+P0/P1门禁（评审语义）"
+  q3_multisol: false      # 是否多解、依赖情境与品味
+  distribution: "artifact-gate（产出后交付前）+ intent-word（要求审查）"
+form: spec
+
+level_tests:
+  invariant: true       # 组织级不变量
+  repo_bound: true     # 仓库绑定变量
+  failure_radius: "org-wide（L1通用+L3-SEC）+project（L2按栈/project-config）"
+level: dual
+
+type_model: 质量门型（评审域）
+mutex_group: false
+trigger_face: "产出/修改代码后、提交/交付前；审查指令"
+gates: ["P0/P1 安全项门禁"]
+
+lifecycle:
+  promotion_watch: ["与UCSS互证去重后的独有发现→规则库扩充候选"]
+  exception_budget: "豁免项须记录理由并双签"
+  demotion_signal: "规则命中率持续低→规则集校准"
+
+decided_by: "Nova（存量追溯判型 · META V1.6 建门后补档）"
+decided_at: "2026-09-29T18:30:00+08:00"
+evidence_refs: ["TRIGGER-MATRIX §一/§十四", "META-RULES §一/§二"]

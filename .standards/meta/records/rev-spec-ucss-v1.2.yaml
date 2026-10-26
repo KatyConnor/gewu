@@ -1,0 +1,30 @@
+# 判型决策记录（STD-META-001 §六）— UCSS V1.2 修订（自研扫描引擎：三级降级链 L3 兜底盘 + SCA 双模）
+# 触发：2026-10-12 用户两要求——①在线/内网离线双模 ②Python 编程实现部分静态分析能力（"尽力做到能做的地步"）；
+#       可行性评估三轮实证（reports/ucss-feasibility/：AST 能力验证/PoC 94.4% 检出零误报/OSV 双通道探针）→ 立项 MVP。
+content_id: "UCSS 行业代码扫描规范 v1.2"
+source: promotion-candidate
+version: "V1.2"
+breaking: false
+form_tests:
+  q1_harm: true
+  q1_evidence: "内网态（工具全无）扫描能力=0 是可判定危害：L3 兜底盘缺失时降级链断在'纯模型规则审查'，确定性退出码与证据链无从谈起；SCA 离线快照缺失时依赖漏洞结论只能表述为'未检查'——均违反 UCSS 自身门禁纪律"
+  q2_shall_verifiable: true
+  q2_verifier: "suite_check G12 四断言（引擎资产在场/selftest 退出 0+棘轮底 40 规则/stdlib-only 白名单/本判型在场）+ pyscan.py selftest 内嵌回归棘轮（20 规则族 25 findings·干净对照 0 误报·SARIF 结构·置信度族表一致性）"
+  q3_multisol: partial
+  distribution: "artifact-gate（pyscan exit 2 与 ucss_gate 同语义：HIGH 阻断）+ workflow-rules（三级降级链纪律：工具缺失降级为引擎扫而非放弃扫描·降级写 limitations）+ retrieval（扫描词族不变）"
+  q4_domain_occupied: false
+  q4_evidence: "UCSS 扫描域自有资产新增（scripts/pyscan.py 755 行+ucss-sync.py 104 行·S4 零三方依赖）；SCA 数据资产走外源快照模式（AEGIS 同款：下载在线、用例离线、落 ~/.ucss/cache/ 规范缓存位——git 与发布包均不跟踪 17MB+ 体积）"
+remediation_plan:
+  - id: REV-001
+    defect: "降级链 L3 缺位：环境无 semgrep/gitleaks 时（本工作区实测全无）扫描退化为模型自报——违反'脚本管诚信'分层"
+    fix: "pyscan.py：40 条 AST 规则（R10x 危险调用/R20x 注入模式/R30x 硬编码凭据/R40x 弱密码学/R50x 质量缺陷/R60x def-use 污点链不动点/R70x 框架配置/R80x 明文暴露）→ SARIF 2.1 → ucss_gate.py 门禁；scan/sca/selftest 三子命令；exit 2=HIGH 阻断与 gate --fail-on 对齐"
+  - id: REV-002
+    defect: "SCA 单模：原设计仅工具链位（osv-scanner），内网无工具无库 → 依赖漏洞检查能力为零"
+    fix: "ucss-sync.py（在线执行）：OSV 生态 zip→26220 条 advisory 提炼索引落盘 data/osv-pypi.json（18MB·版本判定含快照时间戳）；pyscan sca 双模：离线查快照/在线 querybatch；结论上限纪律沿用定本措辞「截至 {_snapshot_time} 未发现已知漏洞」"
+  - id: REV-003
+    defect: "PoC 遗留三缺口（间接污点不命中/污点源命名误伤/R401 上下文逻辑从未被干净对照测过）"
+    fix: "def-use 不动点传播（Assign/For/AugAssign×taint 集合迭代）；TAINT_NAME fullmatch 精确集（裸 path/uid 不误伤·实测 clean 对照 0 误报）；R401 上下文=函数名+变量名（CRED∨¬SAFE 判定）；R601 实测被误标 C3 的根因（rule[0] 取 'R' 非族号）修复+族表断言防回缩"
+decided_by: "鲁班（继任者）起草并接入（用户 2026-10-12 '立项启动，并且同步更新相关资料手册'指令）"
+decided_at: "2026-10-12T14:27:00+08:00"
+evidence_refs: ["可行性评估报告 reports/ucss-feasibility/UCSS轻量引擎可行性评估报告.md", "pyscan.py selftest 实测输出（25 findings/20 族/0 误报）", "OSV 同步实测（26220 条·快照 2026-10-12T14:32:37+0800）", "端到端退出码四点验证（vuln→2/clean→0×gate 两级）", "dogfood：sync_resources.py 真实命中 4 项 subprocess 拼接模式"]
+review_note: "架构对齐：引擎落位'脚本管诚信'层（模型自报不算数），模型角色不变（研判/修复建议/D4 逻辑审计——引擎与模型能力正交互补，见可行性评估§一）。诚实边界已写入规范：深度仅 Python（ast 标准库所限）、规则量级 40 条 vs 商业产品数千条、CVE 时效受快照周期限制——定位'穷人版 SAST 底座+模型研判层'不冒充代码卫士同等能力。V1.0.0 开发期缺陷公开勘误：①For 分支 n.func 笔误（dogfood 抓出）②_ver_tuple int/str 混比崩溃（SCA 实测抓出）③置信度族推导 rule[0]='R' 从未生效（dogfood 复盘抓出）——三处全修并各有断言/样本防回缩，'用户的实问与实测报障是最高质量的进化输入'再次验证。breaking=false：纯新增资产，UCSS.md 入口头注释升版 V1.2，D1-D5 域体系/五步法/等级纪律零改动。"

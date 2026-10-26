@@ -1,0 +1,57 @@
+# AEGIS Guard 默认配置 —— 与 aegis_guard.py 内置 DEFAULT_CONFIG 同构，可按仓库覆盖
+# 规范依据: 《AEGIS V1.0》6.2 预算 / 6.3 冻结清单 / 3.2 禁改模式库
+aegis: "1.0"
+
+# diff 预算默认值（规范 6.2，可按仓库收紧；方案单只能在此之上收紧）
+budgets:
+  S0: {files: 8,  lines: 300, funcs: 10, deps: 1}
+  S1: {files: 8,  lines: 300, funcs: 10, deps: 1}
+  S2: {files: 5,  lines: 150, funcs: 6,  deps: 0}
+  S3: {files: 3,  lines: 60,  funcs: 3,  deps: 0}
+  S4: {files: 3,  lines: 60,  funcs: 3,  deps: 0}
+
+# 冻结清单（规范 6.3）：触碰即拦截，唯一出路是 GATE 审批例外（人工 --allow-frozen 留痕）
+frozen_patterns:
+  - ".github/workflows/*"
+  - ".gitlab-ci.yml"
+  - "Jenkinsfile"
+  - ".circleci/*"
+  - "*.pem"
+  - "*.key"
+  - "*secret*"
+  - ".env*"
+  - "infra/*"
+  - "*migrations*"
+
+# 依赖清单（变更必审，联动规范 4.3 决策序）
+dep_manifests:
+  - "package.json"
+  - "package-lock.json"
+  - "yarn.lock"
+  - "requirements*.txt"
+  - "pyproject.toml"
+  - "poetry.lock"
+  - "pom.xml"
+  - "go.mod"
+  - "Cargo.toml"
+
+# 测试资产路径（规范 6.3：修改须走测试缺陷认定）
+test_path_patterns:
+  - "tests/*"
+  - "test/*"
+  - "**/test_*.py"
+  - "**/*_test.py"
+  - "**/conftest.py"
+
+# 禁改模式库（规范 3.2 反模式库，持续扩充；severity: block | warn）
+anti_patterns:
+  - {id: AP001, severity: block, pattern: 'except[^:]*:\s*pass\b',
+     msg: "空捕获吞异常（铁律 L2：禁止压制表象）"}
+  - {id: AP002, severity: block, pattern: '(?i)(password|passwd|secret|api[_-]?key|access[_-]?token|private[_-]?key)\s*[:=]\s*["\x27][^"\x27]{8,}["\x27]',
+     msg: "疑似硬编码凭证（禁止行为 11）"}
+  - {id: AP003, severity: warn,  pattern: '^\s*#\s*(def |class |return |import |if |for |while )',
+     msg: "疑似注释掉代码（禁止行为 6）"}
+  - {id: AP004, severity: warn,  pattern: '\b(TODO|FIXME|HACK)\b',
+     msg: "修复残留标记（铁律 L8：须披露）"}
+  - {id: AP005, severity: warn,  pattern: '^\s*(print\(|console\.log\(|System\.out\.print|fmt\.Print)',
+     msg: "调试输出残留（禁止行为 7 同类）"}

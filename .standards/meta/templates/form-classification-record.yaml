@@ -1,0 +1,76 @@
+# 判型决策记录表模板（STD-META-001 §六）
+# 复制本模板填写；接入 HUB / 分发技能前必须产出本记录并通过 meta_check.py
+# 填写规则：判定类字段三值（true/false/partial）+ evidence 引用判据条目与实际证据
+
+# ── 基础信息 ──────────────────────────────────────────
+content_id: ""               # 待判内容标识（规范/技能名称）
+content_kind: ""             # constraint / workflow / experience / checker
+source: ""                   # 来源：new-design / external-delivery / promotion-candidate
+version: ""
+
+# ── 形态判据（META-RULES §一，五判据） ─────────────────
+form_tests:
+  q1_harm: null              # 违反是否造成可判定危害（安全/数据/合规/不可逆）
+  q1_evidence: ""            # 危害场景描述或事故引用
+  q2_shall_verifiable: null  # 能否"应/不应"表述并写出机器可执行校验
+  q2_verifier: ""            # 校验方式（check 脚本 / 护栏 / CI / 人工抽查）
+  q3_multisol: null          # 是否多解、依赖情境与品味
+  distribution: ""           # 分发机制：load / config / intent-word / artifact-gate / retrieval
+form: ""                     # 结论：spec / skill / hybrid（域规范+技能池）
+
+# ── 层级判据（META-RULES §二，三判据） ─────────────────
+level_tests:
+  invariant: null            # 是否组织级不变量（跨项目不动）
+  repo_bound: null           # 是否绑定仓库状态（运行时目录/工具链/令牌）
+  failure_radius: ""         # 失败半径：org-wide / project-only
+level: ""                    # 结论：global / project / dual（全局内核+项目实施）
+
+# ── 接入判据（META-RULES §三，类型模型五型） ────────────
+type_model: ""               # 横切·常驻 / 横切·条件激活 / 任务型·互斥 / 叠加约束 / 质量门型
+mutex_group: false           # 若为任务型·互斥：进入互斥组第几方
+trigger_face: ""             # 触发面描述（词族/配置存在性/产物时机）
+gates: []                    # 配套门禁清单（check 脚本/护栏/CI 位置）
+
+# ── 生命周期（META-RULES §五） ─────────────────────────
+lifecycle:
+  promotion_watch: []        # 晋升观察项（若当前为 skill：危害事件/复用频次/不一致处理计数）
+  exception_budget: null     # 例外频次预算（若当前为 spec：条款级，超预算触发校准）
+  demotion_signal: ""        # 降级信号记录
+
+# ── 记录元信息 ────────────────────────────────────────
+decided_by: ""               # 判型者（Agent 会话/人工评审）
+decided_at: ""               # ISO 8601
+evidence_refs: []            # 判据条目引用（META-RULES 章节号/PDF 章节号/事故工单号）
+review_note: ""              # 复审备注（判型变更时必填，说明触发证据）
+
+# ══════════════════════════════════════════════════════
+# 填写示范：STD-META-001 自身判型记录（自指合规，禁止删除）
+# ══════════════════════════════════════════════════════
+_self_example:
+  content_id: "STD-META-001 智能体规范-技能划分与层级决策指南"
+  content_kind: workflow
+  source: new-design
+  version: V1.0
+  form_tests:
+    q1_harm: true            # 误把红线做成技能→违规不可拦截；误把变量装全局→项目互相污染
+    q2_shall_verifiable: true  # "接入前必须产出判型记录"→meta_check.py 可校验
+    q2_verifier: ".standards/meta/scripts/meta_check.py（G1-G5）"
+    q3_multisol: partial     # 判据速查多解；判型流程本身是 requirement
+    distribution: artifact-gate
+  form: spec
+  level_tests:
+    invariant: true          # 判型判据是组织级不变量
+    repo_bound: partial      # 判型记录按内容归属落项目/全局
+    failure_radius: org-wide
+  level: dual
+  type_model: 质量门型
+  mutex_group: false
+  trigger_face: "治理产物接入前 + 判型咨询词族（规范还是技能/全局还是项目/划分/判型/晋升）"
+  gates: [".standards/meta/scripts/meta_check.py"]
+  lifecycle:
+    promotion_watch: []
+    exception_budget: "判型结论与运行冲突的复议 ≤2 次/季度，超出即启动判据校准"
+    demotion_signal: ""
+  decided_by: "Nova（清言 AgentMore 会话）"
+  decided_at: "2026-09-29T17:30:00+08:00"
+  evidence_refs: ["META-RULES §一~§五", "规范 PDF §5.2 自指实录", "TRIGGER-MATRIX §一.11"]

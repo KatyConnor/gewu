@@ -1,0 +1,44 @@
+# AEGIS 修复门禁 —— zcode 类外部智能体的 CI 终审（防线三）
+# 部署: 放入目标仓库 .github/workflows/aegis-gate.yml，按需调整路径
+# 原则: 模型自查（MCP/接法A）决定体验，CI 独立复跑（本文件）决定纪律。
+name: AEGIS 修复门禁
+
+on:
+  pull_request:
+    branches: [main, develop]
+
+jobs:
+  aegis-gate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0                 # 需要 base sha 做全量 diff
+
+      - name: 安装依赖
+        run: pip install pyyaml
+
+      - name: 门零 三单契约校验（修复单必须携带方案单）
+        run: |
+          if [ -f .aegis/FP-current.yaml ]; then
+            python3 aegis-guard/aegis_guard.py docs --fp .aegis/FP-current.yaml
+          else
+            echo "::error::修复 PR 必须携带 .aegis/FP-current.yaml（规范 6.4 三单契约）"
+            exit 1
+          fi
+
+      - name: 门一 护栏检查（冻结/篡改/禁改模式/预算/计划比对）
+        run: |
+          BASE="${{ github.event.pull_request.base.sha }}"
+          git diff "$BASE"...HEAD > /tmp/fix.diff
+          python3 aegis-guard/aegis_guard.py check \
+            --diff /tmp/fix.diff --plan .aegis/FP-current.yaml
+
+      - name: 门二 定向验证与门三 回归选择集（接入项目测试命令）
+        run: |
+          echo "此处接入: 红基线用例（必须红转绿）+ 影响面选择集 + 安全复扫"
+          # 示例: python -m pytest tests/ -q
+
+      - name: 留痕上报（对接 ATLAS）
+        run: |
+          echo "此处接入: x-fix.gate 事件上报（平台 webhook），见 integration/aegis_agent/atlas_bridge.py"

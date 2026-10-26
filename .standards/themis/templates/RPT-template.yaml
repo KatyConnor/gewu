@@ -1,0 +1,24 @@
+# RPT 评审报告（Review Report·三值结论）— THEMIS-STD-014
+id: RPT-<编号>
+rr_ref: <所属 RR 单号>
+issued_at: <ISO8601>
+reviewer: <评审执行者>
+independence_check: true   # 裁定者≠产出者（红线·false=本报告无效）
+
+findings_summary:
+  s1: <数量>   # 阻断
+  s2: <数量>   # 重大
+  s3: <数量>   # 一般
+  s4: <数量>   # 轻微
+findings_refs: [<F-编号清单>]
+
+conclusion: <通过 | 有条件通过 | 回退>   # 三值·对齐裁决纪律
+conditions:            # 有条件通过时必填（每条对应一项 CAPA 义务）
+  - condition: <放行条件>
+    capa_ref: <CAPA-编号>
+    due: <期限>
+    verify_method: <复审判定方式>
+
+strengths: <合格面摘要（防止只见问题不见基线）>
+state: ruled            # 状态机：ruled ≠ rechecked ≠ closed
+trace_ref: <AETC 留痕引用>

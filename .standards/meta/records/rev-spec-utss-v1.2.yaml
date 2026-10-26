@@ -1,0 +1,43 @@
+# 判型决策记录（STD-META-001 §六）— UTSS V1.2 修订（测试域外源接测补全：外源分支黑盒 E2E 验证）
+# 触发：2026-10-08 用户需求"他人修改提交分支→编译打包发布测试环境→外联地址登录访问→页面视觉+功能测试→
+#       需求模糊时经需求与代码分析派生测试用例→出具完整测试报告"→取证：黑盒/E2E/端到端/登录/外联/staging
+#       全库零命中；UTSS Step 1 假设本链路源码上下文；cicd 技能管流水线设计不管单次外源构建执行；
+#       登录凭据管理无规范约束（PII 泄露风险敞口）。
+# 裁决：q4=true 第三次适用（域内深化·规范本体首例）——测试域既有 UTSS V1.1 并入升级 V1.2，不新建规范。
+#       行业同构（2026 调研）：Agentic QA on staging（Checksum/QA Wolf 形态）+ 非侵入黑盒（Keysight）+
+#       branch→staging→E2E→report CI/CD 标准链。
+content_id: "UTSS 统一测试标准规范（V1.2）"
+source: promotion-candidate
+version: "V1.2"
+breaking: false
+form_tests:
+  q1_harm: true
+  q1_evidence: "外源接测盲区：他人提交分支/远程测试环境/外联登录凭据/黑盒视觉与功能验证全库零命中（grep 实证 0）；凭据管理无红线约束（测试报告与留痕的泄露敞口）；模糊需求无用例派生路径（凭直觉补用例不可审计）"
+  q2_shall_verifiable: true
+  q2_verifier: "G10 增四断言：①UTSS 含外源接测触发面与 S1-S7 协议段 ②skills/browser-e2e-validation.md 存在且含凭据红线（不落留痕/不落报告）③SDLC 0.1 表技能数 40 与 skills/ 目录双向一致（含 browser-e2e-validation）④test-case-generation V2.2 含 §9.6 模糊度三档——回归全绿"
+  q3_multisol: partial
+  distribution: "workflow-rules（S1-S7 七步执行协议+凭据红线）+ artifact-gate（T-E2E-01 外部版报告模板门：环境/分支/commit/凭据零出现四必填）"
+  q4_domain_occupied: true
+  q4_evidence: "测试域既有 UTSS V1.1（任务型·互斥·测试域）——触发面扩展+协议段并入本体；06 卡 V2.2 域内职责扩容；技能面 test-case-generation V2.2 原位升级+browser-e2e-validation 新技能挂 06——均既有资产升级或域内新增，不新建规范"
+remediation_plan:
+  - id: REV-001
+    defect: "外源输入形态缺失（UTSS Step 1 假设本链路上下文）"
+    fix: "UTSS V1.2 触发面+外源接测行（接测/外源分支/他人提交/远程测试环境/外联地址）；S1-S7 协议段：接测受理（分支/commit/需求+模糊度评级）→代码分析（分支 diff→改动面清单）→用例派生（GWT+探索式）→构建部署（cicd 引用）→外联登录（凭据红线）→E2E 执行（功能断言+视觉首跑建基线）→报告与缺陷"
+  - id: REV-002
+    defect: "登录凭据无安全红线（泄露敞口）"
+    fix: "S5 凭据三禁：禁入留痕（AETC PII 脱敏）/禁入报告/禁入用例文档——只走环境变量或凭据文件注入；环境冒烟先行（HTTP 可达+登录页元素在场）再执行用例"
+  - id: REV-003
+    defect: "模糊需求无测试用例派生路径"
+    fix: "test-case-generation V2.2 §9.6：需求模糊度三档（清晰=直接映射/模糊=代码分析补全+标注派生来源/空白=探索式测试+风险驱动）；用例可追溯铁律不破（派生用例标 source=code-analysis）"
+  - id: REV-004
+    defect: "黑盒 E2E 执行无标准（视觉首跑无基线模式未定义）"
+    fix: "新技能 browser-e2e-validation（39→40）：外联会话建立/页面流功能断言/视觉验证三模式（首跑建基线/回归对比借 §9.4/语义判定借 VLM）/报告生成；工具链 agent-browser+VLM；与 11 号容差判据协同（CHK-30/31）"
+  - id: REV-005
+    defect: "测试报告缺外部环境信息段"
+    fix: "T-E2E-01 外部版报告模板：环境信息（地址脱敏+版本+分支+commit）/用例执行矩阵/视觉验证结果/缺陷清单（RC 单互锁）/准出三值/风险残留——凭据零出现为模板硬约束"
+  - id: REV-006
+    defect: "技能面未接线（0.1 表与边界表未同步）"
+    fix: "SDLC 0.1 表 39→40 技能+0.2 路由表 06 行+外源接测词族；06 卡 V2.2：绑定技能+browser-e2e-validation+边界表回填（外源部署配置归 cicd·黑盒执行归 06）+触发词"
+decided_by: "Nova 起草并接入（用户 2026-10-08 '继续执行'指令；方案含市场调研先行）"
+decided_at: "2026-10-08T15:49:16+08:00"
+evidence_refs: [".standards/UTSS.md §三·B S1-S7", ".standards/utss/SKILL.md Step 9B", ".standards/skills/browser-e2e-validation.md C1-C3 红线", ".standards/skills/test-case-generation.md §9.6", ".standards/utss/templates/external-e2e-report.md", "drafts 市场调研（Agentic QA/staging E2E 行业实况）"]

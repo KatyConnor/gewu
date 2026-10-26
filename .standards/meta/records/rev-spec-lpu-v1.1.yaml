@@ -1,0 +1,49 @@
+# 判型决策记录（STD-META-001 §六）— LPU V1.1 修订（checker 机制级缺陷修复）
+# 触发：2026-10-04 webpkg dogfood 实跑产出 X-conflicts XF-003/XF-004 两条体系级发现
+# 性质：修改规范（既有 spec 的门禁脚本缺陷修复），形态/层级/接入类型均不变
+
+content_id: "LPU 遗留项目逆向理解（V1.1 修订）"
+content_kind: checker
+source: promotion-candidate   # dogfood 实证缺陷 → 修订候选
+version: "V1.1"
+
+form_tests:
+  q1_harm: true
+  q1_evidence: "EVIDENCE_RE 白名单缺 rs/toml/json → Rust 项目证据锚点不被计数（半盲校验）；G5 正则匹配 [A]/[B]/[C] 三级但报错文案称 [C] → 误报 [A]/[B] 为违规或掩盖真实语义"
+  q2_shall_verifiable: true
+  q2_verifier: "修复后 lpu_check.py G3/G5 行为回归测试（旧缺陷复现→新行为验证）+ webpkg/.lpu 门禁复跑 PASS"
+  q3_multisol: false          # 两处修复均有唯一正确语义：白名单补全 / 正则与文案对齐（选择按 [C] 语义收窄正则）
+  distribution: "artifact-gate（lpu_check.py exit code 即门禁）"
+form: spec                     # 不变：修订不改变形态
+
+level_tests:
+  invariant: true
+  repo_bound: false            # 本次修订对象是校验器逻辑本身（全局不变量层），不新增仓库绑定
+  failure_radius: "org-wide（所有 Rust/新兴语言项目跑 LPU 均受白名单缺陷影响）"
+level: dual                    # 不变
+
+type_model: 任务型·互斥（理解域）   # 不变
+mutex_group: true（第一方）
+trigger_face: "理解/摸底/接手/考古遗留项目（不变）"
+gates: [".standards/lpu/scripts/lpu_check.py（V1.1）", "Doc-Gate"]
+
+lifecycle:
+  promotion_watch: ["EVIDENCE_RE 白名单扩展后是否出现锚点注水（锚点计数虚高而证据空洞）——若出现需加语义级校验"]
+  exception_budget: "无新增例外条款"
+  demotion_signal: "无"
+
+# ── 修订明细（V1.0 → V1.1）──────────────────────────
+revision:
+  - id: REV-001
+    defect: "EVIDENCE_RE 扩展名白名单不含 rs|toml|json"
+    evidence_ref: "webpkg/.lpu/findings/X-conflicts.md XF-003（2026-10-04 dogfood 首跑实证）"
+    fix: "白名单追加 rs|toml|json 三个扩展名"
+  - id: REV-002
+    defect: "G5 C级隔离检查用 CONF_RE(\\[([ABC])\\]) 计数但报错文案称 [C] 标注——文案与实现不一致"
+    evidence_ref: "webpkg/.lpu/findings/X-conflicts.md XF-004（首跑 12 处标注中仅 2 处 [C]）"
+    fix: "收窄为 C-only 正则 \\[C\\]——决策章节允许 [A]/[B] 置信度标注（与 G4 语义一致），仅隔离 [C]"
+
+decided_by: "Nova（LPU V1.1 修订判型 · webpkg dogfood 触发）"
+decided_at: "2026-10-04T19:40:00+08:00"
+evidence_refs: ["META-RULES §一/§二/§三（判据复核）", "webpkg/.lpu/findings/X-conflicts.md XF-003/XF-004", "webpkg/.lpu/check_report.md（V1.0 首跑 FAIL 实录）"]
+review_note: "判型变更：无（form/level/type 三判均维持 V1.0 结论）；本次仅机制层缺陷修复，属内容级修订，不触发形态/层级/接入类型重判。棘轮方向：收紧（校验器盲区补全=门禁更严）。"

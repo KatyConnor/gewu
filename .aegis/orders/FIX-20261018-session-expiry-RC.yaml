@@ -1,0 +1,19 @@
+# RC 根因单——管理端会话过期未跳转独立登录页
+trace_ref: "s-20261018-160421"
+issue: "用户报告（截图）：会话过期后登录表单嵌在管理端布局内（侧栏仍可见），未呈现独立登录页"
+risk_level: S2
+symptom: "管理端访问令牌过期后，下一次 API 调用触发 401，页面仅整页 reload 回 '/'，登录表单渲染在带侧栏的后台壳内部；令牌在两次 API 调用之间自然过期时界面无任何反应"
+causal_chain:
+  why_exist: "gewu-admin-web 为单路由单页应用（Next.js 仅 '/' 一条路由），登录页不是独立路由而是 Redux currentPage 切换的组件；page.tsx 无条件渲染 <Sidebar/> 后台壳包裹所有页面（含 login），LoginPage 自身按全屏设计（min-h-screen flex 双栏）被压缩进布局主区域"
+  why_undetected: "401 拦截器 window.location.href='/' reload 后确实能回到登录表单（功能层面'能看到登录'），但呈现形态错误（嵌壳）；开发与验收均在登录后状态进行，未对过期跳转形态做走查"
+  why_now: "用户实际使用中令牌过期（JwtUtil 默认 30min access token）后遇到该形态，截图上报"
+root_cause: "①页面壳与认证态未联动：page.tsx:52-58 对所有 currentPage（含 login）统一渲染 Sidebar+主区，无'未认证→独立全屏登录'分支；②过期无主动检测：page.tsx:36-41 仅在挂载时检查 isAuthenticated()（只查 token 存在性，token.ts:61-63），令牌在停留期间自然过期且无 API 调用时无任何跳转；③401 拦截器（request.ts:39-44）仅 clearTokens+整页 reload，依赖 reload 后 store 初始化兜底，不能在当前帧直接切到登录页"
+evidence:
+  - "gewu-admin-web/src/app/page.tsx:30-60（无条件 Sidebar 壳 + 挂载时一次性认证检查）"
+  - "gewu-admin-web/src/lib/token.ts:61-63（isAuthenticated 只查存在性）与 79-83（isTokenValid 查过期但未被 page.tsx 使用）"
+  - "gewu-admin-web/src/lib/request.ts:38-45（401→clearTokens+window.location.href='/'）"
+  - "gewu-admin-server/src/main/java/com/gewu/admin/config/AdminJwtAuthenticationFilter.java:168（过期/无效令牌返回 HTTP 401，拦截器确会触发）"
+  - "gewu-gateway/src/main/java/com/gewu/gateway/filter/JwtAuthFilter.java:80（网关层同样 401）"
+  - "gewu-admin-web/src/lib/auth.ts:85-98（refreshToken 已定义但全库无调用点——无自动续期，过期必然走 401 路径）"
+impact: "会话过期后用户看到形态错乱的登录界面（登录表单嵌于管理端布局、侧栏可点击），观感为'没有跳转到登录页'；闲置场景下过期无反馈。无数据泄露/越权影响（401 拦截与 token 清理均正常）"
+confidence: "C1（代码链路直接证据 + 截图现象吻合）"

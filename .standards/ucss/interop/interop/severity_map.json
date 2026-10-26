@@ -1,0 +1,53 @@
+{
+  "$comment": "UCSS/UTSS 互操作映射（集成适配设计 v1.0 随卷配件）。铁律：映射仅用于展示/汇总/去重；门禁判定永远使用原始等级（防有损聚合稀释阻断语义）。",
+  "schema_version": "1.0",
+  "ucss_levels": ["critical", "high", "medium", "low", "info"],
+
+  "forward": {
+    "_doc": "UCSS 五级 → 宿主词表（展示层用）",
+    "sarif_2_1_0":  { "critical": "error", "high": "error", "medium": "warning", "low": "note", "info": "none" },
+    "semgrep":      { "critical": "ERROR", "high": "ERROR", "medium": "WARNING", "low": "INFO", "info": "INFO" },
+    "codeql":       { "critical": "error", "high": "error", "medium": "warning", "low": "recommendation", "info": "recommendation" },
+    "qiyuan_codeshield": { "critical": "严重", "high": "高危", "medium": "中危", "low": "低危", "info": "提示" },
+    "owasp_risk":   { "critical": "Critical", "high": "High", "medium": "Medium", "low": "Low", "info": "Info" }
+  },
+
+  "reverse": {
+    "_doc": "消费宿主 SARIF 时的反向口径（与 ucss_gate.py v1.1 实现一致：SEV_LABEL）",
+    "sarif_to_ucss_band": { "error": "Critical/High", "warning": "Medium", "note": "Low/Info", "none": "Info" }
+  },
+
+  "lossy_notes": [
+    "SARIF 仅 3 档有效：Critical 与 High 聚合为 error，Low 与 Info 聚合为 note——聚合语义如实标注，不虚拆",
+    "UTSS 结论三值（PASS / PASS-WITH-RISK / FAIL）不参与严重度映射，透传至宿主准出看板"
+  ],
+
+  "dedup": {
+    "_doc": "双标准去重键（设计 §5.2，sarif_dedup.py backlog 的实现依据）",
+    "keys": ["cwe", "file", "line"],
+    "line_proximity": 3,
+    "merge_rules": {
+      "both_reported":   "合并为一条，corroborated-by=[host,ucss]，等级取高者",
+      "ucss_only":       "增量发现——M2 并行门禁仅对此行使阻断权",
+      "host_only":       "宿主口径，UCSS 报告不重复计数（防看板双计）",
+      "conclusion_conflict": "双列呈现，按域内权威方裁决（设计 §6.2）"
+    }
+  },
+
+  "testcase_fields": {
+    "_doc": "UTSS 12 字段 → 宿主用例模板映射（设计 §5.3；字段缺省即用例不合格，S1 准入硬条件）",
+    "1_id_title":            { "host_field": "case id / title", "note": "编号规则不同时保留宿主编号，UTSS ID 入附注" },
+    "2_module":              { "host_field": "module / epic link", "note": "直接映射" },
+    "3_requirement_source":  { "host_field": "requirement link", "note": "不可协商项：必须可追溯到需求条目/diff/缺陷号（铁律 3）" },
+    "4_business_rule":       { "host_field": "(多数模板无)", "note": "UTSS 独有：规则原文+出处，附注列补齐" },
+    "5_scenario":            { "host_field": "test type / scenario", "note": "场景四分类（主/备/异/并）映射进宿主枚举" },
+    "6_preconditions":       { "host_field": "preconditions", "note": "直接映射" },
+    "7_test_data":           { "host_field": "test data", "note": "须含具体值+准备方式；描述性 data 标注不满足" },
+    "8_dependencies":        { "host_field": "dependencies", "note": "须注明真实或 mock 及方式" },
+    "9_steps":               { "host_field": "steps", "note": "不可协商项：每步带步骤级预期" },
+    "10_expected_result":    { "host_field": "expected result", "note": "不可协商项：可判定断言（具体值/状态码/副作用）" },
+    "11_priority":           { "host_field": "priority", "note": "P0-P3 枚举对齐；P0=主流程与高风险=冒烟池" },
+    "12_design_method":      { "host_field": "(多数模板无)", "note": "UTSS 独有：标注 BVA/判定表等设计方法" },
+    "non_negotiable_fields": [3, 9, 10]
+  }
+}

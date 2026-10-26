@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>STD-HUB · 留痕产物终端</title>
+<style>
+:root{
+  --bg:#060c18; --panel:#0c1626; --panel2:#101f38; --panel3:#142644;
+  --line:#1c3154; --line2:#274066;
+  --text:#cfdbf0; --dim:#63789c; --faint:#3d517a;
+  --gold:#e8b64c; --gold-dim:#8a6d2f;
+  --up:#00c48c; --up-dim:#0a4a38; --down:#ff5d6c; --down-dim:#4a1620;
+  --cyan:#38d9ff; --amber:#ffb020; --blue:#3d8bff;
+}
+*{box-sizing:border-box;margin:0}
+html{background:var(--bg)}
+body{font:13px/1.62 -apple-system,"PingFang SC","Microsoft YaHei",sans-serif;color:var(--text);
+  background:
+    radial-gradient(1200px 400px at 85% -120px, rgba(56,217,255,.05), transparent 60%),
+    radial-gradient(900px 300px at 0% -80px, rgba(232,182,76,.04), transparent 60%),
+    repeating-linear-gradient(0deg, rgba(56,217,255,.025) 0 1px, transparent 1px 44px),
+    repeating-linear-gradient(90deg, rgba(56,217,255,.02) 0 1px, transparent 1px 44px),
+    var(--bg);
+  min-height:100vh}
+.mono,td.num,.kpi b,.t,.code,.pill,.tag{font-family:ui-monospace,"SF Mono","Cascadia Mono",Consolas,monospace;font-variant-numeric:tabular-nums}
+
+/* ── 顶栏：金融终端题头 ── */
+header{position:sticky;top:0;z-index:20;background:linear-gradient(180deg,#0a1424,#081020);
+  border-bottom:1px solid var(--line);box-shadow:0 1px 0 rgba(0,0,0,.6)}
+header .goldbar{height:2px;background:linear-gradient(90deg,transparent,var(--gold) 18%,var(--gold) 82%,transparent);opacity:.75}
+.hwrap{display:flex;align-items:center;gap:14px;padding:11px 22px}
+.logo{display:flex;align-items:center;gap:10px}
+.logo .mark{width:26px;height:26px;border:1px solid var(--gold);border-radius:6px;display:grid;place-items:center;
+  color:var(--gold);font-weight:800;font-size:13px;letter-spacing:-1px;background:linear-gradient(135deg,rgba(232,182,76,.16),transparent)}
+.logo h1{font-size:15.5px;font-weight:700;color:#e9f1ff;letter-spacing:.5px}
+.logo h1 em{font-style:normal;color:var(--gold);font-size:11px;letter-spacing:2.5px;margin-left:8px;opacity:.85}
+.ticker{margin-left:auto;display:flex;gap:0;align-items:stretch;border:1px solid var(--line);border-radius:7px;overflow:hidden;background:rgba(6,12,24,.7)}
+.ticker div{padding:4px 12px;border-right:1px solid var(--line);font-size:10.8px;color:var(--dim);line-height:1.5}
+.ticker div:last-child{border-right:0}
+.ticker b{display:block;color:var(--text);font-size:11px;font-weight:600}
+.ticker .ok b{color:var(--up)} .ticker .bad b{color:var(--down)}
+
+/* ── 导航：交易台 Tab ── */
+#projbar{display:flex;gap:8px;padding:9px 22px 0;background:rgba(7,13,26,.92);position:sticky;top:62px;z-index:18}
+#projbar .pj{border:1px solid var(--line);background:var(--panel);color:var(--dim);border-radius:7px;
+  padding:4px 14px;font-size:11.5px;cursor:pointer;font-family:ui-monospace,monospace}
+#projbar .pj:hover{color:var(--text);border-color:var(--line2)}
+#projbar .pj.on{color:var(--gold);border-color:rgba(232,182,76,.55);background:rgba(232,182,76,.09)}
+#projbar .pj.lost{color:var(--faint);border-style:dashed;cursor:default}
+#projbar .pj.lost::after{content:'失联';font-size:9.5px;color:var(--down);margin-left:6px}
+#projbar .pj.upd{border-color:var(--gold);box-shadow:0 0 10px rgba(232,182,76,.35)}
+#projbar .pj.upd::before{content:'●';color:var(--gold);margin-right:4px;animation:pulse 1.2s ease-in-out infinite}
+@keyframes pulse{0%,100%{opacity:.35}50%{opacity:1}}
+nav{position:sticky;top:60px;z-index:19;display:flex;gap:4px;padding:8px 22px 0;
+  background:rgba(7,13,26,.92);backdrop-filter:blur(6px);border-bottom:1px solid var(--line)}
+nav button{border:1px solid transparent;border-bottom:0;background:transparent;color:var(--dim);
+  padding:7px 15px;font-size:12.3px;cursor:pointer;border-radius:7px 7px 0 0;position:relative;letter-spacing:.3px}
+nav button:hover:not(:disabled){color:var(--text);background:rgba(56,217,255,.05)}
+nav button.on{color:#fff;background:linear-gradient(180deg,rgba(61,139,255,.22),rgba(61,139,255,.06));
+  border-color:var(--line2);box-shadow:inset 0 1px 0 rgba(255,255,255,.06)}
+nav button.on::after{content:'';position:absolute;left:10px;right:10px;bottom:-1px;height:2px;
+  background:linear-gradient(90deg,var(--cyan),var(--gold))}
+nav button:disabled{opacity:.32;cursor:default}
+nav button .b{color:var(--gold);margin-right:4px}
+
+main{padding:18px 22px 40px;max-width:1220px;margin:0 auto}
+h3{font-size:13.5px;color:#eaf2ff;font-weight:700;margin:18px 0 8px;letter-spacing:.5px;
+  padding-left:10px;border-left:3px solid var(--gold);display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+h3:first-child{margin-top:0}
+h3 .sub{font-weight:400;color:var(--dim);font-size:11.5px;letter-spacing:0}
+a.file{color:var(--cyan);text-decoration:none;border-bottom:1px dotted rgba(56,217,255,.5)}
+a.file:hover{color:#fff;border-bottom-style:solid}
+a.plain{color:var(--cyan);text-decoration:none;cursor:pointer}
+
+/* ── KPI：行情卡 ── */
+.kpis{display:grid;grid-template-columns:repeat(auto-fit,minmax(158px,1fr));gap:10px;margin-bottom:16px}
+.kpi{position:relative;background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);
+  border-radius:9px;padding:11px 13px 10px;overflow:hidden}
+.kpi::before{content:'';position:absolute;top:0;left:0;right:0;height:2px;background:linear-gradient(90deg,var(--blue),transparent 70%)}
+.kpi.up::before{background:linear-gradient(90deg,var(--up),transparent 70%)}
+.kpi.down::before{background:linear-gradient(90deg,var(--down),transparent 70%)}
+.kpi.gold::before{background:linear-gradient(90deg,var(--gold),transparent 70%)}
+.kpi b{display:block;font-size:23px;font-weight:700;color:#fff;line-height:1.15;margin:1px 0 2px}
+.kpi.up b{color:var(--up)} .kpi.down b{color:var(--down)} .kpi.gold b{color:var(--gold)}
+.kpi span{font-size:10.5px;color:var(--dim);letter-spacing:1px}
+.kpi .spark{position:absolute;right:10px;top:9px;font-size:10px;color:var(--faint)}
+
+/* ── 表格：交易台账 ── */
+table{border-collapse:separate;border-spacing:0;width:100%;margin:10px 0;font-size:12.2px;
+  border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--panel)}
+th{background:linear-gradient(180deg,var(--panel3),var(--panel2));color:#aebfd8;padding:6px 10px;text-align:left;
+  font-weight:600;font-size:11.5px;letter-spacing:.6px;border-bottom:1px solid var(--line2)}
+td{padding:5.5px 10px;border-bottom:1px solid rgba(28,49,84,.55);color:var(--text)}
+tr:nth-child(even) td{background:rgba(16,31,56,.45)}
+tr:hover td{background:rgba(56,217,255,.05)}
+tr:last-child td{border-bottom:0}
+td.num{color:#e8effc}
+.hint{color:var(--dim);font-size:11.8px;margin:6px 0}
+.code{background:#04101f;border:1px solid var(--line);color:var(--cyan);border-radius:6px;padding:1px 7px;font-size:11px}
+
+/* ── 徽章/标签 ── */
+.pill{display:inline-block;border-radius:5px;padding:1px 9px;font-size:10.5px;font-weight:600;letter-spacing:.5px;
+  border:1px solid transparent;vertical-align:1px}
+.p-CLOSED,.p-COMPLETE{color:var(--up);background:var(--up-dim);border-color:rgba(0,196,140,.4);box-shadow:0 0 8px rgba(0,196,140,.12)}
+.p-INTERRUPTED{color:var(--down);background:var(--down-dim);border-color:rgba(255,93,108,.4);box-shadow:0 0 8px rgba(255,93,108,.15)}
+.p-OPEN,.p-DEGRADED{color:var(--amber);background:rgba(255,176,32,.12);border-color:rgba(255,176,32,.4)}
+.p-EMPTY{color:var(--dim);background:rgba(99,120,156,.12);border-color:var(--line2)}
+.tag{background:rgba(61,139,255,.1);border:1px solid rgba(61,139,255,.3);border-radius:4px;padding:0 7px;
+  font-size:10.5px;color:var(--blue)}
+.tag.risk{color:var(--down);border-color:rgba(255,93,108,.45);background:var(--down-dim)}
+.tag.gold{color:var(--gold);border-color:rgba(232,182,76,.4);background:rgba(232,182,76,.08)}
+.light{color:var(--up);font-weight:700}.dark{color:var(--down);font-weight:700}
+
+/* ── 会话条：证券行情条 ── */
+.sess{display:flex;gap:9px;align-items:center;flex-wrap:wrap;margin:7px 0;cursor:pointer;padding:7px 12px;
+  background:linear-gradient(180deg,var(--panel2),var(--panel));border:1px solid var(--line);border-radius:8px;
+  transition:border-color .15s}
+.sess:hover{border-color:var(--line2)}
+.sess.on{border-color:var(--cyan);box-shadow:0 0 0 1px rgba(56,217,255,.25),0 0 16px rgba(56,217,255,.08)}
+.sess b{font-size:12px;color:#e8effc}
+.sess .grow{margin-left:auto;color:var(--dim);font-size:10.5px}
+
+/* ── 事件流：审计台账 ── */
+.evlist{border:1px solid var(--line);border-radius:9px;overflow:hidden;background:var(--panel)}
+.ev{display:grid;grid-template-columns:80px 128px 1fr;gap:12px;padding:4.5px 12px;border-bottom:1px solid rgba(28,49,84,.5);
+  font-size:12.2px;position:relative}
+.ev:last-child{border-bottom:0}
+.ev::before{content:'';position:absolute;left:0;top:3px;bottom:3px;width:2px;background:transparent;border-radius:2px}
+.ev.r3{background:rgba(255,93,108,.055)}
+.ev.r3::before{background:var(--down);box-shadow:0 0 6px rgba(255,93,108,.5)}
+.ev.gate::before{background:var(--amber)}
+.ev.close::before{background:var(--up)}
+.ev .t{color:var(--dim);font-size:11.2px;padding-top:1px}
+.ev .ty{font-weight:700;font-size:11.5px;letter-spacing:.4px;color:#d7e3f8}
+.ev .ty.BLOCKED{color:var(--down)} .ev .ty.GATE_REQUEST,.ev .ty.GATE_RESULT{color:var(--amber)}
+.ev .ty.RISK_PRE,.ev .ty.RISK_POST{color:#ff8f9a}
+.ev .ty.TASK_CLOSE{color:var(--up)} .ev .ty.other{color:var(--dim);font-weight:400}
+.ev .r3m{color:var(--down);font-size:10px;border:1px solid rgba(255,93,108,.5);border-radius:3px;padding:0 4px;margin-left:6px}
+.ev .s{color:#9fb3d4;overflow-wrap:anywhere}
+.two{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+select{font-size:12px;padding:3px 8px;border:1px solid var(--line2);border-radius:6px;
+  background:var(--panel2);color:var(--text);margin-right:6px}
+select:focus{outline:1px solid var(--cyan)}
+.pgn{display:flex;gap:5px;margin:9px 0}
+.pgn button{border:1px solid var(--line);background:var(--panel2);color:var(--dim);border-radius:6px;
+  padding:3px 11px;cursor:pointer;font-size:11.5px}
+.pgn button:hover{color:var(--text);border-color:var(--line2)}
+.pgn button.on{background:linear-gradient(180deg,rgba(232,182,76,.28),rgba(232,182,76,.1));color:var(--gold);border-color:rgba(232,182,76,.5)}
+.empty{padding:34px;color:var(--dim);text-align:center;background:var(--panel);border:1px dashed var(--line2);
+  border-radius:10px;font-size:12.5px}
+footer{padding:15px 22px;color:var(--faint);font-size:10.8px;border-top:1px solid var(--line);
+  background:rgba(6,12,24,.6);letter-spacing:.4px}
+@media(max-width:860px){.two{grid-template-columns:1fr}.ticker{display:none}}
+</style>
+</head>
+<body>
+<header>
+  <div class="goldbar"></div>
+  <div class="hwrap"><div id="updbadge" style="display:none;color:var(--gold);border:1px solid rgba(232,182,76,.5);border-radius:6px;padding:2px 10px;font-size:10.5px;letter-spacing:1px">● 产物已更新</div>
+    <div class="logo">
+      <div class="mark">SH</div>
+      <h1>留痕产物终端<em>ARTIFACT&nbsp;TERMINAL</em></h1>
+    </div>
+    <div class="ticker" id="ticker"></div>
+  </div>
+</header>
+<div id="projbar"></div>
+<nav id="tabs"></nav>
+<main id="main"></main>
+<footer>STD-HUB-VIEW-001 · 留痕产物终端 · 一期静态单文件 · 全链只读 · schema <span id="ftr-sv"></span></footer>
+<script>
+const RAW = /*__VIEW_MODEL__*/null;
+const DATA = RAW && RAW.projects ? RAW : {projects: [RAW]};   // v1 单 vm 顶层兼容
+let VM = DATA.projects[0];
+let curIdx = 0;                                                 // V1.9.15：当前项目序号（/f 路由用）
+const FSRV = (DATA.file_serve || '');                           // serve 模式='/f'·静态=''
+const FURL = p => p ? (FSRV ? `${FSRV}/${curIdx}/${p}`
+                           : `${(VM.meta && VM.meta.file_base) || '..'}/${p}`) : null;
+const P = p => p ? `<a class="file" href="${FURL(p)}">${p}</a>` : '—';
+const esc = s => String(s??'').replace(/[&<>"]/g, c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+let cur = 'ov', curSess = 0, evPage = 0, govF = {spec:'',breaking:''};
+
+const TABS = () => [
+ ['ov','① 总览', true],
+ ['tl','② 会话时间线', !!(VM.sessions)],
+ ['dm','③ 任务域', !!(VM.domains)],
+ ['ts','④ 测试', !!(VM.tests)],
+ ['gv','⑤ 治理', !!(VM.governance)],
+ ['cp','⑥ 检查点/回滚', !!(VM.checkpoints||VM.rollbacks)],
+];
+
+function projbar(){
+  const bar = document.getElementById('projbar');
+  if (DATA.projects.length < 2){ bar.innerHTML=''; bar.style.display='none'; document.querySelector('nav').style.top='60px'; return; }
+  bar.style.display='flex'; document.querySelector('nav').style.top='98px';
+  bar.innerHTML = `<span style="color:var(--faint);font-size:10.5px;padding:6px 6px 0;letter-spacing:1px">PORTFOLIO</span>` +
+    DATA.projects.map((x,i)=>`<button class="pj ${VM===x?'on':''} ${x.meta.lost?'lost':''}" data-i="${i}">${esc(x.meta.name)}${x.meta.lost?'':' · '+x.stats.artifacts+'产物'}</button>`).join('');
+  bar.querySelectorAll('.pj').forEach(b=>b.onclick=()=>switchProject(+b.dataset.i));
+}
+function switchProject(i){
+  VM = DATA.projects[i]; curIdx=i; curSess=0; evPage=0; govF={spec:'',breaking:''}; cur='ov';
+  window.scrollTo(0,0); ticker(); projbar(); nav(); draw();
+}
+
+function nav(){
+  const n = document.getElementById('tabs');
+  n.innerHTML = TABS().map(([k,l,en])=>`<button data-k="${k}" ${en?'':'disabled'} class="${k===cur?'on':''}"><span class="b">▮</span>${l}</button>`).join('');
+  n.querySelectorAll('button').forEach(b=>b.onclick=()=>{cur=b.dataset.k;nav();draw();});
+}
+function ticker(){
+  const s = VM.stats, ts = VM.trace_stats||{};
+  const cells = [
+    ['规范根', VM.meta.two_level, ''],
+    ['HUB', VM.meta.hub_version, ''],
+    ['会话', s.sessions, ''],
+    ['留痕事件', s.events, ''],
+    ['R3 操作', ts.r3, ts.r3>0?'bad':''],
+    ['哈希链', s.hash_ok?'OK':'断链', s.hash_ok?'ok':'bad'],
+    ['解析降级', s.errors, s.errors?'bad':''],
+  ];
+  document.getElementById('ticker').innerHTML =
+    cells.map(([l,v,c])=>`<div class="${c}"><span>${l}</span><b>${esc(v)}</b></div>`).join('');
+  document.getElementById('ftr-sv').textContent = VM.schema_version;
+}
+
+/* ── ① 总览 ── */
+function vOv(){
+  const s = VM.stats, ts = VM.trace_stats||{}, g = VM.governance, lpu=(VM.domains||{}).lpu, d=VM.domains||{};
+  const lost = VM.meta && VM.meta.lost;
+  let h = lost ? `<div class="empty" style="border-color:var(--down);color:var(--down)">⟁ 项目失联：${esc(VM.meta.project_root)}<br><span style="font-size:11px">路径不存在（可能被移动/删除）——注册表行保留，移回后自动恢复</span></div>` : '';
+  const dl = VM.meta && VM.meta.delta;
+  h += dl ? `<div class="hint" style="border:1px solid var(--line);border-left:3px solid var(--gold);border-radius:7px;padding:7px 12px;background:rgba(232,182,76,.05);margin-bottom:10px">
+    <b style="color:var(--gold)">Δ 快照对比</b> · 相对 ${esc(dl.since)}：会话 <b class="${dl.sessions>=0?'light':'dark'}">${dl.sessions>=0?'+':''}${dl.sessions}</b>
+    · 事件 <b class="${dl.events>=0?'light':'dark'}">${dl.events>=0?'+':''}${dl.events}</b>
+    · 产物 <b class="${dl.artifacts>=0?'light':'dark'}">${dl.artifacts>=0?'+':''}${dl.artifacts}</b>
+    · R3 <b class="${dl.r3>=0?'light':'dark'}">${dl.r3>=0?'+':''}${dl.r3}</b></div>` : '';
+  h += `<div class="kpis">
+    <div class="kpi"><b>${s.sessions}</b><span>SESSIONS 会话</span><span class="spark">◉</span></div>
+    <div class="kpi"><b>${s.events}</b><span>EVENTS 留痕事件</span></div>
+    <div class="kpi gold"><b>${s.artifacts}</b><span>ARTIFACTS 产物</span></div>
+    <div class="kpi ${ts.r3>0?'down':'up'}"><b>${ts.r3}</b><span>R3 风险操作</span></div>
+    <div class="kpi ${s.hash_ok?'up':'down'}"><b>${s.hash_ok?'OK':'BREAK'}</b><span>哈希链完整性</span></div>
+    <div class="kpi ${s.errors?'down':'up'}"><b>${s.errors}</b><span>DEGRADED 解析降级</span></div></div>`;
+  h += `<h3>域健康<span class="sub">DOMAIN STATUS</span></h3>
+  <table><tr><th>域</th><th>状态</th><th>要点</th><th>入口</th></tr>`;
+  const row=(name,ok,point,tab)=>`<tr><td><b>${name}</b></td><td>${ok?'<span class="light">● 在场</span>':'<span style="color:var(--faint)">— 无产物</span>'}</td><td>${point}</td><td><a class="plain" href="javascript:go('${tab}')">进入 →</a></td></tr>`;
+  if(VM.sessions) h+=row('留痕 AETC',1,`${s.sessions} 会话 · ${ts.interrupted||0} 中断`,'tl');
+  if(lpu) h+=row('LPU 逆向',1,`${lpu.dims} 维 findings · ${(lpu.docs||[]).length} 文档 · 结论 ${lpu.check_report.conclusion||'?'}`,'dm');
+  if(d.lr) h+=row('LR 重构',1,`${(d.lr.records||[]).length} 记录`,'dm');
+  if(d.ops) h+=row('OPS 运维',1,`${d.ops.count} 事件单`,'dm');
+  if(VM.tests) h+=row('测试 UTSS',1,`三单互锁 ${VM.tests.tickets.lock_state}`,'ts');
+  if(g) h+=row('治理 META',1,`${g.count} 判型记录（修订 ${g.revisions}）`,'gv');
+  if(VM.checkpoints) h+=row('检查点',1,`${VM.checkpoints.length} 个`,'cp');
+  h+=`</table>`;
+  if(VM.panels) h+=`<h3>任务面板<span class="sub">PROGRESS · 磁盘产物口径</span></h3>
+  <table><tr><th>域</th><th>进度</th><th>阶段</th><th>未决</th><th>更新</th></tr>`+
+    VM.panels.map(p=>`<tr><td><b>${p.domain}</b></td><td class="num">${p.done}/${p.total}（${p.pct}%）</td><td>${esc(p.stage)}</td><td class="num">${p.open_issues}</td><td class="num">${p.mtime}</td></tr>`).join('')+`</table>`;
+  if(VM.errors&&VM.errors.length) h+=`<h3>降级与异常<span class="sub">呈现现场 · 不打分</span></h3><div class="evlist">`+
+    VM.errors.map(e=>`<div class="ev"><div class="t"></div><div class="ty other">DEGRADED</div><div class="s">${esc(e)}</div></div>`).join('')+`</div>`;
+  return h;
+}
+function go(k){cur=k;nav();draw();window.scrollTo(0,0);}
+
+/* ── ② 会话时间线 ── */
+function vTl(){
+  if(!VM.sessions) return '<div class="empty">本项目无 AETC 留痕（audit/traces/）</div>';
+  const s = VM.sessions[curSess]||VM.sessions[0];
+  let h = `<div class="hint">会话行情条（${VM.sessions.length} 个 · 点击条目切换事件流 · 选定后「原文 · 完整会话档案」可开整份 trace · 红边=R3 审计 · 断链标红）</div>`;
+  h += VM.sessions.map((x,i)=>`<div class="sess ${i===curSess?'on':''}" data-i="${i}">
+    <b class="mono">${esc(x.id)}</b><span class="pill p-${x.state}">${x.state}</span>
+    <span class="tag">${x.event_count} 事件</span><span class="tag">R3×${x.r3_count}</span>
+    <span class="tag">GATE×${x.gates}</span>
+    ${x.hash_ok===false?'<span class="tag risk">哈希断链</span>':''}
+    <span class="grow mono">${x.mtime}</span></div>`).join('');
+  const evs = s.events, PP = 100, pages = Math.ceil(evs.length/PP)||1;
+  evPage = Math.min(evPage, pages-1);
+  const seg = evs.slice(evPage*PP, evPage*PP+PP);
+  h += `<h3>${esc(s.id)}<a class="file" href="${FURL(s.file)}">原文 · 完整会话档案</a>
+    ${s.hash_ok===false?'<span class="dark">⚠ 哈希链断链</span>':(s.hash_ok?'<span class="light">链完整</span>':'')}</h3><div class="evlist">`;
+  h += seg.map(e=>`<div class="ev ${e.r3?'r3':''} ${e.type.startsWith('GATE')?'gate':''} ${e.type==='TASK_CLOSE'?'close':''}">
+    <div class="t">${esc(e.ts)}</div>
+    <div class="ty ${e.type}">${e.type}${e.r3?'<span class="r3m">R3</span>':''}${e.gate?' ·'+esc(e.gate):''}${e.phase?' ·'+esc(e.phase):''}</div>
+    <div class="s">${esc(e.summary)}</div></div>`).join('');
+  if(s.unknown) h+=`<div class="hint" style="padding:6px 12px">未知事件类型 ${s.unknown} 条（降级为 other）</div>`;
+  h+=`</div>`;
+  if(pages>1) h+=`<div class="pgn">`+Array.from({length:pages},(_,i)=>`<button class="${i===evPage?'on':''}" data-p="${i}">${i+1}</button>`).join('')+`</div>`;
+  return h;
+}
+
+/* ── ③ 任务域 ── */
+function vDm(){
+  const d = VM.domains||{}; if(!d.lpu&&!d.lr&&!d.ops) return '<div class="empty">无任务域产物（.lpu/.lr/.ops）</div>';
+  let h='';
+  if(d.lpu){const L=d.lpu;
+    h+=`<h3>LPU 逆向理解<span class="sub">findings 矩阵 · ${L.dims} 维</span></h3>
+    <table><tr><th>维度</th><th>文件</th><th>行数</th><th>证据锚点</th><th>更新</th></tr>`+
+      L.findings.map(f=>`<tr><td><b>${f.dim}</b></td><td>${P(f.file)}</td><td class="num">${f.lines}</td><td class="num">${f.evidences}</td><td class="num">${f.mtime}</td></tr>`).join('')+`</table>`;
+    const cr=L.check_report||{};
+    if(Object.keys(cr).length) h+=`<p class="hint">交付自检：${cr.conclusion?`<b class="${cr.conclusion==='PASS'?'light':'dark'}">${cr.conclusion}</b>（PASS ${cr.pass} / WARN ${cr.warn} / FAIL ${cr.fail}）`:''} ${cr.confidence||''}</p>`;
+    if(L.docs&&L.docs.length) h+=`<h3>成文文档<span class="sub">${L.docs.length} 份</span></h3>
+    <table><tr><th>文档</th><th>行数</th><th>更新</th></tr>`+
+      L.docs.map(x=>`<tr><td>${P(x.path)}</td><td class="num">${x.lines}</td><td class="num">${x.mtime}</td></tr>`).join('')+`</table>`;}
+  if(d.lr&&d.lr.records) h+=`<h3>LR 重构记录<span class="sub">${d.lr.records.length} 条</span></h3>
+  <table><tr><th>记录</th><th>行数</th><th>更新</th></tr>`+
+    d.lr.records.map(x=>`<tr><td>${P(x.file)}</td><td class="num">${x.lines}</td><td class="num">${x.mtime}</td></tr>`).join('')+`</table>`;
+  if(d.ops&&d.ops.incidents) h+=`<h3>OPS 事件单<span class="sub">${d.ops.count} 单</span></h3>
+  <table><tr><th>单据</th><th>状态</th><th>级别</th><th>更新</th></tr>`+
+    d.ops.incidents.map(x=>`<tr><td>${P(x.file)}</td><td><span class="pill ${x.state.includes('关闭')||x.state.includes('closed')?'p-CLOSED':'p-OPEN'}">${x.state}</span></td><td class="num">${x.severity}</td><td class="num">${x.mtime}</td></tr>`).join('')+`</table>`;
+  return h;
+}
+
+/* ── ④ 测试 ── */
+function vTs(){
+  const T=VM.tests; if(!T) return '<div class="empty">无测试产物（tests/qa 或 .aegis）</div>';
+  let h=`<h3>五件套在场<span class="sub">UTSS 交付件</span></h3>
+  <table><tr><th>件</th><th>在场</th><th>路径</th></tr>`+
+    T.suite.map(x=>`<tr><td><b>${x.item}</b></td><td>${x.exists?'<span class="light">✓ 在场</span>':'<span class="dark">✗ 缺失</span>'}</td><td>${P(x.path)}</td></tr>`).join('')+`</table>`;
+  const tk=T.tickets;
+  h+=`<h3>三单互锁<span class="pill p-${tk.lock_state}">${tk.lock_state}</span></h3>`;
+  const tkrow=r=>`<tr><td class="mono">${r.id}</td><td>${P(r.file)}</td><td>${r.trace_ref?`<span class="code">${esc(r.trace_ref)}</span>`:'<span class="dark">缺</span>'}</td><td class="num">${r.mtime}</td></tr>`;
+  h+=`<table><tr><th>RC 根因单</th><th>文件</th><th>trace_ref</th><th>更新</th></tr>`+(tk.rc||[]).map(tkrow).join('');
+  h+=`<tr><th>FP 修复单</th><th></th><th></th><th></th></tr>`+(tk.fp||[]).map(tkrow).join('');
+  h+=`<tr><th>VR 验证单</th><th></th><th></th><th></th></tr>`+(tk.vr||[]).map(tkrow).join('');
+  return h+`</table><p class="hint">互锁口径：RC↔FP↔VR 链齐全且 trace_ref 全在场=COMPLETE · 任一缺失=DEGRADED</p>`;
+}
+
+/* ── ⑤ 治理 ── */
+function vGv(){
+  const g=VM.governance; if(!g) return '<div class="empty">无判型记录（meta/records/）</div>';
+  let rs=g.records;
+  if(govF.spec) rs=rs.filter(r=>r.spec.includes(govF.spec));
+  if(govF.breaking) rs=rs.filter(r=>String(r.breaking)===govF.breaking);
+  const specs=[...new Set(g.records.map(r=>r.spec))];
+  return `<div class="hint">${g.count} 条记录 · 修订 ${g.revisions} · 过滤后 ${rs.length} 条</div>
+  <div><select id="f-spec"><option value="">全部规范</option>${specs.map(s=>`<option ${govF.spec===s?'selected':''}>${esc(s)}</option>`).join('')}</select>
+  <select id="f-brk"><option value="">breaking 全部</option><option value="false" ${govF.breaking==='false'?'selected':''}>false</option><option value="true" ${govF.breaking==='true'?'selected':''}>true</option></select></div>
+  <table><tr><th>记录</th><th>规范</th><th>版本</th><th>breaking</th><th>q3</th><th>定夺</th><th>更新</th></tr>`+
+  rs.map(r=>`<tr><td class="mono">${esc(r.name)}</td><td>${esc(r.spec)}</td><td class="num">${esc(r.version)}</td><td>${r.breaking==='true'?'<span class="dark">true</span>':esc(r.breaking)}${r.deepening?' <span class="tag gold">深化</span>':''}</td><td class="num">${esc(r.q3)}</td><td>${esc(r.decided_by)}</td><td class="num">${r.mtime}</td></tr>`).join('')+
+  `</table>`;
+}
+
+/* ── ⑥ 检查点/回滚 ── */
+function vCp(){
+  const cps=VM.checkpoints||[], rbs=VM.rollbacks||[];
+  if(!cps.length&&!rbs.length) return '<div class="empty">无检查点/回滚记录</div>';
+  let h=`<div class="two"><div>`;
+  if(cps.length) h+=`<h3>检查点<span class="sub">${cps.length} 个</span></h3>
+  <table><tr><th>ID</th><th>文件数</th><th>时间</th></tr>`+
+    cps.map(c=>`<tr><td class="mono"><b>${esc(c.id)}</b></td><td class="num">${c.files}</td><td class="num">${c.mtime}</td></tr>`).join('')+`</table>
+    <p class="hint">恢复原则（RLB）：就近可用检查点 + restore 后验证 · 禁止凭记忆跳读</p>`;
+  h+=`</div><div>`;
+  if(rbs.length) h+=`<h3>复核/回滚记录<span class="sub">${rbs.length} 条</span></h3>
+  <table><tr><th>文件</th><th>更新</th></tr>`+
+    rbs.map(r=>`<tr><td>${P(r.file)}</td><td class="num">${r.mtime}</td></tr>`).join('')+`</table>`;
+  return h+`</div></div>`;
+}
+
+const VIEWS={ov:vOv,tl:vTl,dm:vDm,ts:vTs,gv:vGv,cp:vCp};
+function draw(){
+  document.getElementById('main').innerHTML = (VIEWS[cur]||vOv)();
+  document.querySelectorAll('.sess').forEach(el=>el.onclick=()=>{curSess=+el.dataset.i;evPage=0;draw();});
+  document.querySelectorAll('.pgn button').forEach(b=>b.onclick=()=>{evPage=+b.dataset.p;draw();});
+  const fs=document.getElementById('f-spec'); if(fs) fs.onchange=e=>{govF.spec=e.target.value==='全部规范'?'':e.target.value;draw();};
+  const fb=document.getElementById('f-brk'); if(fb) fb.onchange=e=>{govF.breaking=e.target.value==='breaking 全部'?'':e.target.value;draw();};
+}
+ticker(); projbar(); nav(); draw();
+
+/* ── Phase 2 推送（W6）：SSE invalidate → refreshVM（仅 serve 模式·file:// 静态跳过） ── */
+let CUR_NAME = () => (VM && VM.meta && VM.meta.name) || '';
+function refreshVM(){
+  fetch('/vm.json').then(r => r.json()).then(d => {
+    if(!d.projects || !d.projects.length) return;
+    const cur = CUR_NAME();
+    DATA.projects = d.projects;
+    const i = DATA.projects.findIndex(x => x.meta && x.meta.name === cur);
+    VM = DATA.projects[Math.max(0, i)]; curIdx = Math.max(0, i);
+    ticker(); projbar(); nav(); draw();
+  }).catch(()=>{});
+}
+function markUpd(roots){
+  const badge = document.getElementById('updbadge');
+  if(badge){ badge.style.display='inline-block';
+    setTimeout(()=>{ badge.style.display='none'; }, 8000); }
+  const bar = document.getElementById('projbar');
+  if(!bar) return;
+  DATA.projects.forEach((x, i) => {
+    if(roots && !roots.includes(x.meta && x.meta.project_root)) return;
+    const b = bar.querySelector('.pj[data-i="'+i+'"]');
+    if(b){ b.classList.add('upd'); setTimeout(()=>b.classList.remove('upd'), 8000); }
+  });
+}
+if (location.protocol.startsWith('http') && 'EventSource' in window) {
+  const es = new EventSource('/events');
+  es.addEventListener('invalidate', e => {
+    try{
+      const ev = JSON.parse(e.data);
+      markUpd(ev.projects);
+      refreshVM();
+    }catch(_){}
+  });
+}
+
+</script>
+</body>
+</html>

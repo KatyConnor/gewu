@@ -1,0 +1,18 @@
+# FP 方案单模板（P2 方案设计阶段强制产出；实际 diff 超出本单声明即触发 L4/L8）
+# 规范依据：AEGIS V1.0 §6.4；安全类以缓解替代根治时须附有效性证据并在此声明
+trace_ref: ""                   # V1.2 证据互锁：AETC 留痕批次/事件号（必填——单据链↔留痕链）
+issue: ""                       # 问题单号
+risk_level: S2                  # S0–S4（对应预算见 AEGIS-RULES.md §二）
+root_cause_ref: ""              # 所依据的根因单编号，如 "RC-003"
+test_defect_approval: false     # 是否申请测试缺陷认定（须附双人审批记录）
+changes:                        # 变更清单（file/symbol/intent 三要素；计划外文件即违例）
+  - file: ""
+    symbol: ""
+    intent: ""
+budget: {files: 3, lines: 60, funcs: 3, deps: 0}   # diff 预算四维（达 90% 告警，100% 停写）
+verification:                   # 验证计划
+  red_baseline: ""              # 红基线判据（复现用例/扫描器命中）
+  regression_set: ""            # 回归选择集（基于影响分析）
+  rescan: ""                    # 安全类：原扫描器复扫判据（零新增）
+rollback: ""                    # 回滚预案（如 git revert <sha>；影响面说明）
+approvals: []                   # GATE 审批记录（冻结例外/超预算/依赖变更等）

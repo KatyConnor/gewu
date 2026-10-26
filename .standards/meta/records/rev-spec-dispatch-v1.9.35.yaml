@@ -1,0 +1,64 @@
+# 判型决策记录（STD-META-001 §六）— V1.9.35 调度指令重构批（每任务强制+语义先行+脏数据隔离）
+# 触发：2026-10-22 23:57~2026-10-23 00:28 用户连环实测报障（深夜单）：装 V1.9.34 后每次指令延迟 1 分 12 秒；
+#       trace-log 两次 report 一模一样（零真实流量）；zcode 思考内容零规范痕迹；黄金测试 MARKER 复述成功（通道通）
+# 判定链（当日闭环五步）：延迟与 STD-HUB 无关（调度器零执行=零开销·勘误上轮"多轮往返税"抢跑）→
+#       通道通+执行断（读了不执行·指令遵循层）→ 两嫌疑：会话首条限定（长会话裸奔）+脚本首步连锁放弃（L1 不可执行跳过全流程）
+# 用户拍板：00:28「当前问题是否定位，可执行修复1.9.35」
+
+content_id: "调度器指令遵循层重构（V1.9.35）"
+source: user-bug-report   # 深夜实测连环报障（含黄金测试配合执行）
+version: "V1.9.35"
+
+form_tests:
+  q1_harm: true
+  q1_evidence: "AGENTS.md 被读（黄金测试 MARKER 复述+路径精确）但任务中零执行（trace 零真实流量+思考零规范痕迹）；Step 0 锚定『会话首条任务』=长会话第 2~N 条任务全裸奔；L1 首步为 shell 命令=Agent 跑不了脚本连锁放弃整个 Step 0"
+  q2_shall_verifiable: true
+  q2_verifier: "suite_check G19/G20 扩 5 断言（243 项 PASS）：MANDATORY 每任务强制在场/语义先行+脚本降可选锚/落痕双轨锚/trace source 分家/§11.1 任务级一报——全部文本级可断言（指令层变更的验收即文档锚+下游行为门禁）"
+  q3_multisol: partial
+  distribution: "spec-revision（调度器指令重构+AETC 协议降频+trace 口径修正）+ build-fix（zip 脏数据隔离）"
+form: spec
+
+level_tests:
+  invariant: true
+  repo_bound: false
+  failure_radius: "org-wide（一切 Agent 平台的任务调度触发面：从『首条+脚本依赖』改为『每任务+纯思考可执行』）"
+level: dual
+
+access_tests:
+  mode: 入口文件语义重构（AGENTS.md 单槽位不变·注册表/矩阵/互斥组零变更）
+  stackable: 不变
+type_mode: entry-refactor
+
+revision:
+  - id: REV-DISP-08
+    defect: "Step 0 锚定『收到本会话首条任务时』——长会话第 2~N 条任务不经调度（用户『逐渐没生效』体感的结构性根源之一）"
+    evidence_ref: "2026-10-23 00:11 用户贴 zcode 思考实录（纯视觉任务推理零调度痕迹）+黄金测试通道通对照"
+    fix: "〔MANDATORY·V1.9.35〕每收到一条新任务动工前必过 Step 0——首条不豁免，长会话第 N 条不豁免；判定纯思考可完成"
+  - id: REV-DISP-09
+    defect: "L1 词面加速（shell 脚本）为 Step 0 首步——平台 Agent 零 shell 能力时连锁放弃整个调度流程"
+    evidence_ref: "2026-10-22 全天实证：Agent 零脚本调用（intent/trace 双零流量）"
+    fix: "L2 语义判定提为第一步（纯思考可执行）；L1 降『可选加速』+『脚本不可用不阻塞调度』显式条款——防连锁放弃"
+  - id: REV-DISP-10
+    defect: "留痕单轨依赖脚本——跑不了脚本=零留痕（复盘无据）"
+    evidence_ref: "trace-log 真实流量零但用户环境无任何对话级判定痕迹"
+    fix: "落痕双轨：脚本轨（jsonl）+对话轨（回复中显式输出『本任务路由判定：命中 X 规范』·任务末链路自报）——跑不了脚本不等于不留痕"
+  - id: REV-DISP-11
+    defect: "zip 打包含运行时留痕（audit/*.jsonl）——发版测试痕随包流入用户环境与真实流量混淆（用户两次 report 一模一样的干扰源）"
+    evidence_ref: "2026-10-23 00:11 用户环境 trace 18 事件中大部分为发版测试残留"
+    fix: "release.sh zip -x 排除 audit/trace-log.jsonl+intent-log.jsonl；开发仓测试痕清零——安装包自带干净空日志"
+  - id: REV-DISP-12
+    defect: "trace route 事件无来源标记——装痕/测试痕/真实流量不可分"
+    evidence_ref: "V1.9.34 装痕靠 install_selftest 事件区分，但 route 事件本身无 source"
+    fix: "route 事件自动补 source 字段（agent/install_selftest/reltest）；report 漏斗改真实流量口径（source=agent 才计入）+第四形态判读（真实 route=0=调度器未被执行）"
+
+extra_note: |
+  【连续判定的方法论沉淀】本批前置判定链五步（延迟归因→通道判定→执行判定→指令层锁定→双嫌疑），其中两次自我勘误
+  （『多轮往返税』『平台集成断』）——黄金测试（MARKER 注入+新会话询问）是通道/执行分野的决定性证据，成本 10 分钟。
+  教训：**通道判定与执行判定必须分离取证**——「读得到」与「会执行」是两个正交断言，任何合一判定都会抢跑。
+  【V1.9.33~35 三批连环结构】33 修链路（语义引擎+直连）→34 修观测（trace）→35 修触发（指令遵循）——用户环境的
+  下一轮实测数据（装 V1.9.35 后的 --report 真实流量）是 36 的立项依据。
+
+decided_by: "Nova（V1.9.35 调度指令重构判型 · 用户深夜连环报障+拍板触发）"
+decided_at: "2026-10-23T00:45:00+08:00"
+evidence_refs: ["META-RULES §一/§二/§六", "用户对话 2026-10-22 23:57~10-23 00:28（延迟报障+report 截图+思考实录+黄金测试+拍板）", "suite_check 243 项 PASS 0 FAIL（G19/G20 扩 5 断言）", "git 考古：V1.9.28~34 AGENTS.md 体积 25.8K→27.7K 温和递增（排除体积爆表假设）"]
+review_note: "判型维持（spec/dual/入口单槽）。触发面从『会话级+脚本依赖』重构为『任务级+纯思考可执行』——对零 shell 平台的兼容性从隐式假设变为显式设计。门禁 238→243 只增。"

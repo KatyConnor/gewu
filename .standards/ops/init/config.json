@@ -1,0 +1,11 @@
+{
+  "spec": "OPS-STD-001",
+  "version": "1.0.0",
+  "updated_at": "2026-09-02",
+  "sla_minutes": {"P0": {"triage": 5, "rca": 15, "mitigate": 30}, "P1": {"triage": 15, "rca": 60, "mitigate": 240}, "P2": {"triage": 60, "rca": 240, "mitigate": "next_day"}},
+  "observation_window": {"P0": 120, "P1": 60},
+  "auto_remediation": {"max_consecutive_steps": 2, "pause_if_no_improve_minutes": 10},
+  "alert_rules": {"aggregate_window_s": 60, "suppress_minutes": 15, "change_window_boost_min": 30},
+  "l2_whitelist_required_fields": ["适用症状", "动作序列", "回滚方法", "审批记录", "最近验证"],
+  "aetc_synergy": {"L2": "白名单 runbook + 事件中单次 GATE", "L3": "逐次强制审批"}
+}

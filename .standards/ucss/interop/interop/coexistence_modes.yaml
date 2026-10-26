@@ -1,0 +1,52 @@
+# ============================================================
+# coexistence_modes.yaml — UCSS/UTSS 并存集成模式声明（模板）
+# 集成适配设计 v1.0 §7 随卷配件
+#
+# 纪律：本文件属于集成方仓库（建议放 <repo>/.ucss/），
+#       不属于技能包——技能包保持只读制品（设计 §4.2）。
+# 改本文件 + 对应 CI stage 命令 = 模式升降级；先降 M0 观察
+# 一个迭代再移除，避免门禁突然消失造成质量真空（设计 §10）。
+# ============================================================
+
+# ---- 模式阶梯（四选一：observe / advisory / parallel_gate / domain_lead）----
+mode: observe
+
+mode_ladder:
+  observe:        # M0：跑但不裁决。ucss_gate --summary-only（exit 0）零新代码
+    gate: { run: false }
+  advisory:       # M1：finding 以注记/PR comment 呈现，不改门禁
+    gate: { run: false, annotate: true }
+  parallel_gate:  # M2：独立 stage，仅对去重后 UCSS 独有发现阻断
+    gate:
+      run: true
+      fail_on: [critical, high]      # ucss_gate.py --fail-on 语义
+      dedup:
+        against: .ucss-report/host.sarif   # 宿主工具 SARIF（baseline）
+        keys: [cwe, file, line]
+        line_proximity: 3
+  domain_lead:    # M3：接管空缺域（需 M2 运行 4 周真阳性数据支撑，设计 §7）
+    gate: { run: true, fail_on: [critical, high], scope: vacated_domains_only }
+
+# ---- 域内权威表（设计 §6.1）----
+authority:
+  sast_gate:    host        # 宿主已装 Semgrep/CodeQL 等 → host 权威，UCSS 从 M0 起步
+  test_exit:    host        # 宿主已有测试规范 → UTSS 档位嵌入，G0-G3 先作建议指标
+  logic_audit:  ucss        # D4 逻辑推理审计，通常空缺 → 可直接 M2
+  supply_chain: ucss        # D5 供应链配置，通常空缺 → 可直接 M2
+  secret_scan:  ucss        # 密钥扫描，通常空缺 → 可直接 M2
+  ai_code_test: utss        # AI 生成代码针对性测试 P1-P10，通常空缺 → 可直接 M2
+
+# ---- 产物落位（设计 §4.3 落位协商规则 1-4）----
+artifacts:
+  report_dir: .ucss-report/           # 建议加入 .gitignore
+  sarif_namespace: { ucss: "ucss.*", utss: "utss.*" }   # 属性包扩展命名空间
+  utss_docs:
+    strategy: auto                    # auto: 规则1默认落位 / 2并列 / 3子命名空间 tests/qa/.standards/utss/ / 4字段级合并
+    # forced: namespace               # 也可强制子命名空间（等 init_test_docs.py --output-subdir，backlog）
+
+# ---- 升降级台账（集成方自填，M2→M3 评审的数据依据）----
+ledger:
+  observe_since: ""                   # 如 2026-09-29
+  unique_findings_total: 0           # 去重后 UCSS 独有发现数
+  unique_true_positive: 0            # 人工复核确认真阳性数
+  promotion_decision: ""             # keep / promote / demote + 日期

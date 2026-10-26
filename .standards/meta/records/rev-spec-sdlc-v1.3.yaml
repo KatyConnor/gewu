@@ -1,0 +1,52 @@
+# 判型决策记录（STD-META-001 §六）— SDLC V1.3 修订（角色层运营域补位：13 号产品运营与增长专家 · 含阶段模型扩展）
+# 触发：2026-10-06 覆盖矩阵实证四缺口之三（运营域）；V1.8.7 发布后候选清单首位；
+#       用户 2026-10-07 "继续下一步"指令（承接 11/12 号同构流程，起草+接入一并执行）。
+# 裁决要点一：运营域角色层空位（08 管数据不管策略 / 09 管稳定性 / 02 管需求不管上线后）
+#             → 并入 SDLC 升级 V1.3，不新建规范。
+# 裁决要点二（本版特有）：新增"六、运营与增长"阶段——阶段模型是 SDLC.md 本体自有资产
+#             （0.1 表由本规范定义），扩展阶段属于域内权限，不触碰调度器注册表语义层。
+content_id: "SDLC 角色技能体系（V1.3）"
+source: promotion-candidate
+version: "V1.3"
+form_tests:
+  q1_harm: true
+  q1_evidence: "运营域无角色主导=上线后增长无人负责（产品'生'完没人'养'）/实验无纪律（无对照/未过显著性放量）/触达无频控（用户骚扰）/指标口径漂移无治理（数据不可比）"
+  q2_shall_verifiable: true
+  q2_verifier: "suite_check G8 组 ext_roles 数组加一行（参数化设计兑现：三角色循环 9 断言+计数 1+判型记录 3+调度器 1=14 断言）——回归实跑全绿；SDLC.md 计数断言升级为 6 阶段/14 角色/32 技能"
+  q3_multisol: partial
+  distribution: "artifact-gate（诊断报告/分层触达矩阵+频控预算/实验设计单四要素+决策单双证据/活动 SOP 五段式）+ workflow-rules（RISK-01~08 + 红线七条）"
+  q4_domain_occupied: false
+  q4_evidence: "运营域角色层空位：08 的 data-metrics-design 管指标体系设计与埋点、ab-test-analysis 管统计分析（数据侧）；09 管稳定性；02 管上线前需求——上线后增长策略无主。设计时核对 08 技能卡避免抢指标设计层（本版技能一由 metrics 改定 funnel-diagnosis，即狗粮边界校准实证）"
+form: spec          # 不变
+level_tests:
+  invariant: true
+  repo_bound: false
+  failure_radius: "org-wide（发布后全周期运营纪律强度提升）"
+level: dual          # 不变
+type_model: 任务型·互斥（开发域）  # 不变——调度器注册表语义层零改动
+mutex_group: true
+action: 采纳并接入（V1.2 → V1.3 域内内容级修订 + 阶段模型扩展，六落点）
+acceptance:
+  standards_basis: "AARRR 海盗指标（McClure）/北极星指标框架（Amplitude）/RFM 分层/Hacking Growth（Ellis & Brown）/A/B 实验统计纪律（MDE 与功效分析，与 08 UTSS 联动）"
+  gates: "实验三铁律+频控红线+口径登记制+虚荣指标防线（R04）+决策双证据"
+  dogfood: 待实跑（候选：product-portal 公开门户运营诊断首战）
+revision:
+  - id: REV-001
+    defect: "运营域无角色卡，覆盖矩阵四缺口之三（●○）"
+    fix: "新增 13 号角色卡：双职责（增长策略主导+运营纪律守门）；边界声明五方零重叠（02/08/09/07/12）"
+  - id: REV-002
+    defect: "技能池无运营类技能"
+    fix: "+3 技能：growth-funnel-diagnosis（AARRR 巡检+口径治理，使用层不抢 08 设计层）/ user-segmentation-targeting（RFM×生命周期+触达矩阵+频控预算）/ growth-experiment-design（四要素设计+决策双证据，统计权归 08）"
+  - id: REV-003
+    defect: "SDLC 阶段模型止于'五、质量与验证'，发布后运营周期无阶段归属"
+    fix: "新增'六、运营与增长'阶段（阶段模型属 SDLC.md 本体自有资产，域内权限扩展）；计数 6 阶段/14 角色/32 技能；0.2 触发表增运营路由行；0.3 增五→六阶段衔接与运营数据回灌 02 需求链"
+  - id: REV-004
+    defect: "调度器 SDLC 行触发面未含运营级词"
+    fix: "触发面补增长/留存/用户分层/触达/频控/运营活动/放量等词（与 08 数据侧、02 需求侧显式分界）"
+  - id: REV-005
+    defect: "平台卡与 coze 编排未同步 13 号"
+    fix: "9 张 30-sdlc 卡计数/速查同步 + coze-import role-13 与触发规则 + install-profiles 32 技能"
+decided_by: "Nova 起草并接入（用户 2026-10-07 '继续下一步'指令，承接 V1.8.7 发布候选清单首位）"
+decided_at: "2026-10-07T08:10:00+08:00"
+evidence_refs: ["体系全景与协同手册 ch1 覆盖矩阵（2026-10-06，运营域缺口实证）", "roles/11、12 号卡（V1.1/V1.2 同构先例）", "skills/data-metrics-design.md（08 指标设计层边界确认——技能一改定 funnel-diagnosis 的依据）", "rev-spec-sdlc-v1.1/v1.2.yaml（先例链）", "SDLC.md 0.1 阶段-角色-技能映射表（阶段模型所有权）"]
+review_note: "判型双转折：①运营域'有数据能力（08）有稳定性（09）有需求侧（02）但无上线后策略角色'——三者均不覆盖增长决策，并入 SDLC V1.3。②阶段模型扩展（5→6 阶段）首次发生——裁决依据是 SDLC.md 拥有 0.1 映射表定义权，属本体资产而非跨规范变更，调度器注册表语义层（任务型·互斥·开发域）零改动。另：起草中实测狗粮边界校准——原拟技能'增长指标体系'与 08 data-metrics-design 重叠，改定'漏斗诊断'（使用层），边界声明表同步收紧。"

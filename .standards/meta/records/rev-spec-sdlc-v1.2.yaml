@@ -1,0 +1,50 @@
+# 判型决策记录（STD-META-001 §六）— SDLC V1.2 修订（角色层文档域补位：12 号技术写作与文档工程师）
+# 触发：2026-10-06 覆盖矩阵实证四缺口之二（文档域）；V1.8.6 发布后候选清单第一位；
+#       用户 2026-10-07 "继续"指令（承接 11 号角色卡同构流程，起草+接入一并执行）。
+# 裁决要点：文档域角色层空位（TPL-STD-001 是资产库非角色 / 03 管契约不管成文 /
+#           04 管工程内注释不管交付级文档）→ 并入 SDLC 升级 V1.2，不新建规范。
+content_id: "SDLC 角色技能体系（V1.2）"
+source: promotion-candidate
+version: "V1.2"
+form_tests:
+  q1_harm: true
+  q1_evidence: "文档域无角色主导=交付级文档（用户手册/API文档/发布说明）无产出责任方/TPL 模板库有标准无使用者/API 文档与契约漂移无同步义务/文档质量无门禁（死链/术语/示例无检查）"
+  q2_shall_verifiable: true
+  q2_verifier: "suite_check G8 组扩展（V1.2 后共 12 项）：+12 卡存在/结构锚点（边界声明+RISK-01~08）/三技能存在/计数 13 角色 29 技能/判型记录×2（v1.1+v1.2）/调度器触发面含文档词——回归实跑全绿"
+  q3_multisol: partial
+  distribution: "artifact-gate（文档交付物 schema：API 文档端点表+示例集+错误码全表+对账表；手册 Diátaxis 定型声明；管线门禁四报告）+ workflow-rules（RISK-01~08 + 红线五条）"
+  q4_domain_occupied: false
+  q4_evidence: "文档域角色层空位：02 绑定技能为 PRD/旅程（需求侧）；03 的 api-contract-definition 管契约定义（开发对接规范），不管对外成文；TPL-STD-001 是 hub 级资产库（管格式不管产出）；04/CODING 管工程内注释——交付级文档无主"
+form: spec          # 不变
+level_tests:
+  invariant: true
+  repo_bound: false
+  failure_radius: "org-wide（全部交付物的文档质量与工程化强度提升）"
+level: dual          # 不变
+type_model: 任务型·互斥（开发域）  # 不变（域内角色扩展，形态/层级/互斥组均不动）
+mutex_group: true
+action: 采纳并接入（V1.1 → V1.2 域内角色扩展，五落点）
+acceptance:
+  standards_basis: "Diátaxis 文档框架（tutorial/how-to/reference/explanation 四象限）+ OpenAPI 3.x 规范 + Google/Microsoft 开发者文档风格指南 + docs-as-code 实践 + GB/T 8567（经 TPL-STD-001 承接）"
+  gates: "suite_check G8（12 项）；文档准出门禁语义（死链 0/示例 100%/术语 98%）写入技能质量标准"
+  dogfood: "本体系自身文档可作首轮实跑对象（全景手册/README/平台卡 README 的死链与术语一致性检查）"
+revision:
+  - id: REV-001
+    defect: "文档域无角色卡（覆盖矩阵四缺口之二）"
+    fix: "新增 12 号角色卡：双职责（交付级文档唯一主导者 + TPL 模板库运行维护者）；边界声明六方零重叠（02/03/TPL/04/LPU/06）"
+  - id: REV-002
+    defect: "技能池无文档类技能（26 技能零文档域）"
+    fix: "新增三技能：api-doc-generation（契约→文档，示例可执行率 100%）/ user-manual-authoring（Diátaxis 四象限+任务导向）/ docs-as-code-pipeline（四项管线检查+双门并联）"
+  - id: REV-003
+    defect: "SDLC.md 计数与映射表过期（12 角色/26 技能）"
+    fix: "0.1 表阶段五插入 12 号行（发布文档准出+全程节点介入）；计数 13 角色/29 技能；0.2 触发表增文档路由行；尾注 V1.2"
+  - id: REV-004
+    defect: "调度器 SDLC 行触发面未含文档级词"
+    fix: "触发面补文档/API 文档/用户手册/发布说明等词（与 03 契约、04 工程内文档显式分界）"
+  - id: REV-005
+    defect: "平台卡与 coze 编排未同步 12 号"
+    fix: "9 张 30-sdlc 卡计数/速查同步 + coze-import role-12 与触发规则 + install-profiles 29 技能"
+decided_by: "Nova 起草并接入（用户 2026-10-07 '继续'指令，承接 V1.8.6 发布候选清单首位）"
+decided_at: "2026-10-07T00:10:00+08:00"
+evidence_refs: ["体系全景与协同手册 ch1 覆盖矩阵（2026-10-06，文档域缺口实证）", "roles/11-interaction-ux-designer.md（V1.1 同构先例）", "templates/README.md（TPL-STD-001 引用协议与选型矩阵）", "skills/api-contract-definition.md（03 契约边界确认）", "rev-spec-sdlc-v1.1.yaml（V1.1 判型先例与 G8 断言模式）"]
+review_note: "判型关键点：文档域'有资产（TPL）有规范（03 契约）有工程内约束（CODING）但无产出角色'——三类既有机制均不覆盖'交付级文档成文与工程化'，故并入 SDLC V1.2 角色扩展。12 号与 TPL 的关系设计为'使用者+维护主导'：模板演进仍走 META 判型门，12 号只有申报权无裁夺权，避免资产库治理权旁落。"

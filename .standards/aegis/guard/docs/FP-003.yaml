@@ -1,0 +1,18 @@
+issue: "VUL-2026-0911-003"
+risk_level: S2
+root_cause_ref: "RC-003"
+test_defect_approval: false
+changes:
+  - file: "services/auth/token.py"
+    symbol: "TokenService.verify"
+    intent: "增加签名算法白名单校验，拒绝 alg=none"
+  - file: "tests/regression/test_alg_none.py"
+    symbol: "test_rejects_none_alg"
+    intent: "新增红基线回归用例，锁定修复判据"
+budget: {files: 3, lines: 40, funcs: 2, deps: 0}
+verification:
+  red_baseline: "tests/regression/test_alg_none.py::test_rejects_none_alg 修复前红、修复后绿"
+  regression_set: "影响面选择集 17 例"
+  rescan: "SAST 复扫零新增命中"
+rollback: "git revert <sha>；影响面仅 auth 模块"
+approvals: []

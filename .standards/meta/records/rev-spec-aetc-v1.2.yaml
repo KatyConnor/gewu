@@ -1,0 +1,47 @@
+# 判型决策记录（STD-META-001 §六）— AETC V1.2 体系链路监控批（trace-log 五类事件）
+# 触发：2026-10-22 17:23 用户立项「监控整个标准体系规范在实际项目中的每次触发和执行链路，记录下来可供后续有问题追踪排查」
+# 方案 17:51 拍板「方案通过，立即执行」——当日闭环
+# 性质：AETC 域机制扩展（不立第十五套——判型：监控本质属留痕域，避免规范碎片化）
+
+content_id: "AETC 体系链路监控（trace-log 事件协议·V1.9.34）"
+source: user-directive
+version: "AETC V1.2 / hub V1.9.34"
+
+form_tests:
+  q1_harm: true
+  q1_evidence: "V1.9.33 前的报障排查全靠手动取证（装痕 vs 流痕靠日志内容指纹辨认/mtime 停留推断/三层断裂靠漏斗心算）——无机制化事件流，事后排查无据可依"
+  q2_shall_verifiable: true
+  q2_verifier: "suite_check G20 六断言（232→238）：工具在位/report 实跑漏斗/事件协议双验（合法写+非法拒）/route 随路由自动写/AETC §11 章锚/install 装痕打标（安装面跳过语义对齐 G10 先例）"
+  q3_multisol: partial
+  distribution: "audit-protocol（事件流+排查工具）+ spec-revision（AETC 扩章）"
+form: spec
+
+level_tests:
+  invariant: true
+  repo_bound: false
+  failure_radius: "org-wide（一切规范触发/执行从此有事件流可查；装痕流痕显式分家）"
+level: dual
+
+access_tests:
+  mode: 横切·常驻（AETC 本体语义不变——第十一章为域内扩展）
+  stackable: 与 13 类任务语义事件正交分工（§三管任务执行语义/§11 管体系链路层）
+type_mode: crosscut-always
+
+revision:
+  - id: REV-AETC-05
+    defect: "规范体系自身触发/执行链路零监控——报障排查靠手动取证，不可持续"
+    evidence_ref: "2026-10-22 全天诊断链（用户环境 intent-log 装痕误认流痕/.standards mtime 取证/三层断裂推断）"
+    fix: "trace-log.jsonl 五类事件（route·entry_read·role_card_read·gate·install_selftest）+trace_log.py（append API+CLI+--report 漏斗）+trigger_check 三入口 route 自动接线+install.sh 装痕打标+AETC §11 自报协议"
+  - id: REV-AETC-06
+    defect: "可靠性分层未声明——读取层自报与机器强制混同会误导排查"
+    evidence_ref: "V1.9.33 实证：Agent 对脚本调用为零——纯机器方案在该层会空转"
+    fix: "分层设计显式化：route/install/gate=机器强制（脚本跑即有）；entry_read/role_card_read=审计级（缺报本身是断裂信号——漏斗判读表三形态：route 有 entry 零=平台断/入口有卡零=角色断/三层全=链路通）"
+
+extra_note: |
+  【工程教训断言化】①Write 工具与 Bash 属主不一致（root vs z）——dispatch 目录文件统一走 Bash python 写或写后替换法拿属主；②门禁断言目标面要对齐（install.sh 是装包工具不在安装面——G10 跳过先例复用）；③事件名是位置参数不是 --key（协议命令先跑通再写文档）。
+  【与 V1.9.33 的接续】本批是「角色触发批」的观测面闭环：V1.9.33 修通了链路（语义直连+单跳版头），本批让链路可观测（route 流量→读入口→读卡三层漏斗）——下一周期用户实测数据经 --report 回流，即为断层的量化证据。
+
+decided_by: "Nova（AETC V1.2 链路监控判型 · 用户拍板「方案通过，立即执行」）"
+decided_at: "2026-10-22T18:05:00+08:00"
+evidence_refs: ["META-RULES §一/§二/§六", "用户对话 2026-10-22 17:23/17:51", "trace-log.jsonl 实测 5 事件四类+漏斗 report 输出", "suite_check 238 项 PASS 0 FAIL（G20 六断言）"]
+review_note: "判型：不立第十五套（留痕正主域内扩展）；AETC 升 V1.2；门禁 232→238 只增。V1 范围纪律：不做实时 dashboard/daemon 推送/外发上报——最薄可用层先行，看实测数据再演进。"

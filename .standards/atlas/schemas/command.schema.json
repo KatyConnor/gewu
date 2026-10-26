@@ -1,0 +1,28 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ATLAS Command",
+  "description": "平台指令下发模型（ATLAS V1.0 §6）——白名单五类，四要素本地校验",
+  "type": "object",
+  "required": ["command_id", "command_type", "issued_by", "issued_at", "scope", "payload", "expires_at", "signature"],
+  "properties": {
+    "command_id": {"type": "string", "description": "幂等键"},
+    "command_type": {"enum": ["task.dispatch", "task.cancel", "task.rerun", "policy.update", "decision.clarify"], "description": "白名单五类；白名单外类型 Agent 一律拒绝执行"},
+    "issued_by": {"type": "string"},
+    "issued_at": {"type": "string", "format": "date-time"},
+    "scope": {
+      "type": "object",
+      "required": ["project"],
+      "properties": {
+        "project": {"type": "string", "description": "与当前授权项目必须匹配，跨 scope 指令拒绝执行"},
+        "branch": {"type": "string"},
+        "allowed_actions": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "payload": {
+      "type": "object",
+      "description": "按 command_type 的 schema 校验；task.dispatch 须含 task_desc 与 max_runtime_minutes"
+    },
+    "expires_at": {"type": "string", "format": "date-time", "description": "默认 60 分钟；过期未领取自动作废并通知发起人"},
+    "signature": {"type": "string", "description": "平台签名（hmac-sha256:…）；Agent 侧四要素校验不可绕过不可关闭"}
+  }
+}

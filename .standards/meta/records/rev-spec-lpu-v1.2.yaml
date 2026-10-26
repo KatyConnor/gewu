@@ -1,0 +1,50 @@
+# 判型决策记录（STD-META-001 §六）— LPU V1.2 修订（新增设计还原层）
+# 触发：2026-10-04 用户实评"逆向输出太简单，应能产出需求规格/概要设计/详细设计"——
+#       交付物深度不足的用户信号 + webpkg 实跑 3 份设计文档 292 证据锚点实证
+# 性质：修改规范（产出契约扩展 8→11 文档 + 新规则章 + 门禁扩展），形态/层级/接入类型不变
+
+content_id: "LPU 遗留项目逆向理解（V1.2 修订·设计还原层）"
+content_kind: workflow
+source: promotion-candidate   # 用户实评+实跑实证 → 产出契约升级
+version: "V1.2"
+
+form_tests:
+  q1_harm: true
+  q1_evidence: "无设计还原层→产出停留在'是什么'级，不满足'新工程师可据此重新实现等价系统'的重构就绪标准→重构决策依据不足（用户实证反馈）"
+  q2_shall_verifiable: true
+  q2_verifier: "lpu_check.py DOCS_REQUIRED 8→11 + G2 三文档必查章节 + BR_RE 编号体系扩展（FR/NFR/ALG/D）——全部机器可执行"
+  q3_multisol: partial        # 设计文档结构有经典形态（SRS/HLD/LLD 惯例），编排仍有情境性
+  distribution: "artifact-gate（11 份产出契约 + lpu_check.py exit code）"
+form: spec                     # 不变
+
+level_tests:
+  invariant: true
+  repo_bound: false            # 规则/模板为全局不变量层；产出物落项目 docs/lpu/（既有 dual 结构不变）
+  failure_radius: "org-wide（所有 LPU 用户的产出深度标准提升）"
+level: dual                    # 不变
+
+type_model: 任务型·互斥（理解域）   # 不变
+mutex_group: true（第一方）
+trigger_face: "理解/摸底/接手/考古遗留项目（不变；设计还原文档随 S4 成文产出）"
+gates: ["Doc-Gate", ".standards/lpu/scripts/lpu_check.py（V1.2：11 文档）"]
+
+lifecycle:
+  promotion_watch: ["DSR-001 的 >2000 行触发阈值是否合适（小项目是否被过度要求）", "L3 深度（行级+二进制级）的使用频率——若长期闲置考虑并入 R 级"]
+  exception_budget: "小型项目可降级 DSR-001 为【R】，须 rebuild-plan §6 留痕"
+  demotion_signal: "无"
+
+# ── 修订明细（V1.1 → V1.2）──────────────────────────
+revision:
+  - id: REV-003
+    defect: "产出契约止于'是什么'级八文档，缺需求规格（SRS）/概要设计（HLD）/详细设计（LLD）逆向还原能力"
+    evidence_ref: "用户实评 2026-10-04 23:46 + webpkg/docs/lpu/{requirements-spec,high-level-design,detailed-design}.md 实跑（292 证据锚点）"
+    fix: "新增 rules/11-design-restore.md（DSR-001~006 六规则：产出义务/SRS 还原/HLD 决策还原/LLD 函数级还原/双向追溯/深度分级）；新增 3 模板；LPU.md 产出物表 8→11；lpu_check.py DOCS_REQUIRED+3、BR_RE 扩展 FR|NFR|ALG|D；G1 文案动态化"
+  - id: REV-003b
+    defect: "G1 成功文案硬编码'8 份'（陈旧）"
+    evidence_ref: "V1.2 首跑 G1 回显 8 份 vs 实际 11 份"
+    fix: "f-string 动态 len(DOCS_REQUIRED)"
+
+decided_by: "Nova（LPU V1.2 修订判型 · 用户实评触发）"
+decided_at: "2026-10-04T23:55:00+08:00"
+evidence_refs: ["META-RULES §一/§二/§三（判据复核）", "webpkg/docs/lpu/ 三份设计文档实跑", "webpkg/.lpu/check_report.md（V1.2 PASS 7/0/0）"]
+review_note: "判型变更：无（form/level/type 三判维持）；产出契约扩展属内容级修订（棘轮收紧：产出深度标准提升）。验证：11 文档门禁 PASS，证据锚点 544 处（三新文档 292 处）。"

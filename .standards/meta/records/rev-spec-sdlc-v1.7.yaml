@@ -1,0 +1,35 @@
+# 判型决策记录（STD-META-001 §六）— SDLC V1.7 修订（文档域补全：12 号卡 V2.0 + TPL 交付文档族 + 版式技能）
+# 触发：2026-10-07 用户指令"文档编写角色对应的所有文档都有标准模板和专业的文档 UI 设计技能吗"→
+#       实证审计：12 号三技能 TPL 引用数=0；全库版式资产仅 11 号 design-system-tokens（管界面不管文档）；
+#       V1.8.15 部署手册格式事故（@page 缺失+类名错配 5 轮试错）是版式能力空白直接实证。
+# 裁决要点：q4=true 第三次适用（深化型）——文档域双层缺口（交付文档族无模板+版式能力空白）
+#           并入既有规范升级（TPL V1.1 扩容+12 号卡升版+SDLC V1.7），不新建规范。
+content_id: "SDLC 角色技能体系（V1.7）"
+source: promotion-candidate
+version: "V1.7"
+form_tests:
+  q1_harm: true
+  q1_evidence: "①文档域唯一主导角色（12 号）的交付产出（API 参考集/用户手册/FAQ/发布说明）零模板可用——TPL 库定位逆向/重建场景，正向交付文档族从未覆盖 ②文档版式能力体系级空白：12 号技能全是内容纪律无视觉规格；V1.8.15 部署手册格式乱为直接实证 ③PDF 渲染三查管线是会话手工工具链未技能化"
+  q2_shall_verifiable: true
+  q2_verifier: "suite_check G10 扩展：TPL↔技能互指四对→七对（+api-doc↔TPL-APIREF/user-manual↔TPL-UM·TPL-RN）；document-visual-design 技能存在且 12 卡 V2.0 引用；TPL README 索引↔文件双向（实数派生自动含三新模板）；计数 39（G8 实数派生）——回归全绿"
+  q3_multisol: partial
+  distribution: "artifact-gate（TPL-UM/APIREF/RN 章节骨架+裁剪留痕/版式交付报告：@page+三查+QA 阈值+类名核对记录）+ workflow-rules（document-visual-design RISK-01~05）"
+  q4_domain_occupied: false
+  q4_evidence: "域内升级非跨域新建：TPL 扩容属 TPL-STD 自有资产；12 号卡升级属 SDLC 域内；版式技能挂 12 号（与 11 号以'文档 UI vs 界面 UI'分界——色系互引、职责互斥）"
+remediation_plan:
+  - id: REV-001
+    defect: "交付文档族无模板（12 号技能 TPL 引用=0）"
+    fix: "TPL V1.1 +三张：TPL-UM（How-to）/TPL-APIREF（Reference+OpenAPI 风格）/TPL-RN（说明+参考）；12 号三技能与 8.2 加载序接线"
+  - id: REV-002
+    defect: "文档版式能力空白（V1.8.15 格式事故实证）"
+    fix: "新技能 document-visual-design：@page 三件套/封面元素/表格代码块基线/中英混排/pdf_qa 警告 ≤3/复用样式类名覆盖核对——实战教训规则化"
+  - id: REV-003
+    defect: "12 号卡未承载版式职责与模板接线"
+    fix: "12 卡 V1.0→V2.0：+document-visual-design 绑定（38→39）、边界表两行（TPL 结构/12 内容纪律/版式视觉三方分界；文档 UI 归 12·界面 UI 归 11）"
+  - id: REV-004
+    defect: "调度面与平台面未同步"
+    fix: "调度器+文档版式词；coze role-12；9 平台卡 39 技能；install-profiles V1.7"
+decided_by: "Nova 起草并接入（用户 2026-10-07 '继续'指令，承接文档齐全度审计结论）"
+decided_at: "2026-10-07T23:30:00+08:00"
+evidence_refs: ["skills/api-doc-generation.md 与 user-manual-authoring.md 的 TPL 引用 grep=0", "templates/README.md 适用范围声明（面向从零理解/重建——正向交付族未覆盖实证）", "V1.8.15 部署手册格式事故复盘（daily 2026-10-07）", "rev-spec-sdlc-v1.5/v1.6 深化型先例链"]
+review_note: "判型链第三次 q4=true：本次缺口特色是'角色存在但装备不齐'——12 号卡有内容纪律却无结构模板与视觉规格（有枪没子弹）。三方分界是关键裁决：结构归 TPL/内容纪律归 12 三技能/视觉规格归 document-visual-design；与 11 号'文档 UI vs 界面 UI'切界。版式技能方法论来源诚实标注：体系内实战教训规则化（V1.8.15 事故根因全部入律 RISK-01/02）——'教训→资产'沉淀路径先例（V1.8.12 漂移注入自证同源）。"

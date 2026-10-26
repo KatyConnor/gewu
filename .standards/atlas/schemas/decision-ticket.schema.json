@@ -1,0 +1,42 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ATLAS DecisionTicket",
+  "description": "决策工单模型（ATLAS V1.0 §5.2）——决策点的平台侧实体",
+  "type": "object",
+  "required": ["decision_id", "level", "question", "options", "ttl_minutes", "escalation", "status", "created_at"],
+  "properties": {
+    "decision_id": {"type": "string"},
+    "level": {"enum": ["D2", "D3"], "description": "只有 D2/D3 需要工单（D0 免审 / D1 仅呈报不阻塞）"},
+    "question": {"type": "string", "description": "一句话说清要人裁决什么"},
+    "context_refs": {"type": "array", "items": {"type": "string"}, "description": "ChangeReport 与关键事件引用"},
+    "options": {
+      "type": "array",
+      "minItems": 2,
+      "items": {
+        "type": "object",
+        "required": ["id", "desc"],
+        "properties": {
+          "id": {"enum": ["approve", "modify", "reject"]},
+          "desc": {"type": "string", "description": "该选项的后果描述"}
+        }
+      }
+    },
+    "ttl_minutes": {"type": "integer", "default": 30},
+    "escalation": {
+      "type": "object",
+      "properties": {
+        "policy": {"type": "string", "description": "升级策略，如 notify-lead"},
+        "after_minutes": {"type": "integer"}
+      }
+    },
+    "approvers": {
+      "type": "array",
+      "description": "D3 工单两名审批人先后确认，第二人可见第一人意见",
+      "items": {"type": "string"}
+    },
+    "status": {"enum": ["PENDING", "APPROVED", "MODIFIED", "REJECTED", "EXPIRED", "RESUMED", "CLOSED", "CANCELLED"]},
+    "resolution": {"type": "string", "description": "MODIFIED 决议的修改意见；REJECTED 终止分支说明"},
+    "result_report": {"type": "string", "description": "RESUMED 后回传的执行结果引用（含 diff 与验证证据），回传后方可 CLOSED"},
+    "created_at": {"type": "string", "format": "date-time"}
+  }
+}

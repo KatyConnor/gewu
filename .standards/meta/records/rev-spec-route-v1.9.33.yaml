@@ -1,0 +1,58 @@
+# 判型决策记录（STD-META-001 §六）— V1.9.33 角色触发批（语义直连+原文路由+语义引擎三修）
+# 触发：2026-10-22 14:30 用户实测报障「正式项目跑几天，角色体系从不会被触发」
+# 性质：缺陷修复批（三层）+门禁扩展批——用户实报痛点为立项源头（10-13 意图路由/10-18 输入规范化/10-22 角色触发第三单）
+
+content_id: "调度意图路由与 SDLC 角色直连（V1.9.33 语义直连批）"
+source: user-bug-report   # 用户实测报障（最高质量进化输入）
+version: "V1.9.33"
+
+form_tests:
+  q1_harm: true
+  q1_evidence: "用户环境三天零角色触发；本地复现 7 条日常口语句语义全 0 分；语义引擎 objs/arts/feats 三列 split 参数错误致十三版空转（selftest 只测 type 通道从未暴露）；落痕 cwd 相对拼接致双 .standards 错位"
+  q2_shall_verifiable: true
+  q2_verifier: "suite_check G19 五断言（静态 2+行为 3）：调度器语义直连指令在场/15 卡三十秒版头齐/--text 7 例句全唯一命中/落痕无双错位/selftest 全过——行为级门禁首例（静态断言→行为断言的门禁性质扩展）"
+  q3_multisol: partial
+  distribution: "spec-revision（三正本修订+门禁扩展）"
+form: spec
+
+level_tests:
+  invariant: true
+  repo_bound: false
+  failure_radius: "org-wide（一切建造类任务的角色激活路径从三跳降为单跳；语义路由原文通道首次真正工作）"
+level: dual
+
+access_tests:
+  mode: 任务型·响应式（编码/调度）叠加不变
+  stackable: "SDLC 主入口+CODING/UI 叠加语义不变；互斥组裁定本体零变更"
+type_mode: task-responsive-stack   # 保持——本批不动接入类型
+
+revision:
+  - id: REV-ROUTE-01
+    defect: "语义引擎 split 参数错误：str.split('/，, ') 与 str.split(',，、') 把多字符串当整体分隔符——objs/arts/feats 三列全废（整串超长被 len 过滤为空集），语义计分十三版仅 types（split('/')单字符正常）一腿行走"
+    evidence_ref: "2026-10-22 17:05 本地调试实录：load_intent 返回 feats=set() 空集；selftest 8 句全过（三答 type×3 硬撑）与 7 句口语句全 0 分的通道分叉实证"
+    fix: "re.split(r'[/，, ]') / re.split(r'[,，、]') 三列正则化——objs/arts/feats 首次真正参与计分"
+  - id: REV-ROUTE-02
+    defect: "自然语言入口不存在：--intent 只收结构化三答，「原文→三答」的解构设计上全权「模型管理解」——平台 Agent 不做则链断；且 INTENT-MATRIX feats 词面为三答标注词口径，无日常口语句覆盖"
+    evidence_ref: "用户报障实测+7 句复现全低置信；INTENT-MATRIX 5/4/8 号行 feats 现值核对"
+    fix: "①--text 原文直连入口（L2 语义计分直连，落痕 record_type=text）；②判定线两档（强 UNIQUE ≥3 领先 2/弱 UNIQUE ≥2 领先 1——objs×2 重权与 feats×1 弱信号天然分层）；③feats 扩词（SDLC+接口等/OPS+部署发布/CODING 剔通用建造动词归 SDLC）；④模型解构从「必经之路」降级为「可选加速」"
+  - id: REV-ROUTE-03
+    defect: "SDLC 角色激活三跳断裂：路由命中后「读 roles/ 角色卡」为文档建议非强制步；角色卡 475 行级体量无单跳快读面——Agent 语义近路永不经过角色层"
+    evidence_ref: "用户环境零角色触发+调度器原「按需引用」语义（AGENTS.md §199 行）+04 卡 475 行实测"
+    fix: "①调度器 SDLC 行内嵌〔V1.9.33 语义直连〕指令（命中即读卡·缺步违例·AETC 可审计）；②15 角色卡全部加「三十秒版」版头（何时扮我/铁律三条/产出锚——单跳快读即生效）；③--text 命中 CODING 时链 B 提示（功能级开发先激活 04 卡）"
+  - id: REV-ROUTE-04
+    defect: "落痕路径 cwd 相对拼接：从 .standards 目录执行时写 .standards/.standards/audit/ 双层错位"
+    evidence_ref: "2026-10-22 14:09 本地实测输出错位路径"
+    fix: "_proj_root() 三态锚定（P1 安装形态 ROOT 根 AGENTS.md/开发仓兄弟 02_统一调度入口/P2 全局形态 cwd）"
+
+extra_note: |
+  【本批判型外勘误：制造者三误判链（判型留痕纪律·错误公开）】
+  误判①（14:30-16:50）：把「registry 不存在」外推为「调度执行链从未跑」并终判「zcode 装而未调」——用户以「其他标准都触发执行了」实锤推翻；
+  误判②（16:54）：接受用户表述时未对账证据层级（「触发」的体感=语义层生效 vs 文件层零流量）；
+  误判③（17:03 判定前置）：未验 intent-log 内容归属即接受「audit 有」——后经用户贴日志+截图实证内容全部为安装自测固定例句（装痕非流痕）。
+  教训断言化：**半截证据不下重结论；「有目录」≠「有流量」，先验内容归属再判链路；用户观察与文件证据分层对账。**
+  【根源洞察】suite_check 227 项全绿挡不住本批四缺陷——因全部为静态结构断言，行为断言为零；G19 为门禁体系首次行为级回归（输入→路由→命中），此后路由层变更有行为防护。
+
+decided_by: "Nova（V1.9.33 角色触发批判型 · 用户实测报障触发）"
+decided_at: "2026-10-22T17:25:00+08:00"
+evidence_refs: ["META-RULES §一/§二/§六", "用户对话 2026-10-22 14:30/16:42-17:03（报障+证据回传三轮）", "trigger_check.py --selftest 全绿+7 句复录", "suite_check G19 五断言 PASS（232 项/0 FAIL）"]
+review_note: "判型维持（spec/dual/任务型·响应式·叠加）。核心演进：语义路由原文通道首次工作+角色激活从三跳降单跳+门禁从结构断言扩展至行为断言。"

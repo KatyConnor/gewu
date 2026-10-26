@@ -1,0 +1,17 @@
+{
+  "skill_name": "luban-doc",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "把这份 Q3 漏洞修复数据整理成一份正式的安全分析报告 PDF，要有封面和目录",
+      "expected_output": "scaffold 生成工程四件套；封面+目录+正文+页码机制齐全；merge_qa 链接核验通过；交付 PDF+cover.html 双件套",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "帮我编制一份微服务上云技术方案文档，10 页左右，PDF 交付",
+      "expected_output": "同上链路；章节分模块落盘；pdf_qa error=0；font.check 无缺字",
+      "files": []
+    }
+  ]
+}

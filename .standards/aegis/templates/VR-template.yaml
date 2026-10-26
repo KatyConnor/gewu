@@ -1,0 +1,12 @@
+# VR 验证单模板（P4 验证阶段强制产出；三道门记录 + diff 比对 + 教训）
+# 规范依据：AEGIS V1.0 §6.4 与第七章三层验证门
+trace_ref: ""                   # V1.2 证据互锁：AETC 留痕批次/事件号（必填——单据链↔留痕链）
+plan_ref: ""                    # 对应方案单编号，如 "FP-003"
+gates:
+  gate1_static:     {result: "", lint_new: 0, budget_used: ""}   # 静态一致性：lint 零新增+diff⊆FP+预算
+  gate2_targeted:   {result: "", red_case: "", related_tests: ""} # 定向验证：红转绿+相关模块全过
+  gate3_regression: {result: "", selected: "", rescan_new: 0}     # 回归选择集（安全类含复扫）
+diff_vs_plan: {planned_files: 0, actual_files: 0, deviation: "none"}  # 门一自动比对结果
+residual_risks: []              # 遗留风险（触发部分修复时附遗留问题单）
+lessons:                        # 教训条目（P6 反哺：避错规则/防错规则建议/可复用判例）
+  - ""

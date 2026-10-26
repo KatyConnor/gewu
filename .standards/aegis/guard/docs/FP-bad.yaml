@@ -1,0 +1,15 @@
+issue: "VUL-2026-0911-004"
+risk_level: S3
+root_cause_ref: "RC-004"
+changes:
+  - file: "services/auth/token.py"
+    symbol: "TokenService.verify"
+    intent: "尝试修复校验问题"
+  - file: "package.json"
+    symbol: "dependencies"
+    intent: "补充依赖"
+budget: {files: 5, lines: 400, funcs: 10, deps: 1}
+verification:
+  regression_set: "未指定"
+rollback: "git checkout -- ."
+approvals: []

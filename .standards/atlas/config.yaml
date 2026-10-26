@@ -1,0 +1,57 @@
+# ATLAS 平台对接配置模板（复制到项目根并按需修改；存在本文件即视为对接已配置）
+# 规范依据：《智能体执行留痕与人机协同平台规范》ATLAS V1.0 §7
+# 密钥不得明文写入本文件：secret_ref 指向环境变量或密钥管理器引用
+
+atlas:
+  platform:
+    # 平台接入网关（Agent 侧只发出站 HTTPS 请求）
+    endpoint: "https://atlas.internal.example.com/api/v1"
+    agent_id: ""                      # 平台注册分配，如 "agent_zc_017"
+    secret_ref: "env:ATLAS_AGENT_SECRET"   # HMAC-SHA256 密钥引用，禁止明文
+
+  channels:
+    trace_upload:      true           # 事件上行通道（Trail Adapter）
+    decision_loop:     true           # 决策回路通道（工单上报/决议领取）
+    command_poll:      true           # 指令下行通道（长轮询，挂起 25 秒）
+    long_poll_seconds: 25
+
+  events:
+    l1_full: true                     # L1 任务级全量推送
+    l2_full: true                     # L2 操作级全量推送
+    l3_sample_rate: 0.1               # L3 调试级采样率（0~1；平台可补采）
+    batch_max_events: 200             # 单批最大事件数
+    retry_backoff: [1, 4, 16, 64]     # 指数退避（秒），上限 300
+
+  wal:                                # 本地预写日志（先落盘后推送）
+    dir: ".atlas/wal"
+    max_size_mb: 256                  # 超限转储为工件并上报 wal.overflow
+    max_age_hours: 24
+    overflow_report: true
+
+  decisions:                          # D 级默认矩阵：只可收紧，不可放宽
+    ttl_minutes: 30                   # 工单 TTL
+    escalate_after_minutes: 30        # 升级链（notify-lead）
+    d3_dual_approval: true            # D3 双人四眼原则
+    expired_policy: "fail-safe-reject" # EXPIRED → 默认拒绝并回滚
+
+  commands:
+    whitelist:                        # 指令类型白名单（白名单外一律拒绝）
+      - "task.dispatch"
+      - "task.cancel"
+      - "task.rerun"
+      - "policy.update"
+      - "decision.clarify"
+    expires_default_minutes: 60
+    scope_enforce: true               # scope 与当前授权项目必须匹配
+
+  security:
+    sign_algo: "HMAC-SHA256"
+    timestamp_window_minutes: 5       # 防重放窗口
+    redaction:                        # 脱敏：推送与 diff 工件零泄漏
+      - "api_key"
+      - "password"
+      - "token"
+      - "secret"
+      - "authorization"
+      - "private_key"
+    artifacts_redact: true

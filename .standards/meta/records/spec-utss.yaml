@@ -1,0 +1,35 @@
+# 判型决策记录（STD-META-001 §六）— UTSS
+# 由 META 判型门产出；源模板 .standards/meta/templates/form-classification-record.yaml
+content_id: "UTSS 统一测试标准规范 v1.1"
+content_kind: workflow+checker
+source: external-delivery
+version: "v1.1"
+
+form_tests:
+  q1_harm: true          # 违反是否造成可判定危害
+  q1_evidence: "准出门禁失效=带缺陷发布；铁律5不伪造违反=审计链断裂"
+  q2_shall_verifiable: true   # "应/不应"可表述并机器校验
+  q2_verifier: "coverage_gate.py（exit 2）+ 12字段完备性硬门禁 + 铁律8条 requirement 形态"
+  q3_multisol: partial      # 是否多解、依赖情境与品味
+  distribution: "intent-word（提测/测试/回归词族）+ artifact-gate（准出）+ retrieval（skill 检索）"
+form: hybrid（规范面：.standards/UTSS.md 入口+强制协议=第十三套；技能面：.standards/utss/ 本体即技能可直装）
+
+level_tests:
+  invariant: true       # 组织级不变量
+  repo_bound: true     # 仓库绑定变量
+  failure_radius: "org-wide（测试铁律/三值结论）+ project（档位A-D裁剪/五件套落位）"
+level: dual
+
+type_model: 任务型·互斥（测试域）
+mutex_group: true（第六方）
+trigger_face: "开发/修复/重构完成后需验证；提测/测试/跑测试/验证/覆盖率/回归/发布前把关；CI 门禁评估"
+gates: [".standards/utss/scripts/coverage_gate.py", "12字段完备性检查（references/03 §5）"]
+
+lifecycle:
+  promotion_watch: ["P1-P10 AI缺陷模式在≥3项目复用且违反可判→已入规范本体，转为持续扩充观察"]
+  exception_budget: "档位裁剪必须在测试计划声明理由可审计；A档也有最低要求（冒烟+核心路径+不伪造）"
+  demotion_signal: "档位声明缺失频次超标→裁剪指南校准；门禁阈值例外按 G0-G3 覆盖率口径复核"
+
+decided_by: "Nova（META 判型门首跑 · V1.7 接入会话）"
+decided_at: "2026-09-29T18:30:00+08:00"
+evidence_refs: [".standards/utss/SKILL.md 铁律1-8", "references/05/06/09", "META-RULES §一/§二"]

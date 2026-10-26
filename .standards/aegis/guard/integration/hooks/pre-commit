@@ -1,0 +1,23 @@
+#!/usr/bin/env bash
+# AEGIS Guard pre-commit 钩子（zcode 类外部智能体的仓库侧兜底，agent 无关）
+# 部署: 拷贝到目标仓库 .git/hooks/pre-commit 并 chmod +x
+set -o pipefail
+
+REPO="$(git rev-parse --show-toplevel)"
+GUARD="$REPO/aegis-guard/aegis_guard.py"     # 按实际安装路径调整
+[ -f "$GUARD" ] || GUARD="/usr/local/lib/aegis-guard/aegis_guard.py"
+
+FP="$REPO/.aegis/FP-current.yaml"            # 当前修复单的方案单
+PLAN=()
+[ -f "$FP" ] && PLAN=(--plan "$FP")
+
+LEVEL="${AEGIS_LEVEL:-S3}"
+git diff --cached -U3 | python3 "$GUARD" check --diff - "${PLAN[@]}" --level "$LEVEL"
+code=$?
+
+if [ "$code" -eq 1 ]; then
+  echo "[AEGIS] 提交被拦截: 修复 diff 违反铁律（exit 1 = BLOCK）" >&2
+  echo "[AEGIS] 处置: 修正根因 / 拆单 / 走 GATE 审批例外通道（规范 3.3）" >&2
+  exit 1
+fi
+exit 0   # 0=PASS 2=仅警告（放行但留痕）

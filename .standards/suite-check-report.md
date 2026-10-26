@@ -1,0 +1,257 @@
+# STD-HUB-001 安装校验报告
+
+项目根：/tmp/p1-sim-1936
+
+
+结果：PASS ✅ | 250 项通过 / 0 项失败
+
+- [PASS] G0 运行环境 Python>=3.6（实测 3.12·universal_newlines 基线）
+- [PASS] G0 运行环境 Unix-like（posix·viewer fcntl 前置）
+- [PASS] G0 门禁链零隐式第三方 import（白名单审计·yaml 违纪 2026-10-16 防再犯）
+- [PASS] G1 统一调度器 AGENTS.md 存在且含注册表
+- [PASS] G2 规范入口 .standards/AETC.md
+- [PASS] G2 规范入口 .standards/ATLAS.md
+- [PASS] G2 规范入口 .standards/LPU.md
+- [PASS] G2 规范入口 .standards/LR.md
+- [PASS] G2 规范入口 .standards/OPS.md
+- [PASS] G2 规范入口 .standards/SDLC.md
+- [PASS] G2 规范入口 .standards/AEGIS.md
+- [PASS] G2 规范入口 .standards/code-review/RULES.md
+- [PASS] G2 规范入口 .standards/ui-design/UI-RULES.md
+- [PASS] G2 规范入口 .standards/CODING.md
+- [PASS] G2 规范入口 .standards/META.md
+- [PASS] G2 规范入口 .standards/UCSS.md
+- [PASS] G2 规范入口 .standards/UTSS.md
+- [PASS] G2 规范入口 .standards/THEMIS.md
+- [PASS] G3 本体关键文件 .standards/audit/rules/00-core.md
+- [PASS] G3 本体关键文件 .standards/audit/tools/audit_log.py
+- [PASS] G3 本体关键文件 .standards/audit/config.json
+- [PASS] G3 本体关键文件 .standards/atlas/ATLAS-RULES.md
+- [PASS] G3 本体关键文件 .standards/atlas/config.yaml
+- [PASS] G3 本体关键文件 .standards/atlas/schemas/trace-event.schema.json
+- [PASS] G3 本体关键文件 .standards/atlas/schemas/decision-ticket.schema.json
+- [PASS] G3 本体关键文件 .standards/atlas/scripts/atlas_check.py
+- [PASS] G3 本体关键文件 .standards/lpu/rules/00-core.md
+- [PASS] G3 本体关键文件 .standards/lpu/scripts/lpu_check.py
+- [PASS] G3 本体关键文件 .standards/lpu/init/config.json
+- [PASS] G3 本体关键文件 .standards/lr/rules/00-core.md
+- [PASS] G3 本体关键文件 .standards/lr/scripts/lr_check.py
+- [PASS] G3 本体关键文件 .standards/lr/templates/D-R0-01.md
+- [PASS] G3 本体关键文件 .standards/aegis/AEGIS-RULES.md
+- [PASS] G3 本体关键文件 .standards/aegis/templates/RC-template.yaml
+- [PASS] G3 本体关键文件 .standards/aegis/templates/FP-template.yaml
+- [PASS] G3 本体关键文件 .standards/aegis/templates/VR-template.yaml
+- [PASS] G3 本体关键文件 .standards/aegis/guard/aegis_guard.py
+- [PASS] G3 本体关键文件 .standards/aegis/scripts/aegis_check.py
+- [PASS] G3 本体关键文件 .standards/meta/META-RULES.md
+- [PASS] G3 本体关键文件 .standards/meta/templates/form-classification-record.yaml
+- [PASS] G3 本体关键文件 .standards/templates/README.md
+- [PASS] G3 本体关键文件 .standards/templates/TPL-SRS.md
+- [PASS] G3 本体关键文件 .standards/templates/TPL-FD.md
+- [PASS] G3 本体关键文件 .standards/meta/scripts/meta_check.py
+- [PASS] G3 本体关键文件 .standards/meta/records/存量判型清单V1.7.md
+- [PASS] G3 本体关键文件 .standards/meta/records/spec-ucss.yaml
+- [PASS] G3 本体关键文件 .standards/meta/records/spec-utss.yaml
+- [PASS] G3 本体关键文件 .standards/meta/records/spec-aetc.yaml
+- [PASS] G3 本体关键文件 .standards/themis/README.md
+- [PASS] G3 本体关键文件 .standards/themis/templates/RR-template.yaml
+- [PASS] G3 本体关键文件 .standards/themis/templates/FINDING-template.yaml
+- [PASS] G3 本体关键文件 .standards/themis/templates/RPT-template.yaml
+- [PASS] G3 本体关键文件 .standards/themis/templates/CAPA-template.yaml
+- [PASS] G3 本体关键文件 .standards/themis/records/REV-000-立项自审.md
+- [PASS] G3 本体关键文件 .standards/meta/records/spec-themis.yaml
+- [PASS] G3 本体关键文件 .standards/ucss/UCSS-RULES.md
+- [PASS] G3 本体关键文件 .standards/ucss/SKILL.md
+- [PASS] G3 本体关键文件 .standards/ucss/scripts/ucss_gate.py
+- [PASS] G3 本体关键文件 .standards/ucss/interop/tools/coexist_check.py
+- [PASS] G3 本体关键文件 .standards/ucss/interop/interop/severity_map.json
+- [PASS] G3 本体关键文件 .standards/utss/SKILL.md
+- [PASS] G3 本体关键文件 .standards/utss/references/05-rounds-gates.md
+- [PASS] G3 本体关键文件 .standards/utss/scripts/coverage_gate.py
+- [PASS] G3 本体关键文件 .standards/utss/templates/test-plan.md
+- [PASS] G3 本体关键文件 .standards/ui-design/UI-RULES.md
+- [PASS] G3 本体关键文件 .standards/ui-design/design-tokens.json
+- [PASS] G3 本体关键文件 .standards/ui-design/ai-antipatterns-checklist.md
+- [PASS] G3 本体关键文件 .standards/coding-rules/rules/00-general.md
+- [PASS] G3 本体关键文件 .standards/coding-rules/rules/07-sql.md
+- [PASS] G3 本体关键文件 .standards/coding-rules/configs/ruff.toml
+- [PASS] G3 本体关键文件 .standards/ops/rules/00-core.md
+- [PASS] G3 本体关键文件 .standards/ops/scripts/ops_check.py
+- [PASS] G3 本体关键文件 .standards/ops/templates/D-OPS-01.md
+- [PASS] G3 本体关键文件 .standards/roles/03-technical-architect.md
+- [PASS] G3 本体关键文件 .standards/skills/api-contract-definition.md
+- [PASS] G3 本体关键文件 .standards/code-review/project-config-template.json
+- [PASS] G3 本体目录 .standards/audit/
+- [PASS] G3 本体目录 .standards/atlas/
+- [PASS] G3 本体目录 .standards/lpu/
+- [PASS] G3 本体目录 .standards/lr/
+- [PASS] G3 本体目录 .standards/ops/
+- [PASS] G3 本体目录 .standards/roles/
+- [PASS] G3 本体目录 .standards/skills/
+- [PASS] G3 本体目录 .standards/aegis/
+- [PASS] G3 本体目录 .standards/meta/
+- [PASS] G3 本体目录 .standards/ucss/
+- [PASS] G3 本体目录 .standards/utss/
+- [PASS] G3 本体目录 .standards/code-review/
+- [PASS] G3 本体目录 .standards/ui-design/
+- [PASS] G3 本体目录 .standards/coding-rules/
+- [PASS] G3 本体目录 .standards/dispatch/
+- [PASS] G3 本体目录 .standards/themis/
+- [PASS] G3 本体关键文件 .standards/dispatch/trigger_check.py
+- [PASS] G1 首轮触发自检 13 短语回归全过（调度表/路由表正本派生·V1.8.22 +外源接测短语）
+- [PASS] G13 INTENT-MATRIX.md 意图路由正本在位（安装平铺）
+- [PASS] G13 意图语义路由回归 8/8（词面盲区例句 UNIQUE 命中·INTENT-MATRIX 派生零漂移）
+- [PASS] G14 INTEROP-MATRIX.md 协作全景正本在位（安装平铺·第三层矩阵）
+- [PASS] G14 协作链回归 4/4（主入口唯一命中+叠加⊇+顺序门⊇断言·链式推荐闭环）
+- [PASS] G15 交接物门禁自测 PASS（注册表 7 项·6 场景翻转：空报/齐备/缺单/硬门正反/themis-rpt post-doc）
+- [PASS] G16 SARIF 去重键自测 PASS（cwe+file+line±3 互证·首配消耗语义·4 场景）
+- [PASS] G18 REFINE-MATRIX.md 输入规范化正本在位（安装平铺·第四层矩阵）
+- [PASS] G18 规范化回归 5/5（4 澄清缺集精确+1 齐备渲染对照·防过度澄清回缩）
+- [PASS] G18 --refine 齐备路径实跑（标准重写渲染+双文转发主文）
+- [PASS] G18 --refine 缺失路径实跑（澄清问句+禁止瞎补+exit 4+落痕 record_type=refine）
+- [PASS] G17 THEMIS 入口在位（评审类型矩阵五类+独立性红线+IEEE 1028 对齐）
+- [PASS] G17 THEMIS 注册表接入（调度器 §一 第 14 行+三裁定分权裁决段）
+- [PASS] G17 THEMIS 判型记录在位（第 14 份·双形态+独立性不变量）
+- [PASS] G17 THEMIS 首审四单齐（REV-000 dogfood：RR/FINDING/RPT/CAPA+三值结论+CAPA 义务）
+- [PASS] G17 首审三值结论与复审闭环（有条件通过→CAPA 清偿→closed·四单契约完整演练）
+- [PASS] G17 批2 欠账清偿显式（V1.9.26：rev_check+themis-rpt+词族+闭环注记在正本）
+- [PASS] G17 rev_check.py 在位（G-T1~T4：结构/首审/单据/互锁）
+- [PASS] G17 评审域门禁自测 PASS（4 场景翻转：空报/齐备过/结论缺报/状态非法报）
+- [PASS] G17 methods/atam-lite.md（批3 深度·锚点齐）
+- [PASS] G17 methods/T4-audit.md（批3 深度·锚点齐）
+- [PASS] G17 methods/T5-mgmt-review.md（批3 深度·锚点齐）
+- [PASS] G17 度量首采报告在位（--metrics 单据派生+n=1 如实标+不设基线）
+- [PASS] G17 度量采集器实跑 PASS（RR 口径+红线 0+独立性违例计数）
+- [PASS] G19 调度器 SDLC 行语义直连指令（命中即读角色卡·缺步违例）
+- [PASS] G19 Step 0 每任务强制（V1.9.35 重构：MANDATORY+首条不豁免+长会话第 N 条不豁免）
+- [PASS] G19 语义先行+脚本降可选（L2 纯思考可执行·脚本不可用不阻塞调度）
+- [PASS] G19 落痕双轨（脚本轨 jsonl+对话轨显式输出——跑不了脚本不等于不留痕）
+- [PASS] G19 15 角色卡三十秒版头齐（Agent 单跳快读）
+- [PASS] G19 --text 原文直连 7/7（口语句全唯一命中：SDLC×3/CODING×2/OPS/AEGIS）
+- [PASS] G19 落痕路径修复（无双 .standards 错位·FIX-C）
+- [PASS] G19 selftest 全过（词面13+意图8+链4+规范化5——语义引擎修复不破回归）
+- [PASS] G20 trace_log.py 在位（五类事件模型+三态锚定复用）
+- [PASS] G20 --report 实跑（事件分布+漏斗断裂率——排查入口可用）
+- [PASS] G20 事件协议双验（合法事件写入+非法类型拒写——schema 纪律）
+- [PASS] G20 route 事件随路由自动写（机器强制层接线——G19 行为断言的监控化）
+- [PASS] G20 AETC §11 链路监控章在位（自报协议+违例语义+漏斗判读表）
+- [PASS] G20 trace source 分家+三口径保守默认（V1.9.36：agent 显式/manual-test 默认/install）
+- [PASS] G20 AETC §11.1 任务级一报+对话轨（逐次自报降频——多跳成本修正）
+- [PASS] G20 install.sh 装痕分家打标（install_selftest 事件·装痕≠流痕判读依据）
+- [PASS] G21 Step 0 判定即读（判定说出口=入口读取已完成·先说后读=违例）
+- [PASS] G21 对话轨三段式判定句（已读字段必填：命中 X → 已读入口+角色卡 → 留痕）
+- [PASS] G21 判定落痕含 --read-entry 用法（一条命令完成判定+读痕·自报摩擦归零）
+- [PASS] G21 判定-读取同链实跑（--read-entry → route+entry_read 相邻同 spec 落记）
+- [PASS] G21 trace 口径声明在位（机器轨诊断不作会话证据·黄金测试为真判据）
+- [PASS] G21 install.sh 版本戳零硬编码（读 MANIFEST 头行单一正本·装 N 记 N）
+- [PASS] G21 install-global.sh 补装痕打标（V1.9.36 欠账补齐·同读 MANIFEST 单一正本）
+- [PASS] G10 UTSS V1.2 含外源接测触发面与 §三·B 协议段（S1-S7）
+- [PASS] G10 browser-e2e-validation 技能存在
+- [PASS] G10 browser-e2e-validation 含凭据三禁红线（C1-C3 不落留痕/报告/用例）
+- [PASS] G10 test-case-generation V2.2 含 §9.6 模糊度三档派生
+- [PASS] G10 luban-doc 技能卡在位（六步法+五铁律+依赖三态探测声明）
+- [PASS] G10 luban-doc 判型记录在位（技能/全局级/正交证据/能力边界诚实声明·docx 扩线观察项）
+- [PASS] G10 P3 完整技能包双件在位（luban-doc 管线包+pdf-skill 依赖包·scripts 校验器齐）
+- [PASS] G10 调度器含两级探测声明（P2 全局形态：项目根优先→~/.std-hub 兜底）
+- [PASS] G11 viewer 资产在场（build/selfcheck/shell+六 scanner，声明=目录双向）
+- [PASS] G11 viewer --dryrun 可跑（退出 0 + schema_version 输出）
+- [PASS] G11 viewer stdlib-only（import 白名单审计，S4 零三方依赖承诺）
+- [PASS] G12 UCSS-PyScan 引擎资产在场（pyscan/ucss-sync/gate）
+- [PASS] G12 pyscan selftest 可跑（退出 0 + 四面全过 + 棘轮底 64 规则=56 py+8 js）
+- [PASS] G12 pyscan/ucss-sync stdlib-only（S4 零三方依赖·import 白名单审计）
+- [PASS] G12 判型记录 rev-spec-ucss-v1.2.yaml 在场（V1.9.16 升版判型）
+- [PASS] G11 daemon_ctl.py 与 daemon.py 在场（控制面/数据面分离 D3）
+- [PASS] G11 GATE 纪律：ctl 含 approved 豁免分支+GATE_REQUEST 申报（无静默拉起路径）
+- [PASS] G11 调度卡 Step 0.5 注入（02 入口·P1 安装形态）
+- [PASS] G11 注册表幂等自测（3 次 register=1 行·隔离 HOME）
+- [PASS] G11 watcher.py 在场（Phase 2 推送：三后端+降级链）
+- [PASS] G11 推送通道纪律（text/event-stream+/vm.json+EventSource 前端·推失效不推数据）
+- [PASS] G4 入口文件交叉引用全部可达
+- [PASS] G5 SDLC 角色→技能引用闭环
+- [PASS] G6 调度器注册表覆盖全部规范入口
+- [PASS] G7 规范配对完整 .standards/AETC.md ↔ .standards/audit/
+- [PASS] G7 规范配对完整 .standards/ATLAS.md ↔ .standards/atlas/
+- [PASS] G7 规范配对完整 .standards/LPU.md ↔ .standards/lpu/
+- [PASS] G7 规范配对完整 .standards/LR.md ↔ .standards/lr/
+- [PASS] G7 规范配对完整 .standards/OPS.md ↔ .standards/ops/
+- [PASS] G7 规范配对完整 .standards/SDLC.md ↔ .standards/roles/
+- [PASS] G7 规范配对完整 .standards/AEGIS.md ↔ .standards/aegis/
+- [PASS] G7 规范配对完整 .standards/META.md ↔ .standards/meta/
+- [PASS] G7 规范配对完整 .standards/UCSS.md ↔ .standards/ucss/
+- [PASS] G7 规范配对完整 .standards/UTSS.md ↔ .standards/utss/
+- [PASS] G7 规范配对完整 .standards/code-review/RULES.md ↔ .standards/code-review/
+- [PASS] G7 规范配对完整 .standards/ui-design/UI-RULES.md ↔ .standards/ui-design/
+- [PASS] G7 规范配对完整 .standards/CODING.md ↔ .standards/coding-rules/
+- [PASS] G8 角色卡 11-interaction-ux-designer.md 存在
+- [PASS] G8 角色卡 11-interaction-ux-designer 含边界声明与结构锚点
+- [PASS] G8 11-interaction-ux-designer 绑定三技能文件存在
+- [PASS] G8 角色卡 12-technical-writer.md 存在
+- [PASS] G8 角色卡 12-technical-writer 含边界声明与结构锚点
+- [PASS] G8 12-technical-writer 绑定三技能文件存在
+- [PASS] G8 角色卡 13-product-ops-growth.md 存在
+- [PASS] G8 角色卡 13-product-ops-growth 含边界声明与结构锚点
+- [PASS] G8 13-product-ops-growth 绑定三技能文件存在
+- [PASS] G8 角色卡 14-customer-success.md 存在
+- [PASS] G8 角色卡 14-customer-success 含边界声明与结构锚点
+- [PASS] G8 14-customer-success 绑定三技能文件存在
+- [PASS] G8 SDLC.md 声明计数=实数派生（阶段/角色/技能三方一致） | 声明 6/15/41 vs 实数 6/15/41
+- [PASS] G8 0.1 表行与 roles/ 卡文件双向一致（无孤儿卡/悬挂行）
+- [PASS] G8 0.1 表技能清单与 skills/ 文件双向一致（无孤儿/悬挂技能）
+- [PASS] G8 SDLC.md 映射表含 11~14 号行（扩展角色在场）
+- [PASS] G9 本体引用的 rev 判型记录全部在场（引用可达，实数派生） | 引用 11 份
+- [PASS] G9 rev-spec-sdlc-*/meta-* 记录无孤儿（均被本体版本注记引用）
+- [PASS] G8 调度器 SDLC 行触发面含界面/文档/运营/客户词与角色 11~14 分界
+- [PASS] G9 00-custody-research-expert V2.0 深化要素齐备（边界表+专属锚点）
+- [PASS] G9 01-business-analyst V2.0 深化要素齐备（边界表+专属锚点）
+- [PASS] G9 02-product-manager V2.0 深化要素齐备（边界表+专属锚点）
+- [PASS] G9 03-technical-architect V2.0 深化要素齐备（边界表+专属锚点）
+- [PASS] G9 03-technical-architect 绑定新技能 architecture-decision-records 存在且被卡引用
+- [PASS] G9 03-technical-architect 绑定新技能 scenario-architecture-checklists 存在且被卡引用
+- [PASS] G9 04-fullstack-developer V2.0 深化要素齐备（边界表+专属锚点）
+- [PASS] G9 04-fullstack-developer 无 DBA 悬挂引用
+- [PASS] G9 04-fullstack-developer 绑定新技能 contract-testing 存在且被卡引用
+- [PASS] G9 05-security-expert V2.0 深化要素齐备（边界表+专属锚点）
+- [PASS] G9 06-testing-expert V2.0 深化要素齐备（边界表+专属锚点）
+- [PASS] G9 07-compliance-expert V2.0 深化要素齐备（边界表+专属锚点）
+- [PASS] G9 08-data-algorithm-expert V2.0 深化要素齐备（边界表+专属锚点）
+- [PASS] G9 09-sre-expert V2.0 深化要素齐备（边界表+专属锚点）
+- [PASS] G9 09-sre-expert 无 DBA 悬挂引用
+- [PASS] G9 10-project-manager V2.0 深化要素齐备（边界表+专属锚点）
+- [PASS] G9 技能 system-design-doc 深化锚点齐备（六元组）
+- [PASS] G9 技能 fullstack-implementation 深化锚点齐备（traceparent）
+- [PASS] G9 技能 prd-generation 深化锚点齐备（TPL-SRS）
+- [PASS] G9 技能 owasp-top10-audit 深化锚点齐备（提示注入）
+- [PASS] G9 技能 test-case-generation 深化锚点齐备（评测集覆盖）
+- [PASS] G9 技能 regulatory-compliance-check 深化锚点齐备（lawful basis）
+- [PASS] G9 技能 data-metrics-design 深化锚点齐备（PII 埋点红线）
+- [PASS] G9 技能 cicd-pipeline-config 深化锚点齐备（语义缓存）
+- [PASS] G9 技能 incident-response-sop 深化锚点齐备（错误预算）
+- [PASS] G9 技能 epic-task-breakdown 深化锚点齐备（Scrum）
+- [PASS] G9 卡↔技能双向绑定一致（引用可达+零孤儿技能文件）
+- [PASS] G9 SDLC 0.1 表含 03/04 深化新技能行（身份锚点，非计数）
+- [PASS] G9 调度器 SDLC 行触发面含架构决策/契约测试词
+- [PASS] G10 CR: code-review/RULES.md 存在且含 P0/P1 分级体系
+- [PASS] G10 CR: global-code-review-rules.json 存在且可 JSON 解析
+- [PASS] G10 CR: 04 卡引用 code-review/RULES.md（交付门引用闭环）
+- [PASS] G10 CODING: 入口 CODING.md 存在且含规范标识 CODING-STD-001
+- [PASS] G10 CODING: coding-rules/rules 与 configs 非空（实数派生） | rules=11 configs=7
+- [PASS] G10 CODING: 调度器注册表含 CODING 行（路由闭环）
+- [PASS] G10 UI: UI-RULES.md 存在且含规范标识 UI-STD-001
+- [PASS] G10 UI: design-tokens.json 存在且可 JSON 解析
+- [PASS] G10 UI: 11 号卡引用 ui-design 资产（引用闭环）
+- [PASS] G10 TPL: README 存在且含库标识 STD-TPL-001 与标准依据锚
+- [PASS] G10 TPL: README 选型矩阵与模板文件双向一致（实数派生）
+- [PASS] G10 TPL: 每张模板首行含 '# 模板 TPL-' 标题锚
+- [PASS] G10 AETC: 留存与脱敏策略锚点（retention_days/PII 掩码）
+- [PASS] G10 OPS: 灾备量化与度量归属锚点（RTO/RPO/DORA/混沌）
+- [PASS] G10 incident-response-sop V1.2 锚点（RTO 对账/MTTR 产数/演练标记）
+- [PASS] G10 UI: a11y 五项判据锚点（WCAG 2.1 AA 最低集）
+- [PASS] G10 TPL↔技能成文协议互指（七对：ARC/SRS/DDD/IDD/APIREF/UM/RN）
+- [PASS] G10 document-visual-design 技能存在且含版式三查铁律
+- [PASS] G10 SDLC.md V1.8 含 Conway 组织适配声明（多人映射三原则）
+- [PASS] G10 cicd-pipeline-config V2.1 含 SBOM 交付要求（CycloneDX+R-11）
+- [PASS] G10 META.md V1.1 含规范版本语义（SemVer-like+breaking 字段）
+- [PASS] G10 版本控制策略声明在场（pack README；非 STD-HUB 包 README 环境跳过）
+- [PASS] G10 12 号卡 V2.0 绑定版式技能与交付文档族接线
+- [PASS] G10 test-case-generation V2.1 视觉回归四要素（基线/防抖/容差/CLS）
+- [PASS] G10 ui-design 视觉容差判据（CHK-30/31 容差+还原度三级）

@@ -1,0 +1,47 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "ATLAS ChangeReport",
+  "description": "变更呈报模型（ATLAS V1.0 §4）——D1 及以上代码变更随提交呈报",
+  "type": "object",
+  "required": ["report_id", "task_id", "trace_id", "intent", "risk_level", "changes", "diff_ref", "impact", "evidence", "rollback", "commit"],
+  "properties": {
+    "report_id": {"type": "string"},
+    "task_id": {"type": "string"},
+    "trace_id": {"type": "string"},
+    "intent": {"type": "string", "description": "一句话意图与动机（与 diff 语义不重复，违者平台标黄）"},
+    "risk_level": {"enum": ["D0", "D1", "D2", "D3"]},
+    "changes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["path", "op"],
+        "properties": {
+          "path": {"type": "string"},
+          "op": {"enum": ["created", "modified", "deleted", "renamed"]},
+          "delta": {"type": "string", "description": "+42/-17 行数统计"}
+        }
+      }
+    },
+    "diff_ref": {"type": "string", "description": "diff 工件引用（如 art://diffs/xxx.diff）"},
+    "impact": {
+      "type": "object",
+      "description": "调用方分析（缺失平台标黄）",
+      "properties": {
+        "callers": {"type": "integer"},
+        "tests_affected": {"type": "integer"},
+        "contracts": {"type": "string", "description": "对外契约影响说明"}
+      }
+    },
+    "evidence": {
+      "type": "object",
+      "description": "测试与构建证据（非纯文档变更缺失即标黄）",
+      "properties": {
+        "unit": {"type": "string"},
+        "build": {"type": "string"}
+      }
+    },
+    "rollback": {"type": "string", "description": "回滚方式（如 git revert 单提交）"},
+    "commit": {"type": "string", "description": "变更锚定 commit hash"}
+  }
+}

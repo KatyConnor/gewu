@@ -1,0 +1,35 @@
+# 判型决策记录（STD-META-001 §六）— ATLAS
+# 由 META 判型门产出；源模板 .standards/meta/templates/form-classification-record.yaml
+content_id: "ATLAS 留痕协同平台对接"
+content_kind: constraint+protocol
+source: retro-classification
+version: "V1.0"
+
+form_tests:
+  q1_harm: true          # 违反是否造成可判定危害
+  q1_evidence: "指令下行未白名单校验=越权执行；等待语义违反=活锁"
+  q2_shall_verifiable: true   # "应/不应"可表述并机器校验
+  q2_verifier: ".standards/atlas/scripts/atlas_check.py（19项）+ 四 Schema 机器校验"
+  q3_multisol: false      # 是否多解、依赖情境与品味
+  distribution: "config（atlas/config.yaml 存在性激活）"
+form: spec
+
+level_tests:
+  invariant: true       # 组织级不变量
+  repo_bound: true     # 仓库绑定变量
+  failure_radius: "org-wide（协议契约）+project（端点/白名单/脱敏）"
+level: dual
+
+type_model: 横切型·对接（条件激活）
+mutex_group: false
+trigger_face: "config.yaml 存在；对接/事件上报平台意图"
+gates: [".standards/atlas/scripts/atlas_check.py"]
+
+lifecycle:
+  promotion_watch: ["TraceEvent 字段扩充需求→契约版本评审"]
+  exception_budget: "D级审批升级例外≤2次/季"
+  demotion_signal: "事件推送失败率高→脱敏/批量参数校准"
+
+decided_by: "Nova（存量追溯判型 · META V1.6 建门后补档）"
+decided_at: "2026-09-29T18:30:00+08:00"
+evidence_refs: ["TRIGGER-MATRIX §一/§十四", "META-RULES §一/§二"]

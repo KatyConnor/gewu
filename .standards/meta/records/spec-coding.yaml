@@ -1,0 +1,35 @@
+# 判型决策记录（STD-META-001 §六）— CODING
+# 由 META 判型门产出；源模板 .standards/meta/templates/form-classification-record.yaml
+content_id: "CODING 编码开发约束"
+content_kind: constraint
+source: retro-classification
+version: "V1.0"
+
+form_tests:
+  q1_harm: true          # 违反是否造成可判定危害
+  q1_evidence: "安全红线违反（注入/密钥硬编码）=漏洞直入代码"
+  q2_shall_verifiable: true   # "应/不应"可表述并机器校验
+  q2_verifier: "红线条款+configs/ 工具链（ruff/eslint 等机器化）"
+  q3_multisol: partial      # 是否多解、依赖情境与品味
+  distribution: "intent-word（编码词族）+ 叠加约束（源码在场即生效）"
+form: spec
+
+level_tests:
+  invariant: true       # 组织级不变量
+  repo_bound: true     # 仓库绑定变量
+  failure_radius: "org-wide（安全红线）+project（configs/工具链/语言规则按栈）"
+level: dual
+
+type_model: 任务型·响应式·叠加约束（编码）
+mutex_group: false
+trigger_face: "代码生成/修改/实现（源码文件任务）"
+gates: ["configs/ 工具链门禁"]
+
+lifecycle:
+  promotion_watch: ["UCSS写后扫描发现的新模式→写前约束条款候选（互补闭环）"]
+  exception_budget: "红线零例外；风格项可裁剪须声明"
+  demotion_signal: "语言规则长期未启用→按栈裁剪"
+
+decided_by: "Nova（存量追溯判型 · META V1.6 建门后补档）"
+decided_at: "2026-09-29T18:30:00+08:00"
+evidence_refs: ["TRIGGER-MATRIX §一/§十四", "META-RULES §一/§二"]

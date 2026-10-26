@@ -1,0 +1,68 @@
+# 判型决策记录（STD-META-001 §六）— CODING-STD-001 V1.1/V1.2 修订（工具链升版+结构收敛+阿里手册 deontic 子集收编）
+# 触发：2026-10-21~22 用户两轮实问——①"这套编码规范是业内标准吗（Google/阿里）"→判定为业内标准汇编本、
+#       阿里缺位；②"有必要把正本纳入吗"→判型：全文收编四杀（版权/体积/漂移/Agent 消费效率）不采纳，
+#       正确姿势为"deontic 子集提炼+工具链机器化"；③"先检查是否需升级，再结合升级后版本整合阿里手册"
+# 性质：内容级修订（缺陷修复+结构收敛+外部正本规则级收编）
+
+content_id: "CODING 编码开发约束规范（V1.1 工具链升版+结构收敛 / V1.2 阿里 deontic 子集收编）"
+source: user-directive   # 用户排批式指令：先体检升级→再对标整合
+version: "V1.2"
+
+form_tests:
+  q1_harm: true
+  q1_evidence: "golangci.yml v1 格式在 golangci-lint v2 下直接报错（工具链断链）；CODING.md §2 与 rules/00-general.md 双源漂移风险；02-java L148『Long.valueOf() 或 Long』表述错误；阿里并发/日志/常量/MySQL 规约缺位"
+  q2_shall_verifiable: true
+  q2_verifier: "本批为规范文本+配置修订（非新增校验器）——既有 suite_check G0-G17 全量回归守底线；新增断言以文件内容固化（版本行 V1.2/头部收编声明/规则条目数）"
+  q3_multisol: partial
+  distribution: "spec-revision（正本修订）"
+form: spec
+
+level_tests:
+  invariant: true
+  repo_bound: false
+  failure_radius: "org-wide（一切编码任务叠加 CODING 的规则面收严：Java +36 行/DB +26 行/工具链 7 配置）"
+level: dual
+
+type_model: 任务型·响应式（编码）·叠加约束   # 不变——本批不涉接入形态
+
+action: 采纳并接入（CODING-STD-001 升至 V1.2，V1.9.32 发版载体）
+acceptance:
+  docs_gates: "CODING.md 版本行 V1.2；头部两条收编声明（V1.1 收敛/V1.2 阿里子集）；交叉引用全通过"
+  theory_basis: "阿里巴巴《Java 开发手册》（黄山/泰山版）deontic 条款提炼——收规则不收解释；golangci-lint v2 配置迁移；ruff 0.6+ 配置格式（[lint.isort]/TC 别名）"
+  hub_gate: "suite_check 全量回归 PASS（发版前置门禁）"
+
+# 修订明细（V1.0 → V1.2）
+revision:
+  - id: REV-CODING-01
+    defect: "golangci.yml 为 v1 格式——golangci-lint v2（2025-03+）下 run.timeout 已移除/issues.exclude-rules 已迁移，直接报错（工具链断链 P0）"
+    evidence_ref: "体检 2026-10-22（批1）：run.timeout/linters-settings/issues.exclude-rules 三处 v1 遗留"
+    fix: "重写为 v2 格式（version: \"2\" + linters.settings + linters.exclusions.rules）；pre-commit golangci hook 同步 v2.1.6"
+  - id: REV-CODING-02
+    defect: "ruff.toml 顶层 [isort] 已废弃；TCH 为弃用别名（现名 TC）；target py312 偏旧"
+    evidence_ref: "ruff 配置格式演进（[lint.*] 命名空间+规则改名）"
+    fix: "[isort]→[lint.isort]；TCH→TC；py312→py313"
+  - id: REV-CODING-03
+    defect: "pre-commit 钉版全线偏旧且 prettier 钉 v4.0.0-alpha.8（alpha 版进模板属配置缺陷）"
+    evidence_ref: "体检 2026-10-22：9 处 rev 全线落后于稳定线"
+    fix: "升稳定钉版：pre-commit-hooks v5.0.0 / ruff v0.12.5 / mypy v1.17.1 / eslint v9.30.1 / prettier v3.6.2（alpha→稳定线）/ golangci v2.1.6 / bandit 1.8.3 / clang-format v19.1.7"
+  - id: REV-CODING-04
+    defect: "CODING.md §2 与 rules/00-general.md 五域全重复（命名/格式/函数/错误/版本控制各两份）——双源漂移风险"
+    evidence_ref: "体检 2026-10-22：§2.1~2.5 与 00-general §1~6 逐域比对重复"
+    fix: "§2 收敛为索引表指向单一正本 rules/00-general.md；CODING.md 332→268 行"
+  - id: REV-CODING-05
+    defect: "02-java L148『Long 加锁用 Long.valueOf() 或 Long』表述错误不知所云"
+    evidence_ref: "体检 2026-10-22 逐行审读"
+    fix: "改写为正确语义（包装类缓存陷阱/Objects.equals/LongAdder）并入并发规约扩展"
+  - id: REV-CODING-06
+    defect: "阿里手册规约缺位——并发处理/常量定义/集合处理/日志规约/依赖管理五章无对应（Java 侧）；SQL 性能规约（EXPLAIN 验证/索引失效/深分页/IN 规模/count 纪律）无对应（DB 侧）"
+    evidence_ref: "用户实问 2026-10-21 18:19『是业内标准吗，比如 Google，阿里开发规范』→对标确认阿里零引用"
+    fix: "deontic 子集提炼入编：02-java §5 并发扩展至 9 条+新增 §10 常量/§11 集合/§12 日志/§13 依赖管理（262→298 行）；08-database 新增 §5 SQL 性能规约三小节（206→232 行）；两分册头部基础标准行标注收编来源"
+  - id: REV-CODING-07
+    defect: "P3C 机器化（configs/ 放 PMD 规则集）评估"
+    evidence_ref: "P3C-PMD 最后版本 2.1.0（2021）支持 PMD 6.x——工具已停更，配置进模板会引入死链依赖"
+    fix: "判型：不采纳（停更工具不入 configs/）；阿里约束以规则文本固化于分册（Agent 读规则即生效），机器化路径留待活跃工具（如 ErrorProne/SonarWay 的对应规则）后续评估"
+
+decided_by: "Nova（CODING V1.1/V1.2 判型 · 用户排批指令触发）"
+decided_at: "2026-10-22T14:40:00+08:00"
+evidence_refs: ["META-RULES §一/§二/§六", "CODING.md 头部收编声明 V1.1/V1.2", "rules/02-java.md + rules/08-database.md 修订后全文", "用户对话 2026-10-21 18:19/18:23、2026-10-22 14:03"]
+review_note: "判型维持（spec/dual/任务型·响应式·叠加）。正本全文收编四杀判型成立（版权/体积/漂移/Agent 消费效率），阿里手册以 deontic 子集收编——收规则不收解释，约束密度提升不膨胀上下文。"

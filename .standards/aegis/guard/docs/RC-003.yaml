@@ -1,0 +1,12 @@
+issue: "VUL-2026-0911-003"
+symptom: "SAST 报告 JWT 校验接受 alg=none（CWE-347），扫描报告 #8821"
+chain:
+  - "为何告警：verify() 未校验 alg 头即验签"
+  - "为何未校验：复用了 legacy 示例代码"
+  - "为何未被拦截：无针对 JWT 算法的 lint 规则"
+root_cause: "验签入口缺少算法白名单校验"
+evidence: "复现用例 tests/regression/test_alg_none.py::test_rejects_none_alg 修复前为红"
+impact_scope:
+  - "services/auth/**"
+  - "网关 token 校验链路"
+confidence: high

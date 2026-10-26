@@ -1,0 +1,15 @@
+{"event": "route", "method": "--refine", "spec": "AEGIS", "verdict": "READY", "missing": "", "ts": "2026-10-24T21:36:48", "source": "manual-test"}
+{"event": "route", "method": "--refine", "spec": "OPS", "verdict": "MISSING", "missing": "object,env", "ts": "2026-10-24T21:36:49", "source": "manual-test"}
+{"event": "route", "method": "--text", "input": "帮我实现一个用户登录接口", "verdict": "UNIQUE", "spec": "SDLC", "top": ["SDLC"], "ts": "2026-10-24T21:36:49", "source": "manual-test"}
+{"event": "route", "method": "--text", "input": "写个导出报表的功能", "verdict": "UNIQUE", "spec": "SDLC", "top": ["SDLC"], "ts": "2026-10-24T21:36:50", "source": "manual-test"}
+{"event": "route", "method": "--text", "input": "这个模块加个缓存", "verdict": "UNIQUE", "spec": "CODING", "top": ["CODING"], "ts": "2026-10-24T21:36:50", "source": "manual-test"}
+{"event": "route", "method": "--text", "input": "设计一下订单表结构", "verdict": "UNIQUE", "spec": "CODING", "top": ["CODING"], "ts": "2026-10-24T21:36:50", "source": "manual-test"}
+{"event": "route", "method": "--text", "input": "帮我写个PRD", "verdict": "UNIQUE", "spec": "SDLC", "top": ["SDLC"], "ts": "2026-10-24T21:36:50", "source": "manual-test"}
+{"event": "route", "method": "--text", "input": "部署脚本更新一下", "verdict": "UNIQUE", "spec": "OPS", "top": ["OPS"], "ts": "2026-10-24T21:36:50", "source": "manual-test"}
+{"event": "route", "method": "--text", "input": "登录接口报错修一下", "verdict": "UNIQUE", "spec": "AEGIS", "top": ["AEGIS"], "ts": "2026-10-24T21:36:50", "source": "manual-test"}
+{"event": "route", "method": "--text", "input": "登录接口报错修一下", "verdict": "UNIQUE", "spec": "AEGIS", "top": ["AEGIS"], "ts": "2026-10-24T21:36:51", "source": "manual-test"}
+{"event": "entry_read", "spec": "SDLC", "ts": "2026-10-24T21:36:51"}
+{"event": "route", "method": "--text", "input": "登录接口报错修一下", "verdict": "UNIQUE", "spec": "AEGIS", "top": ["AEGIS"], "ts": "2026-10-24T21:36:51", "source": "manual-test"}
+{"event": "route", "method": "--text", "input": "部署脚本更新一下", "verdict": "UNIQUE", "spec": "OPS", "top": ["OPS"], "ts": "2026-10-24T21:36:52", "source": "manual-test"}
+{"event": "entry_read", "spec": "OPS", "via": "--text", "note": "判定-读取同链（--read-entry·V1.9.36）", "ts": "2026-10-24T21:36:52"}
+{"event": "install_selftest", "version": "V1.9.36", "note": "装后自测·装痕显式分家（与 route 真实流量区分）", "ts": "2026-10-24T21:36:56"}

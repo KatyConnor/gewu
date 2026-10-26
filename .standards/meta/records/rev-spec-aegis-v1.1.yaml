@@ -1,0 +1,50 @@
+# 判型决策记录（STD-META-001 §六）— AEGIS V1.1 修订（方法论对齐+批量拆单+ODC）
+# 触发：2026-10-05 用户"缺陷修复方法论调研→建 DEF"指令；调研 13 检索后发现修复域已被
+#       AEGIS-STD-001 占位（V1.6 接入）——判型裁决：不新建第十四套，并入升级（防域重叠，
+#       即本会话第一问所警示的能力重叠问题）。
+content_id: "AEGIS 代码问题修复作业（V1.1）"
+source: promotion-candidate
+version: "V1.1"
+form_tests:
+  q1_harm: true
+  q1_evidence: "调研成果不落地=根因方法论缺失（盲改风险）/批量缺陷混单处理=根因污染/无 ODC=过程反馈断链"
+  q2_shall_verifiable: true
+  q2_verifier: "aegis_check.py G1–G7（V1.1 增量 12 项断言：双轴/状态机/拆单/热修回填/ODC/Zeller+RC 五字段）；42 项全绿"
+  q3_multisol: partial
+  distribution: "artifact-gate（三单 schema+状态机+DoD）+ workflow-rules（P0–P6）"
+form: spec          # 不变
+level_tests:
+  invariant: true
+  repo_bound: false
+  failure_radius: "org-wide（所有修复作业的方法论强度提升）"
+level: dual          # 不变
+type_model: 任务型·互斥（修复域·第五方）  # 不变
+mutex_group: true
+action: 采纳并接入（V1.0 → V1.1 内容级修订，六落点）
+acceptance:
+  standards_basis: "ISO/IEC/IEEE 12207 问题解决过程 + ISO/IEC 14764 纠正性维护 + IEEE 1044 双轴 + ODC（Chillarege）+ Zeller《Why Programs Fail》+ Agans 九律"
+  gates: "aegis_check G1–G7 42 项 PASS（2026-10-05 实跑）"
+  dogfood: "webpkg DR-005 缓存无过期清理缺陷走 P0–P6 真实修复（RC/FP/VR 三单+护栏 check+ODC 首轮校准）"
+revision:
+  - id: REV-001
+    defect: "定级单轴（S0–S4 修复成本刻度），业务影响无独立刻度"
+    fix: "IEEE 1044 severity×priority 双轴全量适用；severity 定验证强度，priority 定排期，跳级须 GATE"
+  - id: REV-002
+    defect: "P1 根因定位无方法论工具箱；Agent 易盲改"
+    fix: "Zeller 科学调试循环（假设→实验→观察，登记入 RC hypotheses）+工具箱（bisect/delta/覆盖谱）+ LPU 按需理解接线+两轮失败触发安灯"
+  - id: REV-003
+    defect: "批量缺陷输入无入口（L1 单据驱动律未定义批量形态）"
+    fix: "三B 批量受理与拆单：受理层批量、处理层逐单（用户 2026-10-05 决策）"
+  - id: REV-004
+    defect: "无生命周期状态机，fixed/closed 边界模糊"
+    fix: "三A 状态机 new→triaged→in_progress→fixed→verified→closed；fixed≠verified≠closed；无回归证据不得 close"
+  - id: REV-005
+    defect: "热修旁路无契约，旁路常态化风险"
+    fix: "三C 热修旁路三条件+回填义务（24h 三单/72h 根因）+反常态化护栏（>10% 触发告警）"
+  - id: REV-006
+    defect: "P6 沉淀无分类法，过程反馈无结构"
+    fix: "ODC 十类 defect type 关闭前强制；同因聚类≥3 喂 LR rebuild-plan 与 OPS 慢性升级；首轮实跑校准义务"
+decided_by: "Nova（AEGIS V1.1 判型 · 用户'立即执行'+三项决策：热修照原案/批量拆单/ODC 按推荐）"
+decided_at: "2026-10-05T23:45:00+08:00"
+evidence_refs: ["DEF-STD-001_调研与规划.md（13 检索）", "AEGIS-RULES.md §二/三A/B/C/十", "aegis_check.py G7", "webpkg/.aegis/ 三单（dogfood）"]
+review_note: "判型关键转折：调研证实域已占用→放弃新建 DEF-STD-001，改走 AEGIS V1.1 升级——判型门防止了第十四套与第十套的域重叠。原 DEF 调研成果 100% 落入 V1.1 六落点。"

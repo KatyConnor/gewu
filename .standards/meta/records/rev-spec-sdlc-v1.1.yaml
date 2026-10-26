@@ -1,0 +1,51 @@
+# 判型决策记录（STD-META-001 §六）— SDLC V1.1 修订（角色层设计域补位：11 号交互与体验设计师）
+# 触发：2026-10-06 用户"当前体系十一套角色能否覆盖产品研发全周期"之问 → 覆盖矩阵实证：
+#       研发主干 100% 有主，但设计域角色层空位（02 管需求侧 / UI-STD-001 管门禁侧 / 
+#       04 管落地侧，唯独"界面方案主导者"缺位）→ 用户"起草"指令。
+# 裁决要点：不新建第十四套规范（SDLC-SKILLS 即角色技能体系的家），走 SDLC V1.1
+#           域内内容级修订——与 AEGIS V1.1 同构的"防域重叠"判型路径。
+content_id: "SDLC 角色技能体系（V1.1）"
+source: promotion-candidate
+version: "V1.1"
+form_tests:
+  q1_harm: true
+  q1_evidence: "设计域无角色主导=界面方案前置缺失（PRD 直跳编码，UI 质量全靠门禁事后拦截）/无可用性评审方法论=体验问题无结构化裁决/无 token 主导=design-tokens.json 单一真源无维护者"
+  q2_shall_verifiable: true
+  q2_verifier: "存在性+结构断言 6 条（suite_check G8 组，回归实跑全绿）：①roles/11-interaction-ux-designer.md 存在 ②skills/{ux-wireframe-prototyping,design-system-tokens,usability-heuristics-review}.md 三文件存在 ③角色卡绑定技能索引路径全部有效 ④调度器注册表 SDLC 行触发面含界面词；结构断言：角色卡含边界声明表+三重自检节+RISK 表"
+  q3_multisol: partial
+  distribution: "artifact-gate（三场景输出物 schema：IA/五态矩阵/令牌引用表/组件规格/自检记录/评审报告）+ workflow-rules（R01-R08 + 红线七条）"
+  q4_domain_occupied: false
+  q4_evidence: "设计域在角色层空位：02 绑定技能为需求侧（prd-generation/user-journey-mapping）；UI-STD-001 是质量门型规范非角色（管拦不管产）；触发词'原型'现挂 02 行指 PRD 级示意——本修订将'界面级方案'拆归 11 号并在调度器触发面显式分界"
+form: spec          # 不变（SDLC-SKILLS 域内修订）
+level_tests:
+  invariant: true
+  repo_bound: false
+  failure_radius: "org-wide（所有界面生成任务的方案质量与体验自检强度提升）"
+level: dual          # 不变
+type_model: 任务型·互斥（开发域）  # 不变——11 号是域内角色，非新域
+mutex_group: true
+action: 采纳并接入（V1.0 → V1.1 内容级修订，六落点；当前状态：草案已起草，待用户裁决后执行接入）
+acceptance:
+  standards_basis: "Nielsen 十启发式（1994，可用性评审工业标准）/ ISO 9241-210（以人为本设计）/ WCAG 2.2 AA（W3C 无障碍）/ Material Design·Apple HIG（设计系统与令牌实践参照）"
+  gates: "草案含 RISK-06（严重度 3/4 阻断）GATE 语义 8 条 + 红线 7 条；接入时转 suite_check 存在性断言 4 条"
+  dogfood: "候选：product-portal/public.html（公开门户界面走查）或 webpkg rebuild-plan R2 gui 裁决段——待接入后首次实跑"
+revision:
+  - id: REV-001
+    defect: "设计域角色层空位，界面方案无主导者"
+    fix: "新增 11-interaction-ux-designer.md（双职责：方案主导+前置自检；边界声明表 5 方零重叠）"
+  - id: REV-002
+    defect: "23 技能池无设计类技能，角色卡无技能可绑"
+    fix: "新增 3 技能：ux-wireframe-prototyping（IA→线框→高保真，五态/断点/令牌三覆盖）、design-system-tokens（三层令牌+变更单+单一真源）、usability-heuristics-review（十启发式+严重度 0-4+问题路由）"
+  - id: REV-003
+    defect: "SDLC.md 0.1 映射表阶段二仅 03 一行，'5 阶段 11 角色 23 技能'计数过期"
+    fix: "阶段二插入 11 号行；计数更新为 12 角色 26 技能；0.2 触发表增'界面/交互/线框/设计系统/走查'→角色 11 行"
+  - id: REV-004
+    defect: "调度器 AGENTS.md 注册表 SDLC 行触发面未含界面级词，'原型'词义与 02 混叠"
+    fix: "SDLC 行触发面补界面词并注明与 02 分界（PRD 示意级归 02 / 结构化方案归 11）"
+  - id: REV-005
+    defect: "平台卡 06-sdlc 未派生 11 号角色内容，20 平台卡与本体不同步"
+    fix: "06-sdlc 卡增量派生（角色表+触发词同步）；suite_check 断言扩展 4 条"
+decided_by: "Nova 起草（用户 2026-10-06 '起草'指令）· 终裁待用户（草案包 drafts/sdlc-r11/）"
+decided_at: "2026-10-06T23:10:00+08:00"
+evidence_refs: ["体系全景与协同手册 ch1/ch3（2026-10-06，覆盖矩阵实证）", "roles/04-fullstack-developer.md（结构对齐基准）", "skills/unit-test-generator.md（技能卡格式基准）", "ui-design/UI-RULES.md（门禁联动：五法则/硬禁令/25 项清单/design-tokens.json 同源原则）", "rev-spec-aegis-v1.1.yaml（判型格式与防域重叠先例）"]
+review_note: "判型关键点：设计域角色层空位≠规范层空位——UI-STD-001 已占门禁位，故本变更裁决为 SDLC 域内角色扩展而非新建规范（若新建'UX-STD-001'将与 UI-STD-001 域重叠，重蹈判型门第一问警示）。三层补偿机制（02 技能/UI 门禁/TPL 模板）已兜住底线，11 号补的是'方案主导者'缺位——这是覆盖矩阵中唯一的 ●○ 级环节。"

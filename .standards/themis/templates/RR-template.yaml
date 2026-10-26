@@ -1,0 +1,21 @@
+# RR 评审委托单（Review Request）— THEMIS-STD-014
+id: RR-<编号>
+requested_at: <ISO8601>
+requester: <委托方（用户/体系/下游环节）>
+reviewer: <评审执行者（必须≠产出者·独立性红线）>
+independence_check: true   # 裁定者≠产出者 确认（false=本单无效·红线事件）
+
+object:
+  type: <文档/设计/方案/体系/过程留痕>   # 被评对象类型
+  path: <被评对象路径或标识>
+  producer: <产出方（角色/规范/Agent）>
+  version: <对象版本/批次号>
+
+review:
+  type: <T1技术评审|T2检查|T3走查|T4审计|T5管理评审>   # IEEE 1028 类型
+  standard_set: [<引用的正本/checklist：如 IEEE 1028 §x / ISO 20246 / 项目裁剪集>]
+  scope: <评审范围（全文/指定章节/抽样说明）>
+  deadline: <期限>
+
+context: <背景：为什么评、下游消费方是谁（1:10:100 放大链说明）>
+trace_ref: <AETC 留痕批次引用（必填·证据互锁）>

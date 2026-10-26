@@ -1,0 +1,71 @@
+# 判型决策记录（STD-META-001 §六）— V1.9.36 判定即读闭环批（行动尾+测量口径+版本戳根治）
+# 触发：2026-10-24 07:43 用户判据式报障「做完分析还存在问题，还需要什么数据来判定」（要采集清单不要安抚）；
+#       20:41 交付黄金测试六图（三次会话对照+「引用 SDLC.md 原文」质询回复）；20:56 补 trace dump 一图；21:01 拍板「按照方案执行」
+# 判定链（当日闭环）：D1 黄金测试四证 → Agent 原话认账「判定写了命中 SDLC 但实际没有打开读取」+补读 2 分 42 秒
+#       逐字命中 L104-106/L65/L128（能读、读得准——非能力问题，是判定闭环缺强制续接）+图1-3 三次正常会话零读取对照+
+#       违例代价实锤（V82 撞 project:manage 唯一键启动事故本可被角色 03 裁决拦截）→
+#       D2/D3 由 trace dump 三证闭环：route 11 条全为 10-23 00:38:52-55 三秒批量验证（测试例句特征）→
+#       昨晚漏斗「真实流量」分母不存在；entry_read 1 条亦为测试痕；install_selftest 装V1.9.35记V1.9.34（版本戳错位）
+# 根因双层修正：①指令在断言在（V1.9.33 已写「缺此两步即违例」）但埋在注册表超长表格格子里注意力权重极低，
+#       Step 0 判定输出模板说「命中 X」即流程结束——缺「读」的强制续接；②source 默认 agent 把人工测试混计入
+#       真实流量（宁可漏计不可虚计反向原则缺位）；③install.sh 版本戳硬编码漏同步=同族三犯（10-14 install-global
+#       矩阵漏同步→本次版本戳漏同步→10-24 install-global 漏打装痕=四犯同根）
+
+content_id: "调度器判定-读取闭环（V1.9.36）"
+source: user-evidence-pack   # 判据式报障+黄金测试六图+trace dump 一图（当日两轮交付）
+version: "V1.9.36"
+
+form_tests:
+  q1_harm: true
+  q1_evidence: "Agent 四轮任务自报路由、从未读取（被质询后 2 分 42 秒补读逐字命中——能读不读）；V82 启动事故本可被 03 角色卡拦截（L65 命中数据库变更未走裁决）；测量层 route 11 条全为批量测试痕（漏斗分母虚）+装 35 记 34（版本戳错位）"
+  q2_shall_verifiable: true
+  q2_verifier: "suite_check 243→250 项（G21 七断言：判定即读锚/三段式判定句锚/--read-entry 用法双文件/同链实跑/口径声明/版本戳零硬编码/global 补装痕）+release.sh 版本戳门禁三行（grep 零硬编码+双脚本 MANIFEST 接线）——发版门禁真实执行"
+  q3_multisol: partial
+  distribution: "spec-revision（AGENTS.md 判定即读+三段式判定句）+ tooling（trigger_check --read-entry 同链+trace_log 三口径）+ build-fix（install*.sh 版本戳读 MANIFEST+global 补装痕）"
+form: spec
+
+level_tests:
+  invariant: true
+  repo_bound: false
+  failure_radius: "org-wide（一切 Agent 平台的判定→读取执行面：从『命中即知』改为『命中即读』；测量面：trace 从『会话证据』降级为『机器轨诊断』）"
+level: dual
+
+access_tests:
+  mode: 判定输出模板扩展（AGENTS.md 单槽位不变·注册表/矩阵/互斥组零变更）+脚本层三文件
+  stackable: 不变
+type_mode: entry-refactor
+
+revision:
+  - id: REV-DISP-13
+    defect: "判定输出模板止于「命中 X」——说而不读零违例信号（Agent 认账四轮全断）"
+    evidence_ref: "2026-10-24 20:41 黄金测试图 6 Agent 原话+图 4 四轮全认+源码 AGENTS.md:72 行模板无已读字段"
+    fix: "〔MANDATORY·V1.9.36〕判定说出口=入口读取已完成（先说后读=违例·说而不读=违例）；对话轨三段式判定句：命中 X → 已读 .standards/X.md §核心段+角色卡 NN 三十秒版 → 留痕（已读字段必填，缺即违例）"
+  - id: REV-DISP-14
+    defect: "entry_read 靠 Agent 自报（第二命令/第二动机）——摩擦导致零上报"
+    evidence_ref: "trace dump：entry_read 仅 1 条且为测试痕；Agent 自认从未执行"
+    fix: "trigger_check --read-entry：判定 UNIQUE/READY 时 route+entry_read 同链自动落记（一条命令·自报摩擦归零）；--text UNIQUE 尾打行动尾提示"
+  - id: REV-DISP-15
+    defect: "source 默认 agent——人工终端测试混计入「真实流量」（漏斗口径虚高且分母可为零仍报断裂率）"
+    evidence_ref: "10-23 00:38 三秒 11 条批量验证全标 source=agent；昨晚据此外推 91% 断裂率（分母实为测试痕）"
+    fix: "source 三口径（agent 显式/manual-test 保守默认/install）+report 三口径分列+口径声明（trace=机器轨诊断不作会话证据·真实性以对话证据为准）+勘误提示（旧数据 agent 含人工混入）"
+  - id: REV-DISP-16
+    defect: "install.sh --mark-install 硬编码 V1.9.34——发版漏同步版本戳（装 35 记 34）"
+    evidence_ref: "trace dump install_selftest version=V1.9.34 @ 装 V1.9.35 之后；install.sh:98 字面值"
+    fix: "版本号改读 FILES_MANIFEST.txt 头行单一正本（grep -oE 提取·零依赖）；release.sh 加版本戳门禁三行（零硬编码+双脚本 MANIFEST 接线）+G21 断言"
+  - id: REV-DISP-17
+    defect: "install-global.sh 无装痕打标——V1.9.34 装痕分家批漏改 P2 侧（同族四犯：10-14 矩阵漏同步同文件）"
+    evidence_ref: "grep install-global.sh 无 mark-install；10-14 用户实报 install-global 漏同步双矩阵（同文件前科）"
+    fix: "P2 侧同样打标+同读 MANIFEST 单一正本+G21 断言（mark-install+FILES_MANIFEST 双检）"
+
+extra_note: |
+  【三批结构闭环】V1.9.33 修链路（能到）→34 修观测（能看）→35 修触发（该跑）→36 修执行闭环（判定即读）——
+  黄金测试（用户质询「引用原文」）是「自报≠执行」的分野证据，成本一轮对话；trace dump 是「测量口径先验」的
+  分野证据（3 秒聚集=批量测试特征）。方法论沉淀两条：①**指标的采集机理先于指标结论**（谁写的、什么条件写、
+  测不到什么）②**通道判定与执行判定分离取证**（V1.9.35 判型已沉淀——本批是其验证：通道通、执行断，证据=黄金测试）。
+  【棘轮注记】断言 243→250 只增；release.sh 门禁新增 3 行只增；红线（不降级任何安全风险和门禁）贯穿。
+  下一轮实测建议：装 V1.9.36 后观察 Agent 三段式判定句出现率+--read-entry 同链事件——D4 黄金测试可复用（质询不变）。
+
+decided_by: "Nova（V1.9.36 判定即读闭环判型 · 用户判据式报障+两轮证据包+拍板触发）"
+decided_at: "2026-10-24T21:10:00+08:00"
+evidence_refs: ["META-RULES §一/§二/§六", "用户对话 2026-10-24 07:43/20:41/20:56/21:01（判据式报障+六图+trace dump+拍板）", "suite_check 250 项 PASS 0 FAIL（G21 七断言）", "黄金测试源码对照：SDLC.md L104-106/L65/L128 逐字命中（防编造验证）"]
+review_note: "判型维持（spec/dual/入口单槽）。触发面从『命中即知』升级为『命中即读』；测量面 trace 定位从『会话证据』降级为『机器轨诊断』（诚实标注：黄金测试对话证据才是会话真实性判据）。门禁 243→250 只增。"

@@ -1,0 +1,26 @@
+# 判型决策记录（STD-META-001 §六）— META V1.1 修订（P2 收编：规范版本语义 + 判型记录字段全验）
+# 触发：全体系审查 P2 项"规范版本语义（SemVer-like）+判型记录字段全验"；与 rev-spec-sdlc-v1.8 同批。
+content_id: "STD-META-001（V1.1）"
+source: promotion-candidate
+version: "V1.1"
+breaking: false
+form_tests:
+  q1_harm: true
+  q1_evidence: "版本平铺无变更语义（消费者无法从版本号判断升级风险）；判型记录仅靠人工保持字段一致（无机器全验）"
+  q2_shall_verifiable: true
+  q2_verifier: "meta_check G7 两断言：全部记录 9 必填字段参数化全验；breaking 字段示范在场（此后新记录强制）"
+  q3_multisol: partial
+  distribution: "workflow-rules（版本语义表/迁移期纪律/字段全验）"
+  q4_domain_occupied: false
+  q4_evidence: "META 域自有：版本语义归治理元层；字段全验归 meta_check 自有工具"
+remediation_plan:
+  - id: REV-001
+    defect: "版本号无变更语义"
+    fix: "META.md §六：SemVer-like 表（breaking→MAJOR+迁移说明/false→MINOR/PATCH）+存量追认声明"
+  - id: REV-002
+    defect: "判型记录字段无机器全验"
+    fix: "meta_check.py G7：参数化循环全验 9 字段+breaking 示范锚"
+decided_by: "Nova 起草并接入（用户 2026-10-07 P2 收编指令）"
+decided_at: "2026-10-07T23:45:00+08:00"
+evidence_refs: ["drafts/system-audit/system-audit-2026-10-07.md（P2 清单）", "meta_check.py G1~G6 既有断言面", "README 版本里程碑（平铺历史实证）"]
+review_note: "本记录自身即 breaking:false 的第一次自应用（吃狗粮）。历史记录（v1.1~v1.7 及更早）豁免 breaking 字段——追认声明在 META.md §六；此后新记录强制携带。"

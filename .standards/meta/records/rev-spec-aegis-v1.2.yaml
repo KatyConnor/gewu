@@ -1,0 +1,28 @@
+# 判型决策记录（STD-META-001 §六）— AEGIS V1.2 修订（闭环收口：06 独立准出出口闸 + 三单 trace_ref 证据互锁）
+# 触发：2026-10-08 用户缺陷修复全闭环审计——"修复完后是否被测试系统验证/发现问题是否回流/证据链可复现"；
+#       实证两断点：①AEGIS P4 三道门为修复方自验证，出口未显式接线 06/UTSS 独立准出（双闸变单闸）
+#       ②三单 schema 无 trace 引用字段——单据链与 AETC 留痕链两环未互锁（复现验证缺最后一跳）。
+content_id: "AEGIS-STD-001（V1.2 机器层）"
+source: promotion-candidate
+version: "V1.2"
+breaking: false
+form_tests:
+  q1_harm: true
+  q1_evidence: "出口闸缺失：修复合入仅靠 CR 复验+AEGIS 自验证（回归选择集=修复方自选范围），06 独立准出（UTSS S3 回归+三值结论）未被声明为强制；证据互锁缺失：三单（RC/FP/VR）互引但零 trace 字段，从缺陷单无法直达修复过程留痕批次"
+  q2_shall_verifiable: true
+  q2_verifier: "aegis_check G8 两断言：三模板含 trace_ref + 入口含独立准出/UTSS 锚——44 项全绿（42→44）"
+  q3_multisol: partial
+  distribution: "workflow-rules（出口闸铁律：三道门自验证≠独立准出；准出不过→状态机回退边）+ artifact-gate（trace_ref 必填字段）"
+  q4_domain_occupied: false
+  q4_evidence: "AEGIS 域自有资产修订（裁决表/注记/三单模板/自有检查器）——06 卡仅对称回填边界行"
+remediation_plan:
+  - id: REV-001
+    defect: "出口闸未显式接线（独立准出缺失）"
+    fix: "AEGIS.md 裁决表 +行：修复合入后必须交角色 06 按 UTSS Step 0-9 走 S3 回归+准出三值结论（安全类含 05 复扫）；三道门=自验证≠独立准出；准出不过→回退边+衍生单；06 卡边界表对称回填"
+  - id: REV-002
+    defect: "单据链与留痕链未互锁"
+    fix: "三单模板 +trace_ref 必填字段（AETC 留痕批次/事件号——RC 记 P1 起始批次/FP 记实施/VR 记验证与 06 准出记录）"
+decided_by: "Nova 起草并接入（用户 2026-10-08 '继续'指令，承接闭环审计两断点）"
+decided_at: "2026-10-08T00:22:00+08:00"
+evidence_refs: ["闭环审计取证（2026-10-08 对话：三单字段/状态机回退边/裁决表全行/UTSS Step 0-9）", "aegis/templates/ 三单 schema", "AEGIS-RULES.md §三A 状态机", "UTSS.md §三 Step 6 缺陷管理"]
+review_note: "闭环审计方法论：来源覆盖×流程×验证回流×证据链四层取证——本轮发现'流程内闭环强（回退边/三态分离/无回归证据不得 close）而跨规范出口弱'的结构模式。出口闸裁决沿用分权惯例：AEGIS 自验证（快速收敛）≠ 06 独立准出（第三方判定）——与'13 实验设计≠08 统计判读'同构。trace_ref 使证据链三环互锁（单据↔单据↔留痕），复现验证路径完整：缺陷单→trace 批次→哈希链验真→VR 三门证据→06 准出记录。breaking=false——纯新增字段与规则，旧单据无 trace_ref 按历史豁免（新单据强制）。"
