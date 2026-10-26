@@ -7,6 +7,7 @@ import MarkdownReader from '@/components/ui/MarkdownReader';
 // 终端面板客户端专用（ssr:false）：@xterm/addon-fit UMD 顶层引用 self，SSR 预渲染会崩
 const TerminalPanel = dynamic(() => import('@/components/ui/TerminalPanel'), { ssr: false });
 import { isMarkdownPath, isProbablyBinary, monacoLangOf } from '@/lib/fileLanguage';
+import { confirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   getMyWorkspace, listFiles, createDirectory, uploadFile,
   getFileContent, saveFileContent, deleteFile,
@@ -127,8 +128,8 @@ export default function WorkspacePage() {
   };
 
   /** 退出编辑：有未保存修改先确认，放弃则还原到最近保存内容 */
-  const exitEdit = () => {
-    if (dirty && !confirm('有未保存的修改，确定放弃并退出编辑？')) return;
+  const exitEdit = async () => {
+    if (dirty && !(await confirmDialog({ message: '有未保存的修改，确定放弃并退出编辑？', danger: true, confirmText: '放弃并退出' }))) return;
     setFileContent(savedContent);
     setDirty(false);
     setViewMode('preview');
@@ -174,7 +175,7 @@ export default function WorkspacePage() {
   };
 
   const handleDelete = async (file: FileNodeDTO) => {
-    if (!confirm(`确认删除 ${file.fileName}？`)) return;
+    if (!(await confirmDialog({ message: `确认删除 ${file.fileName}？`, danger: true }))) return;
     try {
       await deleteFile(file.fileId);
       toast('已删除', 'success');
@@ -403,7 +404,9 @@ export default function WorkspacePage() {
                   />
                 </div>
               ) : isMarkdownPath(selectedFile.fileName) ? (
-                <MarkdownReader content={fileContent} />
+                <div className="flex-1 min-h-0">
+                  <MarkdownReader content={fileContent} showToc />
+                </div>
               ) : isProbablyBinary(fileContent) ? (
                 <div className="flex-1 flex flex-col items-center justify-center py-20 text-ink-500">
                   <FileText className="w-10 h-10 mb-3 opacity-30" />

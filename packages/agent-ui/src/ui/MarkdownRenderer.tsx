@@ -210,6 +210,12 @@ function MarkdownRendererImpl({ content, isStreaming }: MarkdownRendererProps) {
               </a>
             );
           },
+          // 图片（徽章/截图等：约束宽度不撑破版心，加载失败保留 alt）
+          img({ src, alt }) {
+            if (!src) return null;
+            // eslint-disable-next-line @next/next/no-img-element
+            return <img src={src} alt={alt ?? ''} loading="lazy" className="max-w-full h-auto rounded-lg border border-tech-500/10 my-2" />;
+          },
           // 段落
           p({ children }) {
             return <p className="my-2 leading-relaxed">{children}</p>;
