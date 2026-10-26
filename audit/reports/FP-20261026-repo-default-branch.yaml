@@ -1,0 +1,38 @@
+# FP 方案单（AEGIS P2 产出；问题单：用户实报 Gitee 拉取失败）
+trace_ref: "audit/traces/s-20261025-234620.jsonl#seq18"
+issue: "USER-REPORT 拉取失败 Remote branch main not found in upstream origin"
+risk_level: S1
+root_cause_ref: "RC：克隆/拉取分支未配置时硬编码回退 main（ProjectRepoService.cloneProjectRepo/gitPull；Gitee 默认分支多为 master，--branch main 必然 Remote branch not found）"
+test_defect_approval: false
+changes:
+  - file: "gewu-application/src/main/java/com/gewu/application/project/ProjectRepoService.java"
+    symbol: "cloneProjectRepo/gitPull"
+    intent: "未配置分支时不再带 --branch main：克隆远程默认 HEAD 并回填实际分支名；pull 空分支回落上游跟踪"
+  - file: "gewu-application/src/main/java/com/gewu/application/workspace/DevWorkspaceService.java"
+    symbol: "toProjectDTO"
+    intent: "repoBranch 不再伪造 main，如实透传（前端显示「默认分支」）"
+  - file: "gewu-admin-server/src/main/java/com/gewu/admin/dto/project/AdminProjectCreateCommand.java"
+    symbol: "repoBranch"
+    intent: "创建命令增加分支字段"
+  - file: "gewu-admin-server/src/main/java/com/gewu/admin/dto/project/AdminProjectUpdateCommand.java"
+    symbol: "repoBranch"
+    intent: "更新命令增加分支字段（null=不改/空白=清除回落默认）"
+  - file: "gewu-admin-server/src/main/java/com/gewu/admin/service/AdminProjectService.java"
+    symbol: "createProject/updateProject"
+    intent: "分支字段透传落库（trim；空白清 null）"
+  - file: "gewu-admin-web/src/lib/project.ts"
+    symbol: "ProjectPayload.repoBranch"
+    intent: "管理端 API 载荷增加分支"
+  - file: "gewu-admin-web/src/components/pages/ProjectManagePage.tsx"
+    symbol: "ProjectForm/EMPTY_FORM/openEdit/handleSave/仓库配置表单"
+    intent: "项目管理表单增加「克隆分支」输入（留空跟随远程默认分支，编辑回显）"
+  - file: "gewu-web/src/components/pages/DevWorkspacePage.tsx"
+    symbol: "分支显示 3 处"
+    intent: "分支为空显示「默认分支」，去掉误导性 main 假值"
+budget: {files: 8, lines: 300, funcs: 10, deps: 0}
+verification:
+  red_baseline: "用户实报：Gitee 仓库（默认分支 master）在管理端仅配地址+凭证后拉取报 fatal: Remote branch main not found in upstream origin（cloneProjectRepo L50 回退 main + L67 --branch main 直证）"
+  regression_set: "后端 mvn -pl gewu-interface,gewu-admin-server -am compile；前端 gewu-web/admin-web tsc --noEmit；已配置显式分支的项目路径（--branch 保留）走查确认未受影响"
+  rescan: "非安全类缺陷；凭证注入/shellQuote 防注入链路未触碰"
+rollback: "git revert 单提交；无 DB 迁移（repo_branch 列已存在），无数据回填义务"
+approvals: ["用户任务原文即范围授权：'没有配置分支应拉取每个品牌仓库默认的主分支'+'管理端支持分支设置选项'；S1 预算内（8 文件 54+/14-）"]
