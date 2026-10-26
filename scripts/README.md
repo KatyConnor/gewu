@@ -8,8 +8,10 @@
 
 ```bash
 ./scripts/package.sh                # 全量打包（后端 + 前端），跳过测试
-./scripts/package.sh backend        # 仅后端
+./scripts/package.sh backend        # 仅后端（四服务 jar 全量）
+./scripts/package.sh interface      # 仅 interface 单服务（其余: gateway/sandbox/admin-server）
 ./scripts/package.sh web            # 仅前端
+./scripts/package.sh admin          # 仅管理端前端
 ./scripts/package.sh all --with-tests --archive --clean
 ```
 

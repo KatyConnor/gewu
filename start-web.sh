@@ -1,19 +1,7 @@
 #!/usr/bin/env bash
-# 主应用前端前台启动（端口 5001）
-set -e
+# 统一启停入口：scripts/gewu-ctl.sh（start/stop/restart/status/logs）
+# 用法保持兼容：./start-web.sh 等价于 ./scripts/gewu-ctl.sh start web
+# 停止/重启/状态请使用：./scripts/gewu-ctl.sh stop|restart|status web
+set -euo pipefail
 cd "$(dirname "$0")"
-mkdir -p logs
-
-WEB_DIR="${WEB_DIR:-gewu-web}"
-if [[ ! -d "$WEB_DIR/.next" ]]; then
-    echo "[$0] 未找到 $WEB_DIR/.next，请先执行 ./scripts/package.sh web"
-    exit 1
-fi
-
-echo "[$0] 启动 web（端口 5001，目录 $WEB_DIR）..."
-cd "$WEB_DIR"
-if [[ -x node_modules/.bin/next ]]; then
-    ./node_modules/.bin/next start -p 5001
-else
-    pnpm start
-fi
+exec ./scripts/gewu-ctl.sh start web "${@:2}"

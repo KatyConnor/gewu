@@ -1,14 +1,7 @@
 #!/usr/bin/env bash
-# 后台管理服务前台启动（独立端口 8083）
-set -e
+# 统一启停入口：scripts/gewu-ctl.sh（start/stop/restart/status/logs）
+# 用法保持兼容：./start-admin-server.sh 等价于 ./scripts/gewu-ctl.sh start admin-server
+# 停止/重启/状态请使用：./scripts/gewu-ctl.sh stop|restart|status admin-server
+set -euo pipefail
 cd "$(dirname "$0")"
-mkdir -p logs run
-
-JAR="gewu-admin-server/target/gewu-admin-server-1.0.0-SNAPSHOT.jar"
-if [[ ! -f "$JAR" ]]; then
-    echo "[$name] 未找到 $JAR，请先执行 ./scripts/package.sh backend"
-    exit 1
-fi
-
-echo "[$name] 启动 gewu-admin-server-1.0.0-SNAPSHOT.jar（端口 8083）..."
-java -Xms256m -Xmx1024m -XX:+UseG1GC -jar "$JAR" > logs/gewu-admin-server.log 2>&1
+exec ./scripts/gewu-ctl.sh start admin-server "${@:2}"

@@ -226,10 +226,10 @@ start_backend_service() {
     local pid=$!
     echo "$pid" > "$(pid_file_of "$svc")"
 
-    if wait_port "$port" 90; then
+    if wait_port "$port" 180; then
         log_info "$svc 启动成功（PID $pid，端口 $port 已就绪）"
     else
-        log_error "$svc 端口 $port 在 90s 内未就绪，请查看日志: $(log_file_of "$svc")"
+        log_error "$svc 端口 $port 在 180s 内未就绪，请查看日志: $(log_file_of "$svc")"
         return 1
     fi
 }
@@ -250,7 +250,7 @@ start_web_service() {
         return 1
     fi
     if [[ ! -d "$web_dir/.next" ]]; then
-        log_error "$web_dir/.next 不存在，请先执行 ./scripts/package.sh（或用 WEB_DIR/ADMIN_WEB_DIR 指定正确目录）"
+        log_error "$web_dir/.next 不存在，请先执行 ./scripts/package.sh web（或 admin）"
         return 1
     fi
 
@@ -419,7 +419,13 @@ case "$CMD" in
         "$0" start "$TARGET"
         ;;
     status)
-        do_status
+        if [[ -n "${2:-}" ]]; then
+            validate_service "$2"
+            TARGET="$2"
+            do_status | grep -E "SERVICE|-------|^$TARGET "
+        else
+            do_status
+        fi
         ;;
     logs)
         TARGET="${2:-web}"

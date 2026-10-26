@@ -7,12 +7,14 @@ set -euo pipefail
 # 产物统一汇总到 dist/ 目录。
 #
 # 用法:
-#   ./scripts/package.sh [all|backend|web|admin] [选项]
+#   ./scripts/package.sh [all|backend|web|admin|gateway|interface|sandbox|admin-server] [选项]
 #
 # 选项:
 #   --with-tests   执行后端单元测试（默认跳过）
 #   --archive      打包完成后生成 tar.gz 归档
 #   --clean        先清理旧的构建产物
+#
+# 单服务模式: gateway/interface/sandbox/admin-server 仅编译打包对应 jar（-am 连带依赖模块）
 #
 # 环境变量:
 #   JAVA_HOME      JDK 21 安装目录（如未配置则从 PATH 查找 java）
@@ -43,7 +45,7 @@ CLEAN=false
 
 for arg in "$@"; do
     case "$arg" in
-        all|backend|web|admin|admin) TARGET="$arg" ;;
+        all|backend|web|admin|gateway|interface|sandbox|admin-server) TARGET="$arg" ;;
         --with-tests)    WITH_TESTS=true ;;
         --archive)       ARCHIVE=true ;;
         --clean)         CLEAN=true ;;
@@ -118,19 +120,37 @@ BACKEND_JARS=(
     "gewu-admin-server/target/gewu-admin-server-1.0.0-SNAPSHOT.jar"
 )
 
-build_backend() {
+build_backend() { # build_backend [单服务名]（缺省=四服务全量）
     setup_java
     setup_maven
-    log_step "后端 Maven 打包（模块: $BACKEND_MODULES，测试: $WITH_TESTS）"
+    local modules="$BACKEND_MODULES" jars=("${BACKEND_JARS[@]}")
+    if [[ $# -gt 0 ]]; then
+        modules=""
+        jars=()
+        for svc in "$@"; do
+            local m
+            case "$svc" in
+                gateway)      m="gewu-gateway" ;;
+                interface)    m="gewu-interface" ;;
+                sandbox)      m="gewu-sandbox" ;;
+                admin-server) m="gewu-admin-server" ;;
+                gewu-*)       m="$svc" ;;
+                *)            m="gewu-$svc" ;;
+            esac
+            [[ -n "$modules" ]] && modules+=",$m" || modules="$m"
+            jars+=("$PROJECT_ROOT/${m}/target/${m}-1.0.0-SNAPSHOT.jar")
+        done
+    fi
+    log_step "后端 Maven 打包（模块: $modules，测试: $WITH_TESTS）"
 
-    local mvn_args=(-pl "$BACKEND_MODULES" -am package -ntp)
+    local mvn_args=(-pl "$modules" -am package -ntp)
     if [[ "$WITH_TESTS" != true ]]; then
         mvn_args+=(-DskipTests)
     fi
     mvn "${mvn_args[@]}"
 
     mkdir -p dist/backend
-    for jar in "${BACKEND_JARS[@]}"; do
+    for jar in "${jars[@]}"; do
         if [[ ! -f "$jar" ]]; then
             log_error "产物不存在: $jar"
             exit 1
@@ -237,6 +257,8 @@ fi
 
 if [[ "$TARGET" == "all" || "$TARGET" == "backend" ]]; then
     build_backend
+elif [[ "$TARGET" == "gateway" || "$TARGET" == "interface" || "$TARGET" == "sandbox" || "$TARGET" == "admin-server" ]]; then
+    build_backend "$TARGET"
 fi
 
 if [[ "$TARGET" == "all" || "$TARGET" == "web" ]]; then
