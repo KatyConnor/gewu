@@ -137,37 +137,15 @@ class ReactAgentExecutorSyncTest {
     }
 
     private ReactAgentExecutor executor(ScriptedLlmClient client, BudgetController budget, int maxToolRounds) {
-        return new ReactAgentExecutor(
-                new LlmClientRegistry(List.of(client), null, objectMapper,
-                        HttpClient.newHttpClient(), new LlmRequestBodyBuilder(objectMapper)),
-                toolExecutor,
-                new DefaultMessageBuilder(new SystemPromptComposer()),
-                new NoOpSessionContextService(),
-                new NoOpPersistenceService(),
-                AgentEngineConfig.builder()
+        return new ReactAgentExecutor(new LlmClientRegistry(List.of(client), null, objectMapper,
+                        HttpClient.newHttpClient(), new LlmRequestBodyBuilder(objectMapper)), toolExecutor, new DefaultMessageBuilder(new SystemPromptComposer()), new NoOpSessionContextService(), new NoOpPersistenceService(), AgentEngineConfig.builder()
                         .maxToolRounds(maxToolRounds)
                         .defaultMaxTokens(8192)
                         .defaultTemperature(0.7)
                         .toolExecutor(pool)
                         .defaultHistoryLimit(50)
-                        .build(),
-                objectMapper,
-                new NoOpMemoryRouter(),
-                memoryStore,
-                budget,
-                new NoOpPerceptionEngine(),
-                new ComplexityRouter(new DualSystemRouter()),
-                noOpTrace(),
-                (name, value, tags) -> {
-                },
-                responseCache,
-                new PromptInjectionDetector(),
-                new OutputSanitizer(),
-                (taskDescription, complexity, privacyLevel, latencyPreference, budgetRemaining) -> null,
-                null,
-                null,
-                null,
-                null);
+                        .build(), objectMapper, new NoOpMemoryRouter(), memoryStore, budget, new NoOpPerceptionEngine(), new ComplexityRouter(new DualSystemRouter()), noOpTrace(), (name, value, tags) -> {
+                }, responseCache, new PromptInjectionDetector(), new OutputSanitizer(), (taskDescription, complexity, privacyLevel, latencyPreference, budgetRemaining) -> null, null, null, null, null, null);
     }
 
     private ReactAgentExecutor defaultExecutor(ScriptedLlmClient client) {

@@ -63,6 +63,18 @@ public class OpenAiCompatibleClient implements LlmClient {
     /** 重试退避基数（毫秒） */
     private volatile long retryBackoffMs = 1000L;
 
+    /** 全局流式并发上限（docs/design/43 P2）：0=不限 */
+    private volatile int maxConcurrentStreams = 0;
+
+    /** 并发许可（setMaxConcurrentStreams 时创建） */
+    private volatile java.util.concurrent.Semaphore streamPermits;
+
+    public void setMaxConcurrentStreams(int maxConcurrentStreams) {
+        this.maxConcurrentStreams = Math.max(0, maxConcurrentStreams);
+        this.streamPermits = this.maxConcurrentStreams > 0
+                ? new java.util.concurrent.Semaphore(this.maxConcurrentStreams) : null;
+    }
+
     public void setRetryConfig(int retryMaxAttempts, long retryBackoffMs) {
         this.retryMaxAttempts = Math.max(1, retryMaxAttempts);
         this.retryBackoffMs = Math.max(0, retryBackoffMs);
@@ -233,9 +245,18 @@ public class OpenAiCompatibleClient implements LlmClient {
         // 受限重试（docs/design/47 问题三）：仅未收到首 token 前的 429/5xx/网络瞬态，
         // 指数退避 + 尊重 Retry-After；已产出内容后失败不重试（防重复输出）
         java.util.concurrent.atomic.AtomicBoolean sawToken = new java.util.concurrent.atomic.AtomicBoolean(false);
+        java.util.concurrent.atomic.AtomicInteger attempts = new java.util.concurrent.atomic.AtomicInteger();
         int retries = Math.max(0, retryMaxAttempts - 1);
         return Flux.<LlmChunk>create(sink -> {
+            // P2 全局并发信号量（docs/design/43）：跨子智能体排队，治理并发对上游配额的挤压；
+            // 重试再订阅会重新获取许可，退避等待期间许可已释放（不占坑）
+            java.util.concurrent.Semaphore permits = streamPermits;
+            if (permits != null) {
+                permits.acquireUninterruptibly();
+            }
             try {
+                int attemptNo = attempts.incrementAndGet();
+                log.info("{} chatStream 第 {} 次尝试（重试上限 {}）: model={}", providerCode, attemptNo, retries, request.getModel());
                 long startMs = System.currentTimeMillis();
                 // 响应头阶段限时（docs/design/47 问题二）：上游不回响应头时不再无限等待；
                 // 响应体空闲由看门狗兜底
@@ -300,6 +321,10 @@ public class OpenAiCompatibleClient implements LlmClient {
                     log.error("{} chatStream 异常: {}", providerCode, e.getMessage(), e);
                 }
                 sink.error(e);
+            } finally {
+                if (permits != null) {
+                    permits.release();
+                }
             }
         })
                 .retryWhen(reactor.util.retry.Retry.backoff(
@@ -307,7 +332,13 @@ public class OpenAiCompatibleClient implements LlmClient {
                                 Duration.ofMillis(Math.max(1, retryBackoffMs)))
                         .jitter(0.5)
                         .filter(e -> isRetryable(e, sawToken))
-                        .transientErrors(true))
+                        .transientErrors(true)
+                        // P1 观测补强（docs/design/43）：流式路径此前无每次重试的专门日志，
+                        // 失败原因（状态码/异常类型）只能翻原始堆栈——逐次 WARN 留痕
+                        .doBeforeRetry(sig -> log.warn("{} 流式调用第 {} 次尝试失败，将进行第 {}/{} 次重试（基数退避 {}ms）: {}",
+                                providerCode, sig.totalRetries(), sig.totalRetries() + 1, retries,
+                                retryBackoffMs,
+                                sig.failure() != null ? sig.failure().toString() : "unknown")))
                 .subscribeOn(Schedulers.boundedElastic());
     }
 

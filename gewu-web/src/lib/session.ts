@@ -208,6 +208,15 @@ export async function answerSessionAsk(sessionId: string, askId: string, answer:
     `/v1/sessions/${sessionId}/ask/${askId}/answer`, { answer }));
 }
 
+/** 执行中转向：向正在执行中的会话任务注入补充指令（accepted=false=无活动任务，应走正常发送） */
+export async function steerSessionTurn(
+  sessionId: string,
+  data: { content: string; clientId?: string },
+): Promise<{ accepted: boolean; reason?: string }> {
+  return unwrap(request.post<ApiResponse<{ accepted: boolean; reason?: string }>>(
+    `/v1/sessions/${sessionId}/steer`, data));
+}
+
 /** 会话运行实时过程条目（与消息 metadata.process 同构的 compact 格式） */
 export interface CompactProcessEntry {
   k: string;

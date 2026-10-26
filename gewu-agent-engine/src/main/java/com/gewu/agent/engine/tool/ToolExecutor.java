@@ -223,7 +223,8 @@ public class ToolExecutor {
 
         // 危险操作扫描已前移至 SecurityChain（CodeScannerCheck）
         int timeout = context.getTimeout() > 0 ? context.getTimeout() : defaultTimeoutSeconds;
-        ExecResult resp = sandboxExecutor.executeCode(language, code, timeout);
+        // 传入上下文：实现方可据 sessionId 挂载会话工作空间卷，避免执行产物即焚
+        ExecResult resp = sandboxExecutor.executeCode(context, language, code, timeout);
         String stdout = resp.getStdout() != null ? resp.getStdout() : "";
         String stderr = resp.getStderr() != null ? resp.getStderr() : "";
         return stdout + (stderr.isEmpty() ? "" : "\n[stderr] " + stderr);

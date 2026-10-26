@@ -117,6 +117,7 @@ public class DbPersistenceService implements PersistenceService {
 | [11-quick-start.md](11-quick-start.md) | 引入依赖 → 实现 SPI → 运行完整示例 |
 | [12-extension-guide.md](12-extension-guide.md) | 扩展实现指南（自定义 LLM / Tool / Runtime / Mode / Memory） |
 | [13-event-protocol.md](13-event-protocol.md) | 流式事件协议完整定义 |
+| [14-system-prompt-inventory.md](14-system-prompt-inventory.md) | 系统提示词汇总（组装公式、动态注入片段、辅助调用提示词原文） |
 
 ## 设计原则
 

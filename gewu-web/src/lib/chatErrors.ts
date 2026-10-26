@@ -38,6 +38,11 @@ const TEMPLATES: Record<string, CategoryTemplate> = {
     cause: 'AI 服务或模型供应商内部出现错误（非本地问题），本次请求未能完成。',
     suggestion: '请稍后重试；若持续出现，请到设置页检查模型供应商状态或切换其他模型。',
   },
+  retryExhausted: {
+    category: '上游重试耗尽（限流 / 瞬态）',
+    cause: '模型服务端/网关在自动重试后仍持续返回瞬态错误（限流、渠道不可用或连接中断）；并发子智能体任务会成倍放大该概率。',
+    suggestion: '稍等 1-2 分钟后重试；多子智能体任务建议减少并发数量（如分批派生）；若反复出现，请检查模型服务的配额与渠道状态。',
+  },
   notFound: {
     category: '服务 / 资源不存在',
     cause: '请求的接口或模型端点不存在：常见为供应商 Base URL 配置不完整（缺少接口路径）、模型 ID 有误或模型已下线。',
@@ -57,6 +62,7 @@ const TEMPLATES: Record<string, CategoryTemplate> = {
 
 /** 按关键词匹配网络层/超时类错误（无 HTTP 状态码时的兜底） */
 const KEYWORD_RULES: Array<{ match: RegExp; key: keyof typeof TEMPLATES }> = [
+  { match: /retries?\s*exhausted|重试耗尽|重试次数已用完/i, key: 'retryExhausted' },
   { match: /timeout|timed?\s*out|超时|ETIMEDOUT|AsyncRequestTimeout/i, key: 'timeout' },
   { match: /429|rate\s*limit|too\s*many\s*requests|并发|限流|overloaded|busy|529/i, key: 'concurrency' },
   { match: /failed\s*to\s*fetch|network\s*error|networkerror|socket|econnreset|econnrefused|连接|中断|断开|异常关闭|premature|closed|aborted|abort/i, key: 'connection' },

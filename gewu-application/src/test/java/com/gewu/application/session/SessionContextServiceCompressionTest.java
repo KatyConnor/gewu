@@ -53,7 +53,8 @@ class SessionContextServiceCompressionTest {
                 cacheService,
                 contextCompressor,
                 messageAppender,
-                titleService
+                titleService,
+                null // SessionFileWorkspaceService（跨轮回放注入）：纯单测中置空，注入开关字段默认 false 不触达
         );
         // 配置注入（用户实报修复：阈值/保留策略已配置化），测试用低阈值便于触发压缩
         sessionContextService.contextCompactThresholdTokens = 100;

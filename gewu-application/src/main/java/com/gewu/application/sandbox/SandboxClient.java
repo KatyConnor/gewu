@@ -124,10 +124,16 @@ public class SandboxClient {
 
     /** 执行代码（创建临时沙箱，执行后自动销毁） */
     public ExecCommandResponse executeCode(String language, String code, Integer timeout) {
+        return executeCode(language, code, timeout, null);
+    }
+
+    /** 执行代码（带工作空间卷挂载：workspaceId 非空时 /workspace 写入随卷持久化，容器仍即焚） */
+    public ExecCommandResponse executeCode(String language, String code, Integer timeout, String workspaceId) {
         ExecuteCodeRequest request = new ExecuteCodeRequest();
         request.setLanguage(language);
         request.setCode(code);
         request.setTimeout(timeout);
+        request.setWorkspaceId(workspaceId);
         return postAndParse("/execute", request, ExecCommandResponse.class);
     }
 
@@ -182,8 +188,14 @@ public class SandboxClient {
 
     /** 上传文件到容器 */
     public void uploadFile(String sandboxId, String path, MultipartFile file) throws IOException {
+        uploadBytes(sandboxId, path, file.getBytes(),
+                file.getOriginalFilename() != null ? file.getOriginalFilename() : "upload",
+                file.getContentType() != null ? file.getContentType() : "application/octet-stream");
+    }
+
+    /** 上传字节内容到容器（二进制安全，供工作空间同步 M2V 方向使用） */
+    public void uploadBytes(String sandboxId, String path, byte[] fileBytes, String fileName, String contentType) {
         String boundary = "----WebKitFormBoundary" + System.currentTimeMillis();
-        String fileName = file.getOriginalFilename() != null ? file.getOriginalFilename() : "upload";
         String CRLF = "\r\n";
 
         StringBuilder sb = new StringBuilder();
@@ -193,11 +205,10 @@ public class SandboxClient {
         sb.append("--").append(boundary).append(CRLF);
         sb.append("Content-Disposition: form-data; name=\"file\"; filename=\"")
           .append(fileName).append("\"").append(CRLF);
-        sb.append("Content-Type: ").append(file.getContentType() != null ? file.getContentType() : "application/octet-stream").append(CRLF).append(CRLF);
+        sb.append("Content-Type: ").append(contentType).append(CRLF).append(CRLF);
 
         byte[] header = sb.toString().getBytes(StandardCharsets.UTF_8);
         byte[] footer = (CRLF + "--" + boundary + "--" + CRLF).getBytes(StandardCharsets.UTF_8);
-        byte[] fileBytes = file.getBytes();
 
         byte[] body = new byte[header.length + fileBytes.length + footer.length];
         System.arraycopy(header, 0, body, 0, header.length);

@@ -103,9 +103,19 @@ public class AgentEngineConfig {
         /** 子代理是否共享父任务会话历史（默认隔离会话） */
         @Builder.Default
         private boolean shareSessionHistory = false;
+        /**
+         * 子代理是否共享父任务会话工作空间（文件工具可读写父会话目录）。
+         * 与 shareSessionHistory 解耦：默认 true——子代理独立上下文但仍能
+         * 读写父会话文件（写入归属父会话，回合撤销可回滚）。
+         */
+        @Builder.Default
+        private boolean shareWorkspace = true;
         /** 单条子任务提示词长度上限（字符） */
         @Builder.Default
         private int maxPromptChars = 8000;
+        /** 失败子代理自动重派一次（docs/design/43 P2）：防限流/瞬态导致整波成果全损 */
+        @Builder.Default
+        private boolean redeployFailedOnce = true;
         /** 单个子代理输出聚合前的截断上限（字符） */
         @Builder.Default
         private int maxOutputChars = 10 * 1024;

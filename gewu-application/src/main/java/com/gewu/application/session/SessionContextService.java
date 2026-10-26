@@ -1,7 +1,8 @@
 package com.gewu.application.session;
 
 import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
-import com.fasterxml.jackson.core.type.TypeReference;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gewu.application.session.dto.MessageDTO;
 import com.gewu.domain.session.Session;
 import com.gewu.domain.session.SessionMessage;
@@ -19,6 +20,7 @@ import com.gewu.infrastructure.llm.Message;
 
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 
 @Slf4j
@@ -34,6 +36,18 @@ public class SessionContextService {
     /** 压缩时保留的最近消息条数（原硬编码 6 ≈ 3 轮对话，提到 24 ≈ 最近 12 轮） */
     @Value("${gewu.session.context-compact-keep-recent:24}")
     int contextCompactKeepRecent;
+    /** 跨轮回放：文件清单注入开关与条数上限（设计文档 42 项一，工具调用不落库的补偿） */
+    @Value("${gewu.session.file-inventory-enabled:true}")
+    boolean fileInventoryEnabled;
+    @Value("${gewu.session.file-inventory-limit:20}")
+    int fileInventoryLimit;
+    /** 跨轮回放：近期工具要点注入开关与条数上限（素材为 assistant metadata.process） */
+    @Value("${gewu.session.tool-brief-enabled:true}")
+    boolean toolBriefEnabled;
+    @Value("${gewu.session.tool-brief-limit:10}")
+    int toolBriefLimit;
+
+    private static final ObjectMapper METADATA_MAPPER = new ObjectMapper();
 
     private final SessionMessageMapper sessionMessageMapper;
     private final SessionMapper sessionMapper;
@@ -41,6 +55,7 @@ public class SessionContextService {
     private final ContextCompressor contextCompressor;
     private final SessionMessageAppender messageAppender;
     private final SessionTitleService titleService;
+    private final SessionFileWorkspaceService sessionFileWorkspaceService;
 
     public List<MessageDTO> getContext(String sessionId, int maxMessages) {
         int limit = maxMessages > 0 ? maxMessages : DEFAULT_MAX_MESSAGES;
@@ -72,9 +87,11 @@ public class SessionContextService {
                 .sum();
 
         if (estimatedTokens <= contextCompactThresholdTokens) {
-            return messages.stream()
+            List<Message> result = new ArrayList<>(messages.stream()
                     .map(this::toLlmMessage)
-                    .toList();
+                    .toList());
+            appendWorkspaceBriefs(sessionId, result);
+            return result;
         }
 
         log.info("会话上下文超过 token 阈值，触发压缩: sessionId={}, estimatedTokens={}", sessionId, estimatedTokens);
@@ -145,6 +162,9 @@ public class SessionContextService {
             result.add(toLlmMessage(sm));
         }
 
+        // 4. 工作空间状态与近期工具要点（跨轮回放，压缩后仍存活——system 消息不参与压缩）
+        appendWorkspaceBriefs(sessionId, result);
+
         // 缓存压缩结果
         if (!compressed.isEmpty()) {
             String cacheKey = CacheKeys.messages(sessionId) + ":compressed";
@@ -152,6 +172,86 @@ public class SessionContextService {
         }
 
         return result;
+    }
+
+    /**
+     * 跨轮回放注入（设计文档 42 项一）：工具调用不落库回放，模型每轮只能重新猜
+     * 路径/重复探查。此处以两条 system 消息补偿——文件清单（session_file_change
+     * 台账）+ 近期工具要点（assistant metadata.process 时间线条目）。
+     * 注入失败静默降级，不影响对话主链路。
+     */
+    private void appendWorkspaceBriefs(String sessionId, List<Message> result) {
+        if (fileInventoryEnabled) {
+            try {
+                List<String> lines = sessionFileWorkspaceService.fileInventorySummary(sessionId, fileInventoryLimit);
+                if (!lines.isEmpty()) {
+                    result.add(Message.builder().role("system")
+                            .content("[工作空间状态] 本会话已写入/修改的文件（路径相对工作空间根，"
+                                    + "勿带 workspace/ 前缀，可直接 read_file/edit_file 访问）：\n"
+                                    + String.join("\n", lines))
+                            .build());
+                }
+            } catch (Exception e) {
+                log.debug("文件清单注入失败: sessionId={}, err={}", sessionId, e.getMessage());
+            }
+        }
+        if (toolBriefEnabled) {
+            try {
+                String brief = buildToolBrief(sessionId, toolBriefLimit);
+                if (!brief.isEmpty()) {
+                    result.add(Message.builder().role("system")
+                            .content("[近期工具要点] 本会话近期工具调用与结果摘要：\n" + brief)
+                            .build());
+                }
+            } catch (Exception e) {
+                log.debug("工具要点注入失败: sessionId={}, err={}", sessionId, e.getMessage());
+            }
+        }
+    }
+
+    /** 从最近消息的 assistant metadata.process 提取工具条目（k=tool：n 名称 / a 参数 / r 结果） */
+    private String buildToolBrief(String sessionId, int limit) {
+        List<SessionMessage> messages = sessionMessageMapper.selectList(
+                new LambdaQueryWrapper<SessionMessage>()
+                        .eq(SessionMessage::getSessionId, sessionId)
+                        .orderByDesc(SessionMessage::getSeq)
+                        .last("LIMIT 40"));
+        List<String> newestFirst = new ArrayList<>();
+        for (SessionMessage m : messages) {
+            if (!"assistant".equals(m.getMessageType()) || m.getMetadata() == null || m.getMetadata().isBlank()) {
+                continue;
+            }
+            try {
+                JsonNode proc = METADATA_MAPPER.readTree(m.getMetadata()).path("process");
+                if (!proc.isArray()) {
+                    continue;
+                }
+                for (JsonNode entry : proc) {
+                    if (!"tool".equals(entry.path("k").asText())) {
+                        continue;
+                    }
+                    String args = entry.path("a").asText("");
+                    if (args.length() > 120) {
+                        args = args.substring(0, 120) + "…";
+                    }
+                    String res = entry.path("r").asText("");
+                    if (res.length() > 200) {
+                        res = res.substring(0, 200) + "…";
+                    }
+                    newestFirst.add("- " + entry.path("n").asText("") + "(" + args + ")"
+                            + (res.isBlank() ? "" : " → " + res));
+                }
+            } catch (Exception e) {
+                // 单条 metadata 损坏只跳过该条
+                log.debug("解析消息 metadata 失败: messageId={}, err={}", m.getId(), e.getMessage());
+            }
+        }
+        if (newestFirst.isEmpty()) {
+            return "";
+        }
+        List<String> selected = newestFirst.subList(0, Math.min(limit, newestFirst.size()));
+        Collections.reverse(selected);
+        return String.join("\n", selected);
     }
 
     @Transactional

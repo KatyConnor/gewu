@@ -149,6 +149,7 @@ public class AgentEngineAutoConfiguration {
         registry.setRequestTimeout(props.getLlm().getRequestTimeout());
         registry.setStreamIdleTimeoutMs(props.getLlm().getStreamIdleTimeoutMs());
         registry.setRetryConfig(props.getLlm().getRetryMaxAttempts(), props.getLlm().getRetryBackoffMs());
+        registry.setMaxConcurrentStreams(props.getLlm().getMaxConcurrentStreams());
         return registry;
     }
 
@@ -373,12 +374,20 @@ public class AgentEngineAutoConfiguration {
                                        com.gewu.agent.engine.tool.FileWorkspaceSpi fileWorkspaceSpi,
                                        com.gewu.agent.engine.spi.ContextCompactor contextCompactor,
                                        com.gewu.agent.engine.spi.ModelContextProvider modelContextProvider,
-                                       com.gewu.agent.engine.hitl.UserInteractionGateway userInteractionGateway) {
+                                       com.gewu.agent.engine.hitl.UserInteractionGateway userInteractionGateway,
+                                       com.gewu.agent.engine.hitl.TurnSteeringQueue turnSteeringQueue) {
         return new ReactAgentExecutor(llmClientRegistry, toolExecutor, messageBuilder,
                 sessionContextService, persistenceService, config, objectMapper, memoryRouter, memoryStore,
                 budgetController, perceptionEngine, complexityRouter, traceService, metricService, responseCache,
                 promptInjectionDetector, outputSanitizer, modelSelector, fileWorkspaceSpi,
-                contextCompactor, modelContextProvider, userInteractionGateway);
+                contextCompactor, modelContextProvider, userInteractionGateway, turnSteeringQueue);
+    }
+
+    /** 会话执行中转向队列（用户插话）：引擎内按 sessionId 分桶，接口层 offer、轮次边界 drain */
+    @Bean
+    @ConditionalOnMissingBean(com.gewu.agent.engine.hitl.TurnSteeringQueue.class)
+    public com.gewu.agent.engine.hitl.TurnSteeringQueue turnSteeringQueue() {
+        return new com.gewu.agent.engine.hitl.TurnSteeringQueue();
     }
 
     /** 上下文压缩器缺省实现：放弃压缩（仅配置上下文窗口时产生接近告警，不影响任务继续） */

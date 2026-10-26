@@ -2,11 +2,14 @@ package com.gewu.interfaceapi.controller;
 
 import com.gewu.application.agent.adapter.ChatUserInteractionGateway;
 import com.gewu.application.session.ChatRunRegistry;
+import com.gewu.application.session.SessionContextService;
 import com.gewu.application.session.SessionService;
 import com.gewu.application.session.dto.*;
+import com.gewu.common.context.UserContext;
 import com.gewu.common.dto.PageQuery;
 import com.gewu.common.result.PageResult;
 import com.gewu.common.result.Result;
+import com.gewu.agent.engine.hitl.TurnSteeringQueue;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
@@ -27,6 +30,8 @@ public class SessionController {
     private final SessionService sessionService;
     private final ChatRunRegistry chatRunRegistry;
     private final ChatUserInteractionGateway chatUserInteractionGateway;
+    private final SessionContextService sessionContextService;
+    private final TurnSteeringQueue turnSteeringQueue;
 
     // ==================== 运行时状态（断连不中断 / HITL 问答 / 实时过程） ====================
     // 注意：本控制器是前端 lib/session.ts 的路由家族（/api/v1/sessions）。
@@ -66,6 +71,32 @@ public class SessionController {
                                   @RequestBody AskAnswerRequest request) {
         chatUserInteractionGateway.answerAsk(sessionId, askId, request.getAnswer());
         return Result.success();
+    }
+
+    /**
+     * 执行中转向（用户插话补充指令）：向正在执行中的会话任务注入新指令。
+     * <p>语义：用户消息照常即时落库（历史可见），同时入队当前活动 run 的
+     * 转向队列——ReAct 循环在下一轮次边界以 user 角色并入上下文，
+     * 与既有工具结果、原指令一起重组继续执行（不中断不重开）。
+     * <p>accepted=false 表示该会话当前没有活动任务（前端应走正常发送链路）。
+     */
+    @PostMapping("/{sessionId}/steer")
+    @Operation(summary = "执行中补充指令", description = "向执行中的会话任务注入补充指令，整合既有结果继续执行")
+    public Result<java.util.Map<String, Object>> steer(@PathVariable String sessionId,
+                                                       @Valid @RequestBody SteerCommand command) {
+        ChatRunRegistry.RunMeta meta = chatRunRegistry.get(sessionId);
+        if (meta == null || !meta.active()) {
+            return Result.success(java.util.Map.of("accepted", false));
+        }
+        String content = command.getContent();
+        if (content == null || content.isBlank()) {
+            return Result.success(java.util.Map.of("accepted", false, "reason", "内容为空"));
+        }
+        // 先落库（用户消息即时持久化，断连/降级均不丢），再入转向队列
+        sessionContextService.appendUserMessage(sessionId, UserContext.currentUserId(),
+                content, command.getClientId());
+        boolean queued = turnSteeringQueue.offer(sessionId, content);
+        return Result.success(java.util.Map.of("accepted", queued));
     }
 
     @PostMapping

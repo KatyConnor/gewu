@@ -7,8 +7,10 @@ import com.gewu.common.dto.sandbox.ExecCommandResponse;
 import com.gewu.common.result.BusinessException;
 import com.gewu.common.result.ResultCode;
 import com.gewu.domain.agent.AgentTool;
+import com.gewu.domain.session.Session;
 import com.gewu.infrastructure.audit.AuditLogService;
 import com.gewu.infrastructure.mapper.AgentToolMapper;
+import com.gewu.infrastructure.mapper.SessionMapper;
 import com.gewu.infrastructure.mcp.McpServerManager;
 import com.gewu.infrastructure.mcp.McpToolResult;
 import lombok.RequiredArgsConstructor;
@@ -44,6 +46,7 @@ public class ToolExecutionService {
     private final SsrfValidator ssrfValidator;
     private final SandboxCodeScanner sandboxCodeScanner;
     private final SandboxClient sandboxClient;
+    private final SessionMapper sessionMapper;
 
     public ToolResult executeTool(String toolName, String arguments, ToolContext context) {
         long startTime = System.currentTimeMillis();
@@ -184,7 +187,10 @@ public class ToolExecutionService {
         int timeout = context.getTimeout() > 0 ? context.getTimeout() : 30;
 
         try {
-            ExecCommandResponse resp = sandboxClient.executeCode(language, code, timeout);
+            // 携带会话工作空间卷挂载：执行期间写入 /workspace 的文件持久化，
+            // 可被会话文件工具读取；解析失败降级为无卷隔离执行
+            String workspaceId = resolveWorkspaceId(context);
+            ExecCommandResponse resp = sandboxClient.executeCode(language, code, timeout, workspaceId);
             String stdout = resp.getStdout() != null ? resp.getStdout() : "";
             String stderr = resp.getStderr() != null ? resp.getStderr() : "";
             return stdout + (stderr.isEmpty() ? "" : "\n[stderr] " + stderr);
@@ -195,6 +201,21 @@ public class ToolExecutionService {
             throw BusinessException.of(ResultCode.AGENT_EXECUTION_FAILED, "沙箱调用失败: " + e.getMessage());
         } catch (Exception e) {
             throw BusinessException.of(ResultCode.AGENT_EXECUTION_FAILED, "沙箱调用失败: " + e.getMessage());
+        }
+    }
+
+    /** 按会话解析工作空间 ID（用于执行容器挂载持久卷）；解析失败返回 null 走隔离执行 */
+    private String resolveWorkspaceId(ToolContext context) {
+        try {
+            if (context.getSessionId() == null || context.getSessionId().isBlank()) {
+                return null;
+            }
+            Session session = sessionMapper.selectById(context.getSessionId());
+            return session != null ? session.getWorkspaceId() : null;
+        } catch (Exception e) {
+            log.warn("解析会话工作空间失败, sessionId={}, 降级为隔离执行: {}",
+                    context.getSessionId(), e.getMessage());
+            return null;
         }
     }
 

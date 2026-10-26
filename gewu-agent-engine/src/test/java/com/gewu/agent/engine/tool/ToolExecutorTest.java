@@ -225,7 +225,7 @@ class ToolExecutorTest {
         ToolExecutor sandboxExecutorInstance = new ToolExecutor(new ToolRegistry(List.of()),
                 new SecurityChain(List.of()), permissionService, auditService, sandboxExecutor,
                 mcpServerManager, objectMapper, 16, 5, 30);
-        when(sandboxExecutor.executeCode(anyString(), anyString(), anyInt()))
+        when(sandboxExecutor.executeCode(any(), anyString(), anyString(), anyInt()))
                 .thenReturn(ExecResult.builder().success(true).stdout("x".repeat(100)).build());
 
         ToolConfig config = ToolConfig.builder()
@@ -248,7 +248,7 @@ class ToolExecutorTest {
     @Test
     @DisplayName("沙箱执行：从参数提取 language/code 并拼接 stdout/stderr")
     void sandboxExecution() {
-        when(sandboxExecutor.executeCode(eq("python"), eq("print('hi')"), anyInt()))
+        when(sandboxExecutor.executeCode(any(), eq("python"), eq("print('hi')"), anyInt()))
                 .thenReturn(ExecResult.builder().success(true)
                         .stdout("hi").stderr("warn").build());
         ToolConfig config = ToolConfig.builder()
@@ -311,7 +311,7 @@ class ToolExecutorTest {
                 .isInstanceOf(com.gewu.agent.engine.AgentEngineException.class)
                 .hasMessageContaining("参数校验失败");
 
-        verify(sandboxExecutor, never()).executeCode(anyString(), anyString(), anyInt());
+        verify(sandboxExecutor, never()).executeCode(any(), anyString(), anyString(), anyInt());
         verify(auditService, never()).recordToolExecution(any(), any(), anyString(), anyBoolean(), anyLong());
     }
 }

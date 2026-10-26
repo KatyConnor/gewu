@@ -44,8 +44,15 @@ public class LlmClientRegistry {
     /** 重试退避基数（毫秒） */
     private volatile long retryBackoffMs = 1000L;
 
+    /** 全局流式并发上限（docs/design/43 P2）：0=不限 */
+    private volatile int maxConcurrentStreams = 0;
+
     public void setStreamIdleTimeoutMs(long streamIdleTimeoutMs) {
         this.streamIdleTimeoutMs = streamIdleTimeoutMs;
+    }
+
+    public void setMaxConcurrentStreams(int maxConcurrentStreams) {
+        this.maxConcurrentStreams = Math.max(0, maxConcurrentStreams);
     }
 
     public void setRetryConfig(int retryMaxAttempts, long retryBackoffMs) {
@@ -134,6 +141,7 @@ public class LlmClientRegistry {
                 client.setStreamIdleTimeoutMs(streamIdleTimeoutMs);
             }
             client.setRetryConfig(retryMaxAttempts, retryBackoffMs);
+            client.setMaxConcurrentStreams(maxConcurrentStreams);
             return client;
         } catch (Exception e) {
             log.warn("从 LlmProvider 加载供应商 {} 失败: {}", providerCode, e.getMessage());

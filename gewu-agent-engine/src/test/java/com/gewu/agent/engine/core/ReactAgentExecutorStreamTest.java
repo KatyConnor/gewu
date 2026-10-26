@@ -93,37 +93,15 @@ class ReactAgentExecutorStreamTest {
         toolExecutor = mock(ToolExecutor.class);
         llmClient = new FixedLlmClient();
 
-        executor = new ReactAgentExecutor(
-                new LlmClientRegistry(List.of(llmClient), null, objectMapper,
-                        HttpClient.newHttpClient(), new LlmRequestBodyBuilder(objectMapper)),
-                toolExecutor,
-                new DefaultMessageBuilder(new SystemPromptComposer()),
-                new NoOpSessionContextService(),
-                new NoOpPersistenceService(),
-                AgentEngineConfig.builder()
+        executor = new ReactAgentExecutor(new LlmClientRegistry(List.of(llmClient), null, objectMapper,
+                        HttpClient.newHttpClient(), new LlmRequestBodyBuilder(objectMapper)), toolExecutor, new DefaultMessageBuilder(new SystemPromptComposer()), new NoOpSessionContextService(), new NoOpPersistenceService(), AgentEngineConfig.builder()
                         .maxToolRounds(3)
                         .defaultMaxTokens(8192)
                         .defaultTemperature(0.7)
                         .toolExecutor(toolExecutorPool)
                         .defaultHistoryLimit(50)
-                        .build(),
-                objectMapper,
-                new NoOpMemoryRouter(),
-                new NoOpMemoryStore(),
-                new BudgetController(81920, 300000, 10),
-                new NoOpPerceptionEngine(),
-                new ComplexityRouter(new DualSystemRouter()),
-                noOpTraceService(),
-                noOpMetricService(),
-                new ResponseCache() {
-                },
-                new PromptInjectionDetector(),
-                new OutputSanitizer(),
-                noOpModelSelector(),
-                null,
-                null,
-                null,
-                null);
+                        .build(), objectMapper, new NoOpMemoryRouter(), new NoOpMemoryStore(), new BudgetController(81920, 300000, 10), new NoOpPerceptionEngine(), new ComplexityRouter(new DualSystemRouter()), noOpTraceService(), noOpMetricService(), new ResponseCache() {
+                }, new PromptInjectionDetector(), new OutputSanitizer(), noOpModelSelector(), null, null, null, null, null);
     }
 
     @AfterEach
@@ -304,6 +282,27 @@ class ReactAgentExecutorStreamTest {
     }
 
     @Test
+    @DisplayName("LLM 连续失败重试耗尽：ERROR 事件透传 Reactor 耗尽文案（docs/design/43 P0 佐证）")
+    void streamLlmRetryExhaustedPropagatesRawMessage() {
+        // 单轮 chatStream 内含与 OpenAiCompatibleClient 同款 retryWhen：
+        // 初次 + 2 次重试全部瞬态失败（IOException 族可重试）→ 耗尽
+        llmClient.scriptedRounds.add(Flux.<LlmChunk>error(new java.io.IOException("connection reset"))
+                .retryWhen(reactor.util.retry.Retry.backoff(2, java.time.Duration.ofMillis(1)).jitter(0.0)
+                        .transientErrors(true)));
+
+        List<AgentEvent> events = executor.executeStream(task(1024))
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        AgentEvent err = events.stream()
+                .filter(e -> "error".equals(e.getType()))
+                .findFirst().orElse(null);
+        assertThat(err).isNotNull();
+        // 错误卡完整信息应逐字携带 Reactor 耗尽文案（前端 chatErrors 据此分类）
+        assertThat(err.getErrorMessage()).contains("Retries exhausted: 2/2 in a row (2 total)");
+    }
+
+    @Test
     @DisplayName("会话任务的预算下限：L1 提升为 L2，无 session 保持 L1（用户实报 199s/30s 熔断）")
     void sessionTaskBudgetFloorPromotesL1ToL2() {
         List<String> levels = new java.util.concurrent.CopyOnWriteArrayList<>();
@@ -341,6 +340,7 @@ class ReactAgentExecutorStreamTest {
                 new PromptInjectionDetector(),
                 new OutputSanitizer(),
                 noOpModelSelector(),
+                null,
                 null,
                 null,
                 null,
@@ -441,6 +441,7 @@ class ReactAgentExecutorStreamTest {
                 new OutputSanitizer(),
                 noOpModelSelector(),
                 fake,
+                null,
                 null,
                 null,
                 null);
@@ -555,6 +556,7 @@ class ReactAgentExecutorStreamTest {
                 null,
                 null,
                 null,
+                null,
                 null);
 
         // 两轮均请求工具：round 0/1 执行完回灌，round 2 入口 round=2 >= maxRounds=2 触发超限
@@ -621,6 +623,7 @@ class ReactAgentExecutorStreamTest {
                 new PromptInjectionDetector(),
                 new OutputSanitizer(),
                 noOpModelSelector(),
+                null,
                 null,
                 null,
                 null,
@@ -699,6 +702,7 @@ class ReactAgentExecutorStreamTest {
                 null,
                 null,
                 null,
+                null,
                 null);
 
         llmClient.scriptedRounds.add(Flux.just(
@@ -773,6 +777,7 @@ class ReactAgentExecutorStreamTest {
                 null,
                 null,
                 null,
+                null,
                 null);
 
         // round 2 闸门扩容一次（maxRounds 2→12），rounds 2..11 继续工具调用，
@@ -843,6 +848,7 @@ class ReactAgentExecutorStreamTest {
                 new PromptInjectionDetector(),
                 new OutputSanitizer(),
                 noOpModelSelector(),
+                null,
                 null,
                 null,
                 null,
@@ -923,6 +929,7 @@ class ReactAgentExecutorStreamTest {
                 new PromptInjectionDetector(),
                 new OutputSanitizer(),
                 noOpModelSelector(),
+                null,
                 null,
                 null,
                 null,

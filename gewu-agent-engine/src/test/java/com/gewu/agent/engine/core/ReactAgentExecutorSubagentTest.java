@@ -146,14 +146,8 @@ class ReactAgentExecutorSubagentTest {
     }
 
     private ReactAgentExecutor executor(RoutingLlmClient client, int maxPerSpawn, int maxDepth, int timeoutSeconds) {
-        return new ReactAgentExecutor(
-                new LlmClientRegistry(List.of(client), null, objectMapper,
-                        HttpClient.newHttpClient(), new LlmRequestBodyBuilder(objectMapper)),
-                toolExecutor,
-                new DefaultMessageBuilder(new SystemPromptComposer()),
-                new NoOpSessionContextService(),
-                new NoOpPersistenceService(),
-                AgentEngineConfig.builder()
+        return new ReactAgentExecutor(new LlmClientRegistry(List.of(client), null, objectMapper,
+                        HttpClient.newHttpClient(), new LlmRequestBodyBuilder(objectMapper)), toolExecutor, new DefaultMessageBuilder(new SystemPromptComposer()), new NoOpSessionContextService(), new NoOpPersistenceService(), AgentEngineConfig.builder()
                         .maxToolRounds(10)
                         .defaultMaxTokens(8192)
                         .defaultTemperature(0.7)
@@ -166,17 +160,8 @@ class ReactAgentExecutorSubagentTest {
                                 .maxDepth(maxDepth)
                                 .timeoutSeconds(timeoutSeconds)
                                 .build())
-                        .build(),
-                objectMapper,
-                new NoOpMemoryRouter(),
-                new NoOpMemoryStore(),
-                budget,
-                new NoOpPerceptionEngine(),
-                new ComplexityRouter(new DualSystemRouter()),
-                noOpTrace(),
-                (name, value, tags) -> {
-                },
-                new ResponseCache() {
+                        .build(), objectMapper, new NoOpMemoryRouter(), new NoOpMemoryStore(), budget, new NoOpPerceptionEngine(), new ComplexityRouter(new DualSystemRouter()), noOpTrace(), (name, value, tags) -> {
+                }, new ResponseCache() {
                     @Override
                     public String get(String prompt, String contextKey) {
                         return null;
@@ -185,14 +170,7 @@ class ReactAgentExecutorSubagentTest {
                     @Override
                     public void put(String prompt, String response, String contextKey) {
                     }
-                },
-                new PromptInjectionDetector(),
-                new OutputSanitizer(),
-                (taskDescription, complexity, privacyLevel, latencyPreference, budgetRemaining) -> null,
-                null,
-                null,
-                null,
-                null);
+                }, new PromptInjectionDetector(), new OutputSanitizer(), (taskDescription, complexity, privacyLevel, latencyPreference, budgetRemaining) -> null, null, null, null, null, null);
     }
 
     private AgentTask task() {

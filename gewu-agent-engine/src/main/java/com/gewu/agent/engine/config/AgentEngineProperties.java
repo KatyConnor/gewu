@@ -105,6 +105,8 @@ public class AgentEngineProperties {
         private int retryMaxAttempts = 3;
         /** 重试退避基数（毫秒），指数退避 + 抖动，尊重 Retry-After 头 */
         private long retryBackoffMs = 1000L;
+        /** 全局流式并发上限（docs/design/43 P2）：跨子智能体共享同一供应商客户端的信号量；0=不限 */
+        private int maxConcurrentStreams = 0;
     }
 
     @Data
