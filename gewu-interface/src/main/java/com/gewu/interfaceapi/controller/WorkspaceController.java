@@ -31,6 +31,23 @@ import java.util.Map;
 public class WorkspaceController {
 
     private final WorkspaceService workspaceService;
+    private final com.gewu.application.workspace.DevWorkspaceService devWorkspaceService;
+    private final com.gewu.interfaceapi.terminal.TerminalTicketService terminalTicketService;
+
+    /**
+     * 网页终端一次性凭据申领（设计文档 44）：
+     * 校验登录态 → 确保 dev 沙箱就绪（惰性创建/启动）→ 签发绑定 userId+sandboxId
+     * 的一次性 ticket（60s 有效）。浏览器随后携 ticket 建立 WS 终端连接。
+     */
+    @PostMapping("/terminal-ticket")
+    @Operation(summary = "申领终端凭据", description = "确保工作区沙箱就绪并签发一次性终端 ticket（60 秒有效）")
+    public Result<java.util.Map<String, String>> terminalTicket() {
+        String userId = com.gewu.common.context.UserContext.currentUserId();
+        com.gewu.common.dto.sandbox.SandboxDTO sandbox =
+                devWorkspaceService.ensureDevSandboxForUser(userId);
+        String ticket = terminalTicketService.issue(userId, sandbox.getSandboxId());
+        return Result.success(java.util.Map.of("ticket", ticket, "sandboxId", sandbox.getSandboxId()));
+    }
 
     @GetMapping("/me")
     @Operation(summary = "获取当前用户工作空间", description = "首次访问自动创建")
