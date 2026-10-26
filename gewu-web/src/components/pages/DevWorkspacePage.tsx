@@ -3,7 +3,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useDispatch } from 'react-redux';
 import { setPage } from '@/store';
-import { Loader2, Play, Square, GitBranch, Terminal, Save, RefreshCw, Pencil, Undo2, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, FileText, Bug } from 'lucide-react';
+import { Loader2, Play, Square, GitBranch, Terminal, Save, RefreshCw, Pencil, Undo2, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, FileText, Bug, Key } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import MarkdownReader from '@/components/ui/MarkdownReader';
 import DevGitMenu from './DevGitMenu';
@@ -17,6 +17,7 @@ import {
   debugStart, debugState as fetchDebugState, debugStop, debugBreakpoint, debugAction, debugEval, debugWatch,
   type DevWorkspaceInfo, type GitProject, type FileEntry, type DebugState,
 } from '@/lib/dev-workspace';
+import { registerDeployKey } from '@/lib/vcs';
 // 终端面板客户端专用（ssr:false）：@xterm/addon-fit UMD 顶层引用 self，SSR 预渲染会崩
 const TerminalPanel = dynamic(() => import('@/components/ui/TerminalPanel'), { ssr: false });
 
@@ -104,6 +105,24 @@ export default function DevWorkspacePage() {
   const [bpLines, setBpLines] = useState<Set<string>>(new Set());
   /** 停点自动定位去重（同停点只自动打开一次） */
   const lastAutoOpen = useRef<string>('');
+  // ===== Deploy Key 注册闭环 =====
+  const [deployKeyBusy, setDeployKeyBusy] = useState(false);
+
+  const doRegisterDeployKey = async () => {
+    if (!selectedProject) return;
+    if (!confirm('将生成 ed25519 密钥对并把公钥注册到托管平台（当前项目仓库），私钥自动配置到沙箱。继续？')) return;
+    setDeployKeyBusy(true);
+    try {
+      await registerDeployKey(selectedProject.projectId, 'gewu-' + (selectedProject.projectName || 'repo').replace(/\s+/g, '-') + '-' + Date.now().toString(36));
+      toast('Deploy Key 已生成并注册，SSH 仓库可直接免密拉取', 'success');
+      load();
+    } catch (e) {
+      toast('Deploy Key 注册失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    } finally {
+      setDeployKeyBusy(false);
+    }
+  };
+
   // ===== blame 行级归属（IDEA Annotate） =====
   const [blameOn, setBlameOn] = useState(false);
   const [blameLines, setBlameLines] = useState<Array<{ line: number; text: string }>>([]);
@@ -928,6 +947,11 @@ export default function DevWorkspacePage() {
                     {selectedProject.hasRepoCredential ? '已配置' : '未配置'}
                   </span>
                 </div>
+                <button onClick={doRegisterDeployKey} disabled={deployKeyBusy}
+                  className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg border border-tech-500/20 text-[11px] text-ink-300 hover:text-tech-400 hover:border-tech-500/30 disabled:opacity-50"
+                  title="沙箱生成 ed25519 密钥对，公钥注册到托管平台，私钥自动注入沙箱（SSH 免密拉取）">
+                  {deployKeyBusy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Key className="w-3 h-3" />}生成 Deploy Key（SSH 免密）
+                </button>
               </div>
             )}
           </div>

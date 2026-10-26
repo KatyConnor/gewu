@@ -43,4 +43,21 @@ public interface PlatformAdapter {
 
     /** 基于已推送的 tag 创建 Release */
     com.gewu.application.vcs.dto.ReleaseDTO createRelease(ProjectRef ref, String tagName, String name, String notes, boolean prerelease);
+
+    // ==================== P3：评审写操作 / Deploy Key / Release 附件 ====================
+
+    /** 评审列表（GitLab 归一为 APPROVED 形态；不支持的平台返回空） */
+    List<com.gewu.application.vcs.dto.ReviewDTO> reviews(ProjectRef ref, long mrNumber);
+
+    /** 提交评审（event: APPROVE / REQUEST_CHANGES / COMMENT；不支持的平台抛错） */
+    void submitReview(ProjectRef ref, long mrNumber, String event, String body);
+
+    /** 注册仓库 Deploy Key（公钥；SSH 免密拉取闭环） */
+    void registerDeployKey(ProjectRef ref, String title, String publicKey);
+
+    /** Release 附件上传（沙箱文件字节；不支持的平台抛错）。返回资产名。 */
+    String uploadReleaseAsset(ProjectRef ref, com.gewu.application.vcs.dto.ReleaseDTO release, String fileName, byte[] data);
+
+    /** 能力清单 */
+    com.gewu.application.vcs.dto.CapabilitiesDTO capabilities();
 }

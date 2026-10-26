@@ -103,3 +103,43 @@ export async function listReleases(projectId: string): Promise<VcsRelease[]> {
 export async function createRelease(projectId: string, data: { tagName: string; name?: string; notes?: string; prerelease?: boolean }): Promise<VcsRelease> {
   return unwrap<VcsRelease>(request.post<ApiResponse<VcsRelease>>(`/v1/vcs/${projectId}/releases`, data));
 }
+
+// ==================== P3：评审写 / Deploy Key / Release 附件 ====================
+
+export interface VcsReview {
+  /** APPROVED / CHANGES_REQUESTED / COMMENTED */
+  state: string;
+  reviewer: string;
+  body?: string;
+  submittedAt?: number;
+}
+
+export interface VcsCapabilities {
+  platform: string;
+  reviewWrite: boolean;
+  deployKey: boolean;
+  releaseAsset: boolean;
+}
+
+export async function capabilities(projectId: string): Promise<VcsCapabilities> {
+  return unwrap<VcsCapabilities>(request.get<ApiResponse<VcsCapabilities>>(`/v1/vcs/${projectId}/capabilities`));
+}
+
+export async function listReviews(projectId: string, mrNumber: number): Promise<VcsReview[]> {
+  return unwrap<VcsReview[]>(request.get<ApiResponse<VcsReview[]>>(`/v1/vcs/${projectId}/mrs/${mrNumber}/reviews`));
+}
+
+/** 提交评审：APPROVE / REQUEST_CHANGES / COMMENT（按能力矩阵开放） */
+export async function submitReview(projectId: string, mrNumber: number, event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT', body?: string): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/vcs/${projectId}/mrs/${mrNumber}/review`, { event, body }));
+}
+
+/** Deploy Key 注册闭环：沙箱生成 ed25519 → 平台注册 → 私钥落凭证并注入沙箱 */
+export async function registerDeployKey(projectId: string, title: string): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/vcs/${projectId}/deploy-key`, { title }));
+}
+
+/** Release 附件上传（沙箱文件经后端中转） */
+export async function uploadReleaseAsset(projectId: string, tagName: string, sandboxPath: string, assetName?: string): Promise<void> {
+  await unwrap<void>(request.post<ApiResponse<void>>(`/v1/vcs/${projectId}/releases/${encodeURIComponent(tagName)}/assets`, { sandboxPath, assetName }));
+}

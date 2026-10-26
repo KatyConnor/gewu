@@ -177,6 +177,7 @@ public class GithubAdapter implements PlatformAdapter {
 
     private com.gewu.application.vcs.dto.ReleaseDTO toRelease(JsonNode n) {
         com.gewu.application.vcs.dto.ReleaseDTO r = new com.gewu.application.vcs.dto.ReleaseDTO();
+        r.setId(n.path("id").asLong());
         r.setTagName(n.path("tag_name").asText());
         r.setName(n.path("name").asText());
         r.setNotes(n.path("body").asText(null));
@@ -188,6 +189,59 @@ public class GithubAdapter implements PlatformAdapter {
             r.getAssets().add(a.path("name").asText());
         }
         return r;
+    }
+
+    // ==================== P3：评审 / Deploy Key / Release 附件 ====================
+
+    @Override
+    public List<com.gewu.application.vcs.dto.ReviewDTO> reviews(ProjectRef ref, long mrNumber) {
+        JsonNode arr = VcsHttp.get(api(ref, "/pulls/" + mrNumber + "/reviews?per_page=50"), headers(ref));
+        List<com.gewu.application.vcs.dto.ReviewDTO> list = new ArrayList<>();
+        for (JsonNode n : arr) {
+            com.gewu.application.vcs.dto.ReviewDTO r = new com.gewu.application.vcs.dto.ReviewDTO();
+            r.setState(n.path("state").asText());
+            r.setReviewer(n.path("user").path("login").asText());
+            r.setBody(n.path("body").asText(null));
+            r.setSubmittedAt(parseTime(n.path("submitted_at").asText(null)));
+            list.add(r);
+        }
+        return list;
+    }
+
+    @Override
+    public void submitReview(ProjectRef ref, long mrNumber, String event, String body) {
+        // GitHub 事件值：APPROVE / REQUEST_CHANGES / COMMENT
+        Map<String, Object> payload = new java.util.HashMap<>();
+        payload.put("event", event);
+        if (body != null && !body.isBlank()) {
+            payload.put("body", body);
+        }
+        VcsHttp.post(api(ref, "/pulls/" + mrNumber + "/reviews"), headers(ref), payload);
+    }
+
+    @Override
+    public void registerDeployKey(ProjectRef ref, String title, String publicKey) {
+        VcsHttp.post(api(ref, "/keys"), headers(ref),
+                Map.of("title", title, "key", publicKey, "read_only", true));
+    }
+
+    @Override
+    public String uploadReleaseAsset(ProjectRef ref, com.gewu.application.vcs.dto.ReleaseDTO release, String fileName, byte[] data) {
+        // uploads.github.com 独立上传域（文档稳定端点）
+        String url = "https://uploads.github.com/repos/" + ref.getRepoPath() + "/releases/" + release.getId() + "/assets?name="
+                + java.net.URLEncoder.encode(fileName, java.nio.charset.StandardCharsets.UTF_8);
+        VcsHttp.postMultipart(url, headers(ref), "file", fileName, data);
+        return fileName;
+    }
+
+    @Override
+    public com.gewu.application.vcs.dto.CapabilitiesDTO capabilities() {
+        com.gewu.application.vcs.dto.CapabilitiesDTO c = new com.gewu.application.vcs.dto.CapabilitiesDTO();
+        c.setPlatform(platform().name().toLowerCase());
+        c.setReviewWrite(true);
+        c.setDeployKey(true);
+        c.setReleaseAsset(true);
+        return c;
     }
 
     private IssueDTO toIssue(JsonNode n) {

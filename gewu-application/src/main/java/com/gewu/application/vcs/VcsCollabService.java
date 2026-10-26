@@ -4,6 +4,9 @@ import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.gewu.application.vcs.dto.CiStatusDTO;
 import com.gewu.application.vcs.dto.IssueDTO;
 import com.gewu.application.vcs.dto.MergeRequestDTO;
+import com.gewu.application.vcs.dto.ReviewDTO;
+import com.gewu.application.vcs.dto.CapabilitiesDTO;
+import com.gewu.application.vcs.dto.ReleaseDTO;
 import com.gewu.common.context.UserContext;
 import com.gewu.common.crypto.ApiKeyCryptoService;
 import com.gewu.common.result.BusinessException;
@@ -35,6 +38,8 @@ public class VcsCollabService {
     private final ProjectMapper projectEntityMapper;
     private final ProjectMemberMapper projectMemberMapper;
     private final ApiKeyCryptoService credentialCrypto;
+    private final com.gewu.application.workspace.DevWorkspaceService devWorkspaceService;
+    private final com.gewu.application.sandbox.SandboxClient sandboxClient;
 
     private static final Map<PlatformType, PlatformAdapter> ADAPTERS = Map.of(
             PlatformType.GITHUB, new GithubAdapter(),
@@ -209,6 +214,81 @@ public class VcsCollabService {
 
     private static String schemeOf(String repoUrl) {
         return repoUrl != null && repoUrl.trim().startsWith("http://") ? "http://" : "https://";
+    }
+
+    // ==================== P3：评审写 / Deploy Key 闭环 / Release 附件 ====================
+
+    public List<ReviewDTO> reviews(String projectId, long mrNumber) {
+        return withAdapter(projectId, (ref, a) -> a.reviews(ref, mrNumber));
+    }
+
+    public void submitReview(String projectId, long mrNumber, String event, String body) {
+        withAdapter(projectId, (ref, a) -> {
+            a.submitReview(ref, mrNumber, event, body);
+            return null;
+        });
+    }
+
+    /** 能力清单（前端门控；受平台/凭证/自建版本影响） */
+    public CapabilitiesDTO capabilities(String projectId) {
+        ProjectRef ref = resolve(projectId);
+        return ADAPTERS.get(ref.getPlatform()).capabilities();
+    }
+
+    /**
+     * Deploy Key 注册闭环：沙箱生成 ed25519 密钥对 → 公钥注册到托管平台 →
+     * 私钥 SM4 加密落项目凭证（type=ssh_key，复用既有克隆/拉取注入链路）→ 私钥即时注入沙箱。
+     */
+    public void registerDeployKey(String projectId, String title) {
+        ProjectRef ref = resolve(projectId);
+        if (!ADAPTERS.get(ref.getPlatform()).capabilities().isDeployKey()) {
+            throw BusinessException.of(ResultCode.PARAM_INVALID, "该平台暂不支持 Deploy Key 注册");
+        }
+        String sandboxId = devWorkspaceService.ensureRunningSandboxId();
+        // 生成密钥对（已存在则覆盖）
+        sandboxClient.execCommand(sandboxId,
+                "mkdir -p /workspace/.dwdbg && ssh-keygen -t ed25519 -N '' -f /workspace/.dwdbg/deploy_key -q",
+                15);
+        String publicKey = sandboxClient.execCommand(sandboxId,
+                "cat /workspace/.dwdbg/deploy_key.pub", 10).getStdout().trim();
+        if (publicKey.isBlank()) {
+            throw BusinessException.of(ResultCode.SYSTEM_ERROR, "密钥对生成失败");
+        }
+        ADAPTERS.get(ref.getPlatform()).registerDeployKey(ref, title, publicKey);
+        // 私钥落项目凭证（type=ssh_key 链路：clone/pull 时自动注入容器 .ssh/id_rsa）
+        Project project = projectEntityMapper.selectById(projectId);
+        if (project == null) {
+            throw BusinessException.of(ResultCode.NOT_FOUND, "项目不存在");
+        }
+        String privateKey = sandboxClient.execCommand(sandboxId,
+                "cat /workspace/.dwdbg/deploy_key", 10).getStdout();
+        project.setRepoCredentialType("ssh_key");
+        project.setRepoCredential(credentialCrypto.encrypt(privateKey));
+        projectEntityMapper.updateById(project);
+        // 私钥即时注入沙箱（不等下次克隆）
+        sandboxClient.writeFile(sandboxId, ".ssh/id_rsa", privateKey);
+        sandboxClient.execCommand(sandboxId, "chmod 600 /root/.ssh/id_rsa", 5);
+        log.info("Deploy Key 已注册: projectId={}, title={}", projectId, title);
+    }
+
+    /** Release 附件上传：沙箱文件 → 平台（字节经后端中转） */
+    public com.gewu.application.vcs.dto.ReleaseDTO uploadReleaseAsset(String projectId, String tagName,
+                                                                      String sandboxPath, String assetName) {
+        return withAdapter(projectId, (ref, a) -> {
+            com.gewu.application.vcs.dto.ReleaseDTO release = a.listReleases(ref).stream()
+                    .filter(r -> tagName.equals(r.getTagName()))
+                    .findFirst()
+                    .orElseThrow(() -> BusinessException.of(ResultCode.NOT_FOUND, "未找到该 tag 对应的 Release: " + tagName));
+            byte[] data = devWorkspaceService.downloadFile(sandboxPath);
+            if (data == null || data.length == 0) {
+                throw BusinessException.of(ResultCode.PARAM_INVALID, "沙箱文件不存在或为空: " + sandboxPath);
+            }
+            String name = assetName != null && !assetName.isBlank() ? assetName
+                    : sandboxPath.substring(sandboxPath.lastIndexOf('/') + 1);
+            String asset = a.uploadReleaseAsset(ref, release, name, data);
+            log.info("Release 附件已上传: projectId={}, tag={}, asset={}", projectId, tagName, asset);
+            return release;
+        });
     }
 
     /** 按平台推导 API/网页根地址（自建显式 apiBase 配置为后续增强） */

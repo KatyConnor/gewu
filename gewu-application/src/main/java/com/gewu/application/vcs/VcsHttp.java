@@ -9,6 +9,7 @@ import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.Map;
 
@@ -31,6 +32,70 @@ final class VcsHttp {
 
     static JsonNode post(String url, Map<String, String> headers, Object body) {
         return exchange(url, "POST", headers, body);
+    }
+
+    /** 无 body POST（GitLab approve 等端点） */
+    static JsonNode postEmpty(String url, Map<String, String> headers) {
+        return exchangeBytes(url, headers, new byte[0], null);
+    }
+
+    /** multipart 文件上传（Release 附件 / 平台上传端点） */
+    static JsonNode postMultipart(String url, Map<String, String> headers, String fileField, String fileName, byte[] data) {
+        try {
+            String boundary = "----gewu" + System.nanoTime();
+            var out = new java.io.ByteArrayOutputStream();
+            out.write(("--" + boundary + "\r\n").getBytes(StandardCharsets.UTF_8));
+            out.write(("Content-Disposition: form-data; name=\"" + fileField + "\"; filename=\"" + fileName + "\"\r\n")
+                    .getBytes(StandardCharsets.UTF_8));
+            out.write("Content-Type: application/octet-stream\r\n\r\n".getBytes(StandardCharsets.UTF_8));
+            out.write(data);
+            out.write(("\r\n--" + boundary + "--\r\n").getBytes(StandardCharsets.UTF_8));
+            HttpRequest.Builder b = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(60))
+                    .header("Content-Type", "multipart/form-data; boundary=" + boundary);
+            headers.forEach(b::header);
+            b.POST(HttpRequest.BodyPublishers.ofByteArray(out.toByteArray()));
+            HttpResponse<String> resp = CLIENT.send(b.build(), HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() / 100 != 2) {
+                throw BusinessException.of(ResultCode.SYSTEM_ERROR,
+                        "平台上传错误(" + resp.statusCode() + "): " + extractMessage(resp.body()));
+            }
+            return M.readTree(resp.body());
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw BusinessException.of(ResultCode.SYSTEM_ERROR, "托管平台上传失败: " + e.getMessage());
+        }
+    }
+
+    /** 字节体请求（空 body POST 等；content-type 可空） */
+    static JsonNode exchangeBytes(String url, Map<String, String> headers, byte[] bodyBytes, String contentType) {
+        try {
+            HttpRequest.Builder b = HttpRequest.newBuilder()
+                    .uri(URI.create(url))
+                    .timeout(Duration.ofSeconds(30))
+                    .header("Accept", "application/json");
+            headers.forEach(b::header);
+            if (bodyBytes != null && bodyBytes.length > 0) {
+                if (contentType != null) {
+                    b.header("Content-Type", contentType);
+                }
+                b.POST(HttpRequest.BodyPublishers.ofByteArray(bodyBytes));
+            } else {
+                b.POST(HttpRequest.BodyPublishers.noBody());
+            }
+            HttpResponse<String> resp = CLIENT.send(b.build(), HttpResponse.BodyHandlers.ofString());
+            if (resp.statusCode() / 100 != 2) {
+                throw BusinessException.of(ResultCode.SYSTEM_ERROR,
+                        "平台接口错误(" + resp.statusCode() + "): " + extractMessage(resp.body()));
+            }
+            return M.readTree(resp.body());
+        } catch (BusinessException e) {
+            throw e;
+        } catch (Exception e) {
+            throw BusinessException.of(ResultCode.SYSTEM_ERROR, "托管平台访问失败: " + e.getMessage());
+        }
     }
 
     private static JsonNode exchange(String url, String method, Map<String, String> headers, Object body) {

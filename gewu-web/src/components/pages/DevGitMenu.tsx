@@ -15,7 +15,7 @@ import {
   listReflog, resetHard, cherryPick, revertCommit, downloadArchive,
   type GitProject, type GitStatus, type GitLogEntry, type GitBranches, type GitStash, type GitTag, type BranchCompare, type ReflogEntry,
 } from '@/lib/dev-workspace';
-import { listReleases, createRelease, type VcsRelease } from '@/lib/vcs';
+import { listReleases, createRelease, uploadReleaseAsset, type VcsRelease } from '@/lib/vcs';
 import DevCollabModal from './DevCollabModal';
 
 /**
@@ -260,6 +260,13 @@ export default function DevGitMenu({ project, onRefresh }: Props) {
       setReflogList(await listReflog(projectId).catch(() => []));
       await onRefresh();
     });
+  };
+
+  const doUploadAsset = (tagName: string) => {
+    const sandboxPath = prompt(`附件的工作空间路径（沙箱内文件，如 projects/${projectId}/repo/dist/app.jar）:`);
+    if (!sandboxPath) return;
+    run(`asset-${tagName}`, () => uploadReleaseAsset(projectId, tagName, sandboxPath.trim()),
+      `附件已上传到 Release ${tagName}`);
   };
 
   const doDeleteTag = (name: string) => {

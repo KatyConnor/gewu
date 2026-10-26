@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.gewu.application.vcs.dto.CiStatusDTO;
 import com.gewu.application.vcs.dto.IssueDTO;
 import com.gewu.application.vcs.dto.MergeRequestDTO;
+import com.gewu.common.result.BusinessException;
+import com.gewu.common.result.ResultCode;
 
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
@@ -140,6 +142,40 @@ public class GiteeAdapter implements PlatformAdapter {
             body.put("prerelease", true);
         }
         return toRelease(VcsHttp.post(api(ref, "/releases"), Map.of(), body));
+    }
+
+    // ==================== P3 ====================
+
+    @Override
+    public List<com.gewu.application.vcs.dto.ReviewDTO> reviews(ProjectRef ref, long mrNumber) {
+        return new ArrayList<>(); // Gitee 评审 API 不成熟（能力矩阵关闭，主流程走网页）
+    }
+
+    @Override
+    public void submitReview(ProjectRef ref, long mrNumber, String event, String body) {
+        throw BusinessException.of(ResultCode.PARAM_INVALID, "Gitee 暂不支持平台内评审提交，请前往平台网页操作");
+    }
+
+    @Override
+    public void registerDeployKey(ProjectRef ref, String title, String publicKey) {
+        VcsHttp.post(api(ref, "/keys"), Map.of(), Map.of("key", publicKey, "title", title));
+    }
+
+    @Override
+    public String uploadReleaseAsset(ProjectRef ref, com.gewu.application.vcs.dto.ReleaseDTO release, String fileName, byte[] data) {
+        VcsHttp.postMultipart(api(ref, "/releases/" + release.getId() + "/attach_files"),
+                Map.of(), "file", fileName, data);
+        return fileName;
+    }
+
+    @Override
+    public com.gewu.application.vcs.dto.CapabilitiesDTO capabilities() {
+        com.gewu.application.vcs.dto.CapabilitiesDTO c = new com.gewu.application.vcs.dto.CapabilitiesDTO();
+        c.setPlatform(platform().name().toLowerCase());
+        c.setReviewWrite(false);
+        c.setDeployKey(true);
+        c.setReleaseAsset(true);
+        return c;
     }
 
     private MergeRequestDTO toMR(JsonNode n) {

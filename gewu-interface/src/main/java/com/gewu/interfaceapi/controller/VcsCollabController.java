@@ -86,6 +86,60 @@ public class VcsCollabController {
                 Boolean.TRUE.equals(request.getPrerelease())));
     }
 
+    @GetMapping("/capabilities")
+    @Operation(summary = "能力清单", description = "前端门控：平台静态能力 ∩ 凭证类型 ∩ 自建版本")
+    public Result<com.gewu.application.vcs.dto.CapabilitiesDTO> capabilities(@PathVariable String projectId) {
+        return Result.success(vcsCollabService.capabilities(projectId));
+    }
+
+    @GetMapping("/mrs/{number}/reviews")
+    @Operation(summary = "评审列表", description = "GitLab 归一为 APPROVED 形态；不支持的平台为空")
+    public Result<List<com.gewu.application.vcs.dto.ReviewDTO>> reviews(@PathVariable String projectId, @PathVariable long number) {
+        return Result.success(vcsCollabService.reviews(projectId, number));
+    }
+
+    @PostMapping("/mrs/{number}/review")
+    @Operation(summary = "提交评审", description = "event: APPROVE / REQUEST_CHANGES / COMMENT（按能力矩阵开放）")
+    public Result<Void> submitReview(@PathVariable String projectId, @PathVariable long number, @RequestBody ReviewRequest request) {
+        vcsCollabService.submitReview(projectId, number, request.getEvent(), request.getBody());
+        return Result.success();
+    }
+
+    @PostMapping("/deploy-key")
+    @Operation(summary = "Deploy Key 注册闭环", description = "沙箱生成 ed25519 → 平台注册公钥 → 私钥落项目凭证并注入沙箱（SSH 免密拉取）")
+    public Result<Void> registerDeployKey(@PathVariable String projectId, @RequestBody DeployKeyRequest request) {
+        vcsCollabService.registerDeployKey(projectId, request.getTitle());
+        return Result.success();
+    }
+
+    @PostMapping("/releases/{tagName}/assets")
+    @Operation(summary = "Release 附件上传", description = "沙箱文件经后端中转上传到平台 Release")
+    public Result<Void> uploadReleaseAsset(@PathVariable String projectId, @PathVariable String tagName,
+                                           @RequestBody AssetUploadRequest request) {
+        vcsCollabService.uploadReleaseAsset(projectId, tagName, request.getSandboxPath(), request.getAssetName());
+        return Result.success();
+    }
+
+    @lombok.Data
+    public static class ReviewRequest {
+        /** APPROVE / REQUEST_CHANGES / COMMENT */
+        private String event;
+        private String body;
+    }
+
+    @lombok.Data
+    public static class DeployKeyRequest {
+        private String title;
+    }
+
+    @lombok.Data
+    public static class AssetUploadRequest {
+        /** 工作空间相对路径（沙箱内文件） */
+        private String sandboxPath;
+        /** 平台侧展示名（默认取文件名） */
+        private String assetName;
+    }
+
     @lombok.Data
     public static class MRCreateRequest {
         private String sourceBranch;

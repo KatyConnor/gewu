@@ -2,6 +2,8 @@ package com.gewu.application.vcs;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.gewu.application.vcs.dto.CiStatusDTO;
+import com.gewu.common.result.BusinessException;
+import com.gewu.common.result.ResultCode;
 import com.gewu.application.vcs.dto.IssueDTO;
 import com.gewu.application.vcs.dto.MergeRequestDTO;
 
@@ -168,6 +170,67 @@ public class GitlabAdapter implements PlatformAdapter {
             r.getAssets().add(a.path("name").asText());
         }
         return r;
+    }
+
+    // ==================== P3：评审（GitLab 特化：approve/notes） / Deploy Key / Release 附件链接 ====================
+
+    @Override
+    public List<com.gewu.application.vcs.dto.ReviewDTO> reviews(ProjectRef ref, long mrNumber) {
+        // GitLab 无 GitHub 式 reviews——归一为 approved_by 列表（APPROVED 形态）
+        JsonNode n = VcsHttp.get(api(ref, "/merge_requests/" + mrNumber), headers(ref));
+        List<com.gewu.application.vcs.dto.ReviewDTO> list = new ArrayList<>();
+        for (JsonNode a : n.path("approved_by")) {
+            com.gewu.application.vcs.dto.ReviewDTO r = new com.gewu.application.vcs.dto.ReviewDTO();
+            r.setState("APPROVED");
+            r.setReviewer(a.path("user").path("username").asText());
+            list.add(r);
+        }
+        return list;
+    }
+
+    @Override
+    public void submitReview(ProjectRef ref, long mrNumber, String event, String body) {
+        if ("APPROVE".equals(event)) {
+            VcsHttp.postEmpty(api(ref, "/merge_requests/" + mrNumber + "/approve"), headers(ref));
+            if (body != null && !body.isBlank()) {
+                commentMR(ref, mrNumber, body);
+            }
+            return;
+        }
+        // GitLab 无 REQUEST_CHANGES 语义——按评论落（评审语义由服务端规则支配，调研结论）
+        commentMR(ref, mrNumber, "[" + event + "] " + (body != null ? body : ""));
+    }
+
+    @Override
+    public void registerDeployKey(ProjectRef ref, String title, String publicKey) {
+        VcsHttp.post(api(ref, "/deploy_keys"), headers(ref), Map.of("title", title, "key", publicKey));
+    }
+
+    @Override
+    public String uploadReleaseAsset(ProjectRef ref, com.gewu.application.vcs.dto.ReleaseDTO release, String fileName, byte[] data) {
+        // 两步：generic package 上传 → Release 链接挂载（GitLab 官方发布资产通道）
+        String enc = URLEncoder.encode(ref.getRepoPath(), StandardCharsets.UTF_8).replace("+", "%20");
+        JsonNode up = VcsHttp.postMultipart(
+                ref.getApiBase() + "/projects/" + enc + "/uploads",
+                headers(ref), "file", fileName, data);
+        String relative = up.path("url").asText();
+        if (relative.isBlank()) {
+            throw BusinessException.of(ResultCode.SYSTEM_ERROR, "GitLab 附件上传失败：未返回文件地址");
+        }
+        String absolute = relative.startsWith("http") ? relative : ref.getWebBase() + relative;
+        VcsHttp.post(api(ref, "/releases/" + release.getTagName() + "/assets/links"),
+                headers(ref), Map.of("name", fileName, "url", absolute));
+        return fileName;
+    }
+
+    @Override
+    public com.gewu.application.vcs.dto.CapabilitiesDTO capabilities() {
+        com.gewu.application.vcs.dto.CapabilitiesDTO c = new com.gewu.application.vcs.dto.CapabilitiesDTO();
+        c.setPlatform(platform().name().toLowerCase());
+        c.setReviewWrite(true);
+        c.setDeployKey(true);
+        c.setReleaseAsset(true);
+        return c;
     }
 
     private MergeRequestDTO toMR(JsonNode n) {

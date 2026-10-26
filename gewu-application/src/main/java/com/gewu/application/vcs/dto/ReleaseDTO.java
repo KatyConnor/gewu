@@ -10,6 +10,8 @@ import java.util.List;
  */
 @Data
 public class ReleaseDTO {
+    /** 平台侧 Release id（附件上传用；GitLab 链接式无 id） */
+    private Long id;
     private String tagName;
     private String name;
     private String notes;

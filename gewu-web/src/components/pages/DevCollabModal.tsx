@@ -5,7 +5,8 @@ import Modal from '@/components/ui/Modal';
 import { useToast } from '@/components/ui/Toast';
 import {
   listMRs, createMR, getMR, ciOf, listIssues, getIssue, commentMR, commentIssue,
-  type MergeRequest, type CiStatus, type VcsIssue,
+  listReviews, submitReview, capabilities,
+  type MergeRequest, type CiStatus, type VcsIssue, type VcsReview, type VcsCapabilities,
 } from '@/lib/vcs';
 import {
   gitBranches,
@@ -53,6 +54,8 @@ export default function DevCollabModal({ project, currentBranch, onClose }: Prop
   const [issueDetail, setIssueDetail] = useState<VcsIssue | null>(null);
   const [mrComment, setMrComment] = useState('');
   const [issueComment, setIssueComment] = useState('');
+  const [caps, setCaps] = useState<VcsCapabilities | null>(null);
+  const [reviews, setReviews] = useState<VcsReview[] | null>(null);
 
   const loadMRs = async (st: typeof mrState) => {
     setMrs(null);
@@ -74,6 +77,7 @@ export default function DevCollabModal({ project, currentBranch, onClose }: Prop
   };
 
   useEffect(() => {
+    capabilities(project.projectId).then(setCaps).catch(() => setCaps(null));
     loadMRs(mrState);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mrState]);
@@ -156,6 +160,26 @@ export default function DevCollabModal({ project, currentBranch, onClose }: Prop
       toast('评论已发表', 'success');
     } catch (e) {
       toast('评论失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const doReview = async (event: 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT') => {
+    if (!detail) return;
+    const body = mrComment.trim();
+    if (event !== 'APPROVE' && !body) {
+      toast('驳回/评论需填写说明', 'error');
+      return;
+    }
+    setBusy(true);
+    try {
+      await submitReview(project.projectId, detail.number, event, body);
+      toast(event === 'APPROVE' ? '已批准' : event === 'REQUEST_CHANGES' ? '已要求修改' : '评论已提交', 'success');
+      setMrComment('');
+      setReviews(await listReviews(project.projectId, detail.number).catch(() => []));
+    } catch (e) {
+      toast('评审提交失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     } finally {
       setBusy(false);
     }
@@ -261,6 +285,26 @@ export default function DevCollabModal({ project, currentBranch, onClose }: Prop
                           <span className={`px-1 rounded ${stateBadge(it.state)}`}>{it.state}</span>
                           <span className="text-ink-400 truncate flex-1">{it.name || it.webUrl}</span>
                         </div>
+                      ))}
+                    </div>
+                  )}
+                  {caps?.reviewWrite && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] text-ink-500 flex-shrink-0">评审：</span>
+                      <button onClick={() => doReview('APPROVE')} disabled={!!busy}
+                        className="px-2 py-0.5 text-[11px] rounded border border-green-500/30 text-green-400 hover:bg-green-500/10 disabled:opacity-40">批准</button>
+                      <button onClick={() => doReview('REQUEST_CHANGES')} disabled={!!busy}
+                        className="px-2 py-0.5 text-[11px] rounded border border-cinnabar-500/30 text-cinnabar-300 hover:bg-cinnabar-500/10 disabled:opacity-40">要求修改</button>
+                      <button onClick={() => doReview('COMMENT')} disabled={!!busy}
+                        className="px-2 py-0.5 text-[11px] rounded border border-ink-700/60 text-ink-300 hover:text-tech-400 disabled:opacity-40">仅评论</button>
+                    </div>
+                  )}
+                  {reviews && reviews.length > 0 && (
+                    <div className="flex flex-wrap gap-1">
+                      {reviews.slice(0, 8).map((r, i) => (
+                        <span key={i} className={`text-[10px] px-1.5 rounded ${r.state === 'APPROVED' ? 'bg-green-500/15 text-green-400' : r.state === 'CHANGES_REQUESTED' ? 'bg-cinnabar-500/15 text-cinnabar-300' : 'bg-ink-800 text-ink-500'}`}>
+                          {r.reviewer} · {r.state}
+                        </span>
                       ))}
                     </div>
                   )}
