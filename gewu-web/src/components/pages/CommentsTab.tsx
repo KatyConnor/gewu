@@ -8,7 +8,8 @@ import type { RequirementCommentDTO } from '@/lib/requirement';
 interface CommentsTabProps {
   comments: RequirementCommentDTO[];
   onAdd: (content: string) => void;
-  onDelete: (commentId: string) => void;
+  /** 只读模式不传：隐藏删除按钮（评论删除是管理动作） */
+  onDelete?: (commentId: string) => void;
 }
 
 // ==================== 主组件 ====================
@@ -57,9 +58,11 @@ export default function CommentsTab({ comments, onAdd, onDelete }: CommentsTabPr
                   <span className="text-[10px] text-ink-500">
                     {new Date(comment.createdAt).toLocaleString('zh-CN')}
                   </span>
-                  <button onClick={() => onDelete(comment.id)} className="text-[10px] text-cinnabar-400 hover:text-cinnabar-300">
-                    删除
-                  </button>
+                  {onDelete && (
+                    <button onClick={() => onDelete(comment.id)} className="text-[10px] text-cinnabar-400 hover:text-cinnabar-300">
+                      删除
+                    </button>
+                  )}
                 </div>
               </div>
               <p className="text-sm text-ink-200">{comment.content}</p>

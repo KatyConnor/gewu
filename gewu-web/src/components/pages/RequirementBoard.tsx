@@ -53,13 +53,14 @@ const typeConfig: Record<string, { label: string; icon: string }> = {
 
 interface RequirementBoardProps {
   requirements: RequirementDTO[];
-  onStatusChange: (requirementId: string, newStatus: string) => void;
+  /** 只读模式不传：禁用拖拽改状态（需求状态流转已迁移管理端） */
+  onStatusChange?: (requirementId: string, newStatus: string) => void;
   onRequirementClick: (requirementId: string) => void;
 }
 
 // ==================== 可排序卡片组件 ====================
 
-function SortableRequirementCard({ requirement, isDragging }: { requirement: RequirementDTO; isDragging?: boolean }) {
+function SortableRequirementCard({ requirement, isDragging, dragEnabled }: { requirement: RequirementDTO; isDragging?: boolean; dragEnabled: boolean }) {
   const {
     attributes,
     listeners,
@@ -95,9 +96,11 @@ function SortableRequirementCard({ requirement, isDragging }: { requirement: Req
       {/* 拖拽手柄 + 优先级 */}
       <div className="flex items-center justify-between mb-2">
         <div className="flex items-center gap-1.5">
-          <button {...listeners} className="p-1 text-ink-600 hover:text-ink-400 cursor-grab active:cursor-grabbing">
-            <GripVertical className="w-3 h-3" />
-          </button>
+          {dragEnabled && (
+            <button {...listeners} className="p-1 text-ink-600 hover:text-ink-400 cursor-grab active:cursor-grabbing">
+              <GripVertical className="w-3 h-3" />
+            </button>
+          )}
           <span className={`text-[10px] px-1.5 py-0.5 rounded ${priorityCfg.color}`}>{priorityCfg.label}</span>
         </div>
         <span className="text-xs">{typeCfg.icon}</span>
@@ -135,18 +138,19 @@ function BoardColumn({
   requirements,
   onRequirementClick,
   onDrop,
+  dragEnabled,
 }: {
   column: typeof boardColumns[0];
   requirements: RequirementDTO[];
   onRequirementClick: (id: string) => void;
   onDrop: (requirementId: string, newStatus: string) => void;
+  dragEnabled: boolean;
 }) {
   const [draggingId, setDraggingId] = useState<string | null>(null);
 
-  const sensors = useSensors(
-    useSensor(PointerSensor, { activationConstraint: { distance: 8 } }),
-    useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates })
-  );
+  const pointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 8 } });
+  const keyboardSensor = useSensor(KeyboardSensor, { coordinateGetter: sortableKeyboardCoordinates });
+  const sensors = useSensors(...(dragEnabled ? [pointerSensor, keyboardSensor] : []));
 
   const handleDragStart = (event: DragStartEvent) => {
     setDraggingId(event.active.id as string);
@@ -154,6 +158,7 @@ function BoardColumn({
 
   const handleDragEnd = (event: DragEndEvent) => {
     setDraggingId(null);
+    if (!dragEnabled) return;
     const { active, over } = event;
     if (over && active.id !== over.id) {
       // 如果拖拽到不同的列，更新状态
@@ -180,7 +185,7 @@ function BoardColumn({
           <div className="space-y-2 min-h-[200px] p-2 rounded-lg bg-ink-900/30" data-column-id={column.id}>
             {requirements.map(req => (
               <div key={req.id} onClick={() => onRequirementClick(req.id)}>
-                <SortableRequirementCard requirement={req} isDragging={draggingId === req.id} />
+                <SortableRequirementCard requirement={req} isDragging={draggingId === req.id} dragEnabled={dragEnabled} />
               </div>
             ))}
           </div>
@@ -209,7 +214,7 @@ export default function RequirementBoard({ requirements, onStatusChange, onRequi
   }, {} as Record<string, RequirementDTO[]>);
 
   const handleDrop = (requirementId: string, newStatus: string) => {
-    onStatusChange(requirementId, newStatus);
+    onStatusChange?.(requirementId, newStatus);
   };
 
   return (
@@ -221,6 +226,7 @@ export default function RequirementBoard({ requirements, onStatusChange, onRequi
           requirements={groupedRequirements[column.id] || []}
           onRequirementClick={onRequirementClick}
           onDrop={handleDrop}
+          dragEnabled={!!onStatusChange}
         />
       ))}
     </div>

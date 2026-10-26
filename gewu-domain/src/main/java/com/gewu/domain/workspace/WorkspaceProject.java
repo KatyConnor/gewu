@@ -18,6 +18,8 @@ public class WorkspaceProject extends BaseEntity {
     private String localPath;
     /** pending / cloning / ready / failed */
     private String cloneStatus;
+    /** 最近一次 clone 失败的 stderr 摘要（成功时清空） */
+    private String cloneError;
     private Long lastSyncAt;
     private String headCommit;
 }

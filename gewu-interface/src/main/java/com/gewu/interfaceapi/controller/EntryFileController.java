@@ -22,6 +22,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.InputStream;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -46,11 +47,14 @@ public class EntryFileController {
     private static final long UPLOAD_CAP_BYTES = 210L * 1024 * 1024;
 
     @PostMapping(value = "/entry-package/import", consumes = org.springframework.http.MediaType.MULTIPART_FORM_DATA_VALUE)
-    @Operation(summary = "导入入口包", description = "zip（整包）或 .md（单文件）→ 全局空间或项目仓库根；返回导入报告")
+    @Operation(summary = "导入入口包", description = "zip（整包）或 .md（单文件）→ 全局空间或项目仓库根；dryRun=true 预览零写入；返回导入报告")
     public Result<Map<String, Object>> importPackage(
             @RequestParam("file") MultipartFile file,
             @RequestParam(defaultValue = "global") String target,
-            @RequestParam(required = false) String projectId) throws Exception {
+            @RequestParam(required = false) String projectId,
+            @RequestParam(defaultValue = "false") boolean dryRun,
+            @RequestParam(defaultValue = "overwrite") String conflictPolicy,
+            @RequestParam(required = false) String packageId) throws Exception {
         String userId = requireUserId();
         if (file == null || file.isEmpty()) {
             throw new IllegalArgumentException("上传文件不能为空");
@@ -63,15 +67,52 @@ public class EntryFileController {
             throw new IllegalArgumentException("上传文件超过上限（200MB）");
         }
         String filename = file.getOriginalFilename() == null ? "" : file.getOriginalFilename();
+        var options = new EntryPackageService.ImportOptions(dryRun, conflictPolicy, packageId);
         var report = filename.toLowerCase().endsWith(".md")
                 ? entryPackageService.importSingleEntry(userId, target, projectId,
-                        filename.substring(filename.lastIndexOf('/') + 1), bytes)
-                : entryPackageService.importFromZip(userId, target, projectId, bytes);
+                        filename.substring(filename.lastIndexOf('/') + 1), bytes, options)
+                : entryPackageService.importFromZip(userId, target, projectId, bytes, options);
         Map<String, Object> out = new LinkedHashMap<>();
         out.put("fileCount", report.fileCount());
         out.put("entryFile", report.entryFile());
         out.put("overwritten", report.overwritten());
         out.put("target", report.target());
+        out.put("dryRun", report.dryRun());
+        out.put("actions", report.actions());
+        return Result.success(out);
+    }
+
+    @GetMapping("/entry-package/history")
+    @Operation(summary = "导入历史", description = "全局空间导入历史（JSONL 倒序，默认最近 10 条）")
+    public Result<List<String>> importHistory(
+            @RequestParam(defaultValue = "10") int limit) {
+        String userId = requireUserId();
+        return Result.success(entryPackageService.readImportHistory(userId, limit));
+    }
+
+    // ==================== Git URL 导入（P3-4 二期） ====================
+
+    public record ImportGitCommand(@NotBlank String url, String ref,
+                                   @NotBlank String target, String projectId,
+                                   boolean dryRun, String conflictPolicy) {}
+
+    @PostMapping("/entry-package/import-git")
+    @Operation(summary = "从 Git 仓库导入入口包", description = "浅克隆经 dev 沙箱中转（凭证复用沙箱已注入 git 凭证）；仅 http(s)/ssh/git 协议")
+    public Result<Map<String, Object>> importFromGit(@Valid @RequestBody ImportGitCommand command) {
+        String userId = requireUserId();
+        var options = new EntryPackageService.ImportOptions(command.dryRun(),
+                command.conflictPolicy() == null || command.conflictPolicy().isBlank()
+                        ? EntryPackageService.POLICY_OVERWRITE : command.conflictPolicy(),
+                null);
+        var report = entryPackageService.importFromGit(userId, command.target(), command.projectId(),
+                command.url(), command.ref(), options);
+        Map<String, Object> out = new LinkedHashMap<>();
+        out.put("fileCount", report.fileCount());
+        out.put("entryFile", report.entryFile());
+        out.put("overwritten", report.overwritten());
+        out.put("target", report.target());
+        out.put("dryRun", report.dryRun());
+        out.put("actions", report.actions());
         return Result.success(out);
     }
 

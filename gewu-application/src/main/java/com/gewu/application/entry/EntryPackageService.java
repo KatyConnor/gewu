@@ -51,12 +51,12 @@ public class EntryPackageService {
     private final AgentEntryFileService agentEntryFileService;
     private final com.fasterxml.jackson.databind.ObjectMapper objectMapper;
 
-    /** 导入报告（P3-4 起含逐文件动作与 dryRun 标记）。 */
+    /** 导入报告（P3-4 二期起含逐文件动作、dryRun 标记与覆盖文件内容级 diff）。 */
     public record ImportReport(int fileCount, String entryFile, List<String> overwritten, String target,
-                               boolean dryRun, List<FileAction> actions) {}
+                               boolean dryRun, List<FileAction> actions, Map<String, String> diffs) {}
 
     /** 逐文件动作（action: 新增/覆盖/跳过/无变化）。 */
-    public record FileAction(String relPath, String action, long bytes) {}
+    public record FileAction(String relPath, String action, long bytes, String diff) {}
 
     /**
      * 导入 zip 入口包.
@@ -99,10 +99,10 @@ public class EntryPackageService {
         return report;
     }
 
-    /** 导入选项（P3-4）：dryRun 预览零写入；conflictPolicy=overwrite（默认）/skip。 */
-    public record ImportOptions(boolean dryRun, String conflictPolicy) {
+    /** 导入选项（P3-4）：dryRun 预览零写入；conflictPolicy=overwrite（默认）/skip；packageId 多包隔离（可选）。 */
+    public record ImportOptions(boolean dryRun, String conflictPolicy, String packageId) {
         public static ImportOptions defaults() {
-            return new ImportOptions(false, POLICY_OVERWRITE);
+            return new ImportOptions(false, POLICY_OVERWRITE, null);
         }
     }
 
@@ -310,26 +310,38 @@ public class EntryPackageService {
         if (ws == null) {
             throw new IllegalStateException("用户工作空间不存在，请先初始化");
         }
+        String pkgPrefix = packageIdPrefix(options.packageId());
         List<String> overwritten = new ArrayList<>();
         List<FileAction> actions = new ArrayList<>();
+        Map<String, String> diffs = new LinkedHashMap<>();
         for (Map.Entry<String, byte[]> e : entries.entrySet()) {
             String rel = e.getKey();
             String objectKey = rel.equals(entryName)
                     ? ws.getStoragePath() + rel
-                    : ws.getStoragePath() + ".entry-package/" + rel;
+                    : ws.getStoragePath() + ".entry-package/" + pkgPrefix + rel;
             boolean exists = storageService.prefixHasObjects(objectKey);
             boolean skip = exists && POLICY_SKIP.equals(options.conflictPolicy());
             if (exists) {
                 overwritten.add(rel);
             }
+            String existing = minioGet(objectKey);
+            String newContent = new String(e.getValue(), StandardCharsets.UTF_8);
             if (!skip) {
-                // 覆盖前快照（P3-4：可恢复承诺兑现）
-                storageService.uploadWorkspaceBytes(
-                        ws.getStoragePath() + ".entry-package-snapshots/" + System.currentTimeMillis() + "/" + rel,
-                        e.getValue(), contentType(rel));
+                // 覆盖前快照（P3-4：可恢复承诺兑现）——快照既有内容而非新内容
+                if (existing != null && !existing.isEmpty()) {
+                    storageService.uploadWorkspaceBytes(
+                            ws.getStoragePath() + ".entry-package-snapshots/"
+                                    + System.currentTimeMillis() + "/" + rel,
+                            existing.getBytes(StandardCharsets.UTF_8), contentType(rel));
+                }
             }
             String action = skip ? "跳过" : (exists ? "覆盖" : "新增");
-            actions.add(new FileAction(rel, action, e.getValue().length));
+            // 内容级 diff（P3-4 二期）：覆盖与 dryRun 预览均提供（跳过无意义）
+            String diff = "";
+            if (!"跳过".equals(action) && existing != null && !existing.isEmpty()) {
+                diff = com.gewu.common.diff.DiffUtil.unifiedDiff(existing, newContent, 200);
+            }
+            actions.add(new FileAction(rel, action, e.getValue().length, diff));
             if (!options.dryRun() && !skip) {
                 storageService.uploadWorkspaceBytes(objectKey, e.getValue(), contentType(rel));
                 log.info("入口包文件已导入全局: userId={}, key={}, bytes={}", userId, objectKey, e.getValue().length);
@@ -339,7 +351,7 @@ public class EntryPackageService {
             agentEntryFileService.evictUser(userId);
         }
         return new ImportReport(entries.size(), entryName + "（全局）", overwritten, "global",
-                options.dryRun(), actions);
+                options.dryRun(), actions, diffs);
     }
 
     /** 项目落位：全部写入沙箱卷仓库根（Git 管理，模型文件工具直达）。覆盖前快照（P3-4）。 */
@@ -350,10 +362,12 @@ public class EntryPackageService {
         if (ws == null || ws.getDevSandboxId() == null || project.getRepoLocalPath() == null) {
             throw new IllegalStateException("开发沙箱未就绪，无法导入到项目");
         }
+        String pkgPrefix = packageIdPrefix(options.packageId());
         List<String> overwritten = new ArrayList<>();
         List<FileAction> actions = new ArrayList<>();
+        Map<String, String> diffs = new LinkedHashMap<>();
         for (Map.Entry<String, byte[]> e : entries.entrySet()) {
-            String targetPath = project.getRepoLocalPath() + "/" + e.getKey();
+            String targetPath = project.getRepoLocalPath() + "/" + pkgPrefix + e.getKey();
             String existing = null;
             try {
                 existing = sandboxClient.readFile(ws.getDevSandboxId(), targetPath);
@@ -371,7 +385,12 @@ public class EntryPackageService {
                             contentType(e.getKey()));
                 }
             }
-            actions.add(new FileAction(e.getKey(), existing == null ? "新增" : "覆盖", e.getValue().length));
+            String diff = existing != null && !existing.isEmpty()
+                    ? com.gewu.common.diff.DiffUtil.unifiedDiff(existing,
+                            new String(e.getValue(), StandardCharsets.UTF_8), 200)
+                    : "";
+            actions.add(new FileAction(e.getKey(), existing == null ? "新增" : "覆盖",
+                    e.getValue().length, diff));
             if (!options.dryRun()) {
                 sandboxClient.uploadBytes(ws.getDevSandboxId(), targetPath, e.getValue(),
                         e.getKey(), contentType(e.getKey()));
@@ -379,7 +398,20 @@ public class EntryPackageService {
         }
         agentEntryFileService.evictUser(project.getOwnerId());
         return new ImportReport(entries.size(), entryName + "（项目）", overwritten, "project",
-                options.dryRun(), actions);
+                options.dryRun(), actions, diffs);
+    }
+
+    /** packageId 规范化与校验（P3-4 二期多包隔离）：空返回 ""；非法字符拒绝。 */
+    private static String packageIdPrefix(String packageId) {
+        if (packageId == null || packageId.isBlank()) {
+            return "";
+        }
+        String p = packageId.trim().toLowerCase();
+        if (!p.matches("[a-z0-9][a-z0-9_-]{0,31}")) {
+            throw new IllegalArgumentException(
+                    "packageId 仅允许小写字母/数字/下划线/连字符（1~32 字符）: " + packageId);
+        }
+        return p + "/";
     }
 
     private String minioGet(String objectKey) {

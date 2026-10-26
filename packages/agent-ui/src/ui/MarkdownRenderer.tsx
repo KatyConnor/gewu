@@ -109,6 +109,20 @@ interface MarkdownRendererProps {
 }
 
 /**
+ * 流式进行中的"……"动态指示（用户实报：替换竖条光标）——
+ * 六个点错峰脉冲，视觉上即动态省略号。
+ */
+export function StreamingDots() {
+  return (
+    <span className="inline-block ml-0.5 align-middle text-tech-400 font-bold tracking-[0.15em]" aria-label="生成中">
+      {'......'.split('').map((_, i) => (
+        <span key={i} className="inline-block animate-pulse" style={{ animationDelay: `${i * 150}ms` }}>.</span>
+      ))}
+    </span>
+  );
+}
+
+/**
  * Markdown 渲染组件。
  * 支持代码语法高亮、表格、列表、引用等 GFM 格式，代码块支持一键复制。
  * 同时适用于完整的 AI 回复和流式实时输出场景。
@@ -122,9 +136,7 @@ function MarkdownRendererImpl({ content, isStreaming }: MarkdownRendererProps) {
 
   if (!safeContent && !isStreaming) return null;
   if (!safeContent && isStreaming) {
-    return (
-      <span className="inline-block w-1.5 h-4 bg-tech-400 ml-0.5 animate-pulse align-middle" />
-    );
+    return <StreamingDots />;
   }
 
   return (
@@ -221,10 +233,8 @@ function MarkdownRendererImpl({ content, isStreaming }: MarkdownRendererProps) {
       >
         {safeContent}
       </ReactMarkdown>
-      {/* 流式输出光标 */}
-      {isStreaming && (
-        <span className="inline-block w-1.5 h-4 bg-tech-400 ml-0.5 animate-pulse align-middle" />
-      )}
+      {/* 流式输出动态省略号（用户实报：替换竖条光标） */}
+      {isStreaming && <StreamingDots />}
     </div>
   );
 }

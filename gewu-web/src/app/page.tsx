@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react';
 import { useSelector, useDispatch } from 'react-redux';
 import { RootState, setPage } from '@/store';
 import Sidebar from '@/components/layout/Sidebar';
-import Header from '@/components/layout/Header';
 import LoginPage from '@/components/pages/LoginPage';
 import DashboardPage from '@/components/pages/DashboardPage';
 import ChatPage from '@/components/pages/ChatPage';
@@ -95,6 +94,15 @@ export default function Home() {
     );
   }
 
+  // 开发工作空间全屏显示（IDEA 式工作台，隐藏侧边栏；页内自带返回按钮）
+  if (currentPage === 'dev-workspace') {
+    return (
+      <div className="min-h-screen relative" style={{ background: '#081211' }}>
+        <DevWorkspacePage />
+      </div>
+    );
+  }
+
   // 需求详情页特殊处理
   if (currentPage === 'requirements') {
     const hash = typeof window !== 'undefined' ? window.location.hash : '';
@@ -103,8 +111,7 @@ export default function Home() {
       return (
         <div className="min-h-screen flex">
           <Sidebar />
-          <main className="flex-1 ml-64 pt-20 pb-8 px-8 relative" style={{ background: 'radial-gradient(ellipse at 15% 30%, rgba(0,184,148,0.06) 0%, transparent 50%), radial-gradient(ellipse at 85% 15%, rgba(6,182,212,0.04) 0%, transparent 40%), radial-gradient(ellipse at 50% 85%, rgba(212,168,53,0.05) 0%, transparent 45%), linear-gradient(170deg, #081211 0%, #0a1a18 30%, #0c1e1c 60%, #081211 100%)' }}>
-            <Header />
+          <main className="flex-1 ml-64 pt-8 pb-8 px-8 relative" style={{ background: 'radial-gradient(ellipse at 15% 30%, rgba(0,184,148,0.06) 0%, transparent 50%), radial-gradient(ellipse at 85% 15%, rgba(6,182,212,0.04) 0%, transparent 40%), radial-gradient(ellipse at 50% 85%, rgba(212,168,53,0.05) 0%, transparent 45%), linear-gradient(170deg, #081211 0%, #0a1a18 30%, #0c1e1c 60%, #081211 100%)' }}>
             <RequirementDetailPage
               requirementId={detailMatch[1]}
               onBack={() => { window.location.hash = '#/requirements'; }}
@@ -118,8 +125,7 @@ export default function Home() {
   return (
     <div className="min-h-screen flex">
       <Sidebar />
-      <main className="flex-1 ml-64 pt-20 pb-8 px-8 relative" style={{ background: 'radial-gradient(ellipse at 15% 30%, rgba(0,184,148,0.06) 0%, transparent 50%), radial-gradient(ellipse at 85% 15%, rgba(6,182,212,0.04) 0%, transparent 40%), radial-gradient(ellipse at 50% 85%, rgba(212,168,53,0.05) 0%, transparent 45%), linear-gradient(170deg, #081211 0%, #0a1a18 30%, #0c1e1c 60%, #081211 100%)' }}>
-        <Header />
+      <main className="flex-1 ml-64 pt-8 pb-8 px-8 relative" style={{ background: 'radial-gradient(ellipse at 15% 30%, rgba(0,184,148,0.06) 0%, transparent 50%), radial-gradient(ellipse at 85% 15%, rgba(6,182,212,0.04) 0%, transparent 40%), radial-gradient(ellipse at 50% 85%, rgba(212,168,53,0.05) 0%, transparent 45%), linear-gradient(170deg, #081211 0%, #0a1a18 30%, #0c1e1c 60%, #081211 100%)' }}>
         <PageComponent />
       </main>
     </div>
