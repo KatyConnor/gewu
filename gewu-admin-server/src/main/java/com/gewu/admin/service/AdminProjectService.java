@@ -91,6 +91,26 @@ public class AdminProjectService {
         return toDTO(getEntity(projectId));
     }
 
+    /** 项目成员视图（需求分派选择器数据源：分派对象必须是项目成员） */
+    public record ProjectMemberView(String userId, String displayName, String roleCode) {}
+
+    /** 项目成员列表（含 OWNER/TECH_LEAD/MEMBER 全部角色） */
+    public List<ProjectMemberView> getProjectMembers(String projectId) {
+        getEntity(projectId);
+        List<ProjectMember> members = projectMemberMapper.selectList(
+                new LambdaQueryWrapper<ProjectMember>().eq(ProjectMember::getProjectId, projectId));
+        if (members.isEmpty()) return List.of();
+        Set<String> userIds = members.stream().map(ProjectMember::getUserId).collect(Collectors.toSet());
+        Map<String, UserAccount> userMap = userAccountMapper.selectBatchIds(userIds).stream()
+                .collect(Collectors.toMap(UserAccount::getId, u -> u));
+        return members.stream()
+                .map(m -> {
+                    UserAccount u = userMap.get(m.getUserId());
+                    return new ProjectMemberView(m.getUserId(), u != null ? u.getDisplayName() : null, m.getRoleCode());
+                })
+                .toList();
+    }
+
     // ==================== 创建（含团队分发） ====================
 
     @Transactional

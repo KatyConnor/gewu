@@ -1,7 +1,8 @@
 // HTTP 请求工具
 import axios, { AxiosInstance, AxiosRequestConfig } from 'axios';
 import { API_CONFIG } from './api';
-import { getAccessToken, clearTokens } from './token';
+import { getAccessToken } from './token';
+import { store, clearAuth } from '@/store';
 
 // 创建 axios 实例
 // 开发环境：baseURL 为 '/api'，由 Next.js rewrites 代理到 localhost:8081
@@ -37,11 +38,8 @@ instance.interceptors.response.use(
     if (error.response) {
       switch (error.response.status) {
         case 401:
-          // 未授权，清除 token 并跳转登录
-          clearTokens();
-          if (typeof window !== 'undefined') {
-            window.location.href = '/';
-          }
+          // 未授权（含令牌过期/无效）：清凭证并切到独立登录页（clearAuth 内含 clearTokens）
+          store.dispatch(clearAuth());
           break;
         case 403:
           console.error('没有权限访问');

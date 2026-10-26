@@ -110,3 +110,16 @@ export async function updateProject(projectId: string, payload: ProjectPayload):
 export async function deleteProject(projectId: string): Promise<void> {
   await unwrap(request.delete<ApiResponse<null>>(`/v1/projects/${projectId}`));
 }
+
+// ==================== 项目成员（需求分派选择器数据源） ====================
+
+export interface ProjectMemberView {
+  userId: string;
+  displayName: string | null;
+  roleCode: string;
+}
+
+/** 项目成员列表：需求分派时负责人必须从项目成员中选择（后端强校验） */
+export async function listProjectMembers(projectId: string): Promise<ProjectMemberView[]> {
+  return unwrap(request.get<ApiResponse<ProjectMemberView[]>>(`/v1/projects/${projectId}/members`));
+}

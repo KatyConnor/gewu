@@ -14,6 +14,8 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
 
+import java.util.List;
+
 /**
  * 管理端项目接口（项目管理迁移管理端：后台为项目唯一创建/编辑入口，团队分发即成员行落库）.
  * <p>用户侧（gewu-interface）同路径 /api/v1/projects 收敛为只读"我的项目"+工作流，
@@ -40,6 +42,12 @@ public class AdminProjectController {
     @Operation(summary = "项目详情")
     public Result<AdminProjectDTO> getProject(@PathVariable String projectId) {
         return Result.success(adminProjectService.getProject(projectId));
+    }
+
+    @GetMapping("/{projectId}/members")
+    @Operation(summary = "项目成员列表", description = "需求/任务分派选择器数据源：分派对象必须是项目成员")
+    public Result<List<AdminProjectService.ProjectMemberView>> getProjectMembers(@PathVariable String projectId) {
+        return Result.success(adminProjectService.getProjectMembers(projectId));
     }
 
     @PostMapping
