@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { Plus, Edit3, Trash2, CheckCircle, Clock, PlayCircle, User } from 'lucide-react';
 import type { RequirementTaskDTO } from '@/lib/requirement';
+import { confirmDialog } from '@/components/ui/ConfirmDialog';
 
 // ==================== 常量 ====================
 
@@ -241,8 +242,8 @@ export default function TaskList({ tasks, onAddTask, onUpdateTask, onDeleteTask,
                                 <Edit3 className="w-3 h-3" />
                               </button>
                               <button
-                                onClick={() => {
-                                  if (confirm('确定删除此任务？')) onDeleteTask(task.id);
+                                onClick={async () => {
+                                  if (await confirmDialog({ message: '确定删除此任务？', danger: true })) onDeleteTask(task.id);
                                 }}
                                 className="p-1 text-ink-400 hover:text-cinnabar-400 hover:bg-cinnabar-500/10 rounded"
                               >

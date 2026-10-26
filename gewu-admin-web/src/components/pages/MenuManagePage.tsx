@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Loader2, X, Plus, Trash2, Menu as MenuIcon, Edit3, ChevronRight, ChevronDown } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
+import { confirmDialog } from '@/components/ui/ConfirmDialog';
 import Modal from '@/components/ui/Modal';
 import {
   listMenus, createMenu, updateMenu, deleteMenu,
@@ -120,7 +121,7 @@ export default function MenuManagePage() {
   };
 
   const handleDelete = async (menu: MenuDTO) => {
-    if (!confirm(`确认删除菜单「${menu.menuName}」？`)) return;
+    if (!(await confirmDialog({ message: `确认删除菜单「${menu.menuName}」？`, danger: true }))) return;
     try {
       await deleteMenu(menu.menuId);
       toast('菜单已删除', 'success');

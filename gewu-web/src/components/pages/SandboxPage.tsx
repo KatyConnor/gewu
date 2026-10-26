@@ -4,6 +4,7 @@ import { Plus, Search, Play, Square, RefreshCw, Trash2, CheckCircle, XCircle, Lo
 import Modal from '@/components/ui/Modal';
 import CustomSelect from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
+import { confirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   listSandboxes, createSandbox, startSandbox, stopSandbox, deleteSandbox, renewSandboxExpire,
   type SandboxDTO,
@@ -120,7 +121,7 @@ export default function SandboxPage() {
   };
 
   const handleDestroy = async (id: string) => {
-    if (!confirm('确认销毁该沙箱？数据将不可恢复')) return;
+    if (!(await confirmDialog({ message: '确认销毁该沙箱？数据将不可恢复', danger: true }))) return;
     setBusy(id);
     try {
       await deleteSandbox(id);

@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Loader2, X, Plus, Trash2, Building2, Edit3, ChevronRight, ChevronDown, Users } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
+import { confirmDialog } from '@/components/ui/ConfirmDialog';
 import Modal from '@/components/ui/Modal';
 import { listOrgTree, createOrg, updateOrg, deleteOrg, type OrgDTO } from '@/lib/org';
 
@@ -81,7 +82,7 @@ export default function OrgManagePage() {
   };
 
   const handleDelete = async (org: OrgDTO) => {
-    if (!confirm(`确认删除机构「${org.orgName}」？`)) return;
+    if (!(await confirmDialog({ message: `确认删除机构「${org.orgName}」？`, danger: true }))) return;
     try {
       await deleteOrg(org.orgId);
       toast('机构已删除', 'success');

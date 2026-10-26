@@ -2,6 +2,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Plus, Search, Trash2, CheckCircle, XCircle, RefreshCw, Server, Zap, Globe, Lock, Loader2 } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
+import { useToast } from '@/components/ui/Toast';
+import { confirmDialog } from '@/components/ui/ConfirmDialog';
 import CustomSelect from '@/components/ui/Select';
 import { listMcpServers, createMcpServer, deleteMcpServer, activateMcpServer, type McpServerDTO } from '@/lib/mcp';
 
@@ -18,6 +20,7 @@ const transportConfig: Record<string, { icon: React.ReactNode; label: string }> 
 };
 
 export default function McpServerPage() {
+  const toast = useToast();
   const [servers, setServers] = useState<McpServerDTO[]>([]);
   const [loading, setLoading] = useState(true);
   const [searchText, setSearchText] = useState('');
@@ -54,19 +57,19 @@ export default function McpServerPage() {
       setFormName(''); setFormCommand(''); setFormUrl(''); setFormDesc('');
       loadServers();
     } catch (e) {
-      alert('添加失败: ' + (e instanceof Error ? e.message : String(e)));
+      toast('添加失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     } finally {
       setCreating(false);
     }
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('确认删除此 MCP 服务？')) return;
+    if (!(await confirmDialog({ message: '确认删除此 MCP 服务？', danger: true }))) return;
     try {
       await deleteMcpServer(id);
       loadServers();
     } catch (e) {
-      alert('删除失败: ' + (e instanceof Error ? e.message : String(e)));
+      toast('删除失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     }
   };
 
@@ -75,7 +78,7 @@ export default function McpServerPage() {
       await activateMcpServer(id);
       loadServers();
     } catch (e) {
-      alert('刷新失败: ' + (e instanceof Error ? e.message : String(e)));
+      toast('刷新失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     }
   };
 

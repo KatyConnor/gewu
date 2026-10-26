@@ -7,6 +7,7 @@ import { useToast } from '@/components/ui/Toast';
 import { listAgents, createAgent, deleteAgent, publishAgent, listAgentSkills, type AgentDTO } from '@/lib/agent';
 import type { SkillDTO } from '@/lib/skill';
 import AgentEditModal from './AgentEditModal';
+import { confirmDialog } from '@/components/ui/ConfirmDialog';
 import { useDispatch } from 'react-redux';
 import { setPage, setPendingAgentId } from '@/store';
 
@@ -63,7 +64,7 @@ export default function AgentManagePage() {
   };
 
   const handleDelete = async (id: string) => {
-    if (!confirm('确认销毁此智能体？此操作不可撤销。')) return;
+    if (!(await confirmDialog({ message: '确认销毁此智能体？此操作不可撤销。', danger: true }))) return;
     setActionMenuOpen(null);
     setShowDetailDrawer(false);
     try {

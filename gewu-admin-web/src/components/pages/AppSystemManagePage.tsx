@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Boxes, Plus, Search, Loader2, X, Pencil, Trash2, Server, ExternalLink } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
+import { confirmDialog } from '@/components/ui/ConfirmDialog';
 import Modal from '@/components/ui/Modal';
 import { listOrgTree, type OrgDTO } from '@/lib/org';
 import {
@@ -110,7 +111,7 @@ export default function AppSystemManagePage() {
   const handleSearch = () => loadSystems(keyword);
 
   const confirmDeleteSystem = async (system: AppSystemDTO) => {
-    if (!window.confirm(`确认删除应用系统「${system.systemName}」？${system.serviceCount > 0 ? `其下 ${system.serviceCount} 个子模块服务需先删除。` : ''}`)) return;
+    if (!(await confirmDialog({ message: `确认删除应用系统「${system.systemName}」？${system.serviceCount > 0 ? `其下 ${system.serviceCount} 个子模块服务需先删除。` : ''}`, danger: true }))) return;
     try {
       await deleteAppSystem(system.systemId);
       toast('应用系统已删除', 'success');
@@ -122,7 +123,7 @@ export default function AppSystemManagePage() {
 
   const confirmDeleteService = async (service: AppServiceDTO) => {
     if (!selected) return;
-    if (!window.confirm(`确认删除服务「${service.serviceName}」？`)) return;
+    if (!(await confirmDialog({ message: `确认删除服务「${service.serviceName}」？`, danger: true }))) return;
     try {
       await deleteAppService(selected.systemId, service.serviceId);
       toast('子模块服务已删除', 'success');

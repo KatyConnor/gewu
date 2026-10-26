@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { ClipboardList, Plus, Search, Loader2, X, Pencil, Trash2, Send } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
+import { confirmDialog } from '@/components/ui/ConfirmDialog';
 import Modal from '@/components/ui/Modal';
 import {
   listProjects, listProjectMembers, type ProjectMemberView,
@@ -216,7 +217,7 @@ export default function RequirementManagePage() {
   };
 
   const handleSubmitReview = async (r: AdminRequirementDTO) => {
-    if (!window.confirm(`将需求「${r.title}」提交评审？`)) return;
+    if (!(await confirmDialog({ message: `将需求「${r.title}」提交评审？` }))) return;
     try {
       await submitRequirementReview(r.id, 'REQUIREMENT');
       toast('已提交评审', 'success');
@@ -227,7 +228,7 @@ export default function RequirementManagePage() {
   };
 
   const confirmDelete = async (r: AdminRequirementDTO) => {
-    if (!window.confirm(`确认删除需求「${r.title}」？（逻辑删除；MinIO 附件对象暂不级联清理）`)) return;
+    if (!(await confirmDialog({ message: `确认删除需求「${r.title}」？（逻辑删除；MinIO 附件对象暂不级联清理）`, danger: true }))) return;
     try {
       await deleteRequirement(r.id);
       toast('需求已删除', 'success');

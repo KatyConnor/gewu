@@ -4,6 +4,7 @@ import { ArrowLeft, Play, Check, RotateCcw, Upload, FileText, History, Send, Bot
 import { useDispatch } from 'react-redux';
 import { setPage } from '@/store';
 import { useToast } from '@/components/ui/Toast';
+import { confirmDialog } from '@/components/ui/ConfirmDialog';
 import { getProject, getProjectPhases, startPhase, completePhase, revertPhase,
   listPhaseDocuments, uploadDocument, getDocumentContent, updateDocumentContent,
   deleteDocument, getDocumentVersions, submitForReview, createMarkdownDoc,
@@ -197,19 +198,19 @@ export default function ProjectDetailPage({ projectId, onBack }: { projectId: st
   }, [selectedPhase, loadDocuments]);
 
   const handleStart = async (phaseCode: string) => {
-    if (!confirm(`确定开始「${phaseDisplayMap[phaseCode] || phaseCode}」阶段？`)) return;
+    if (!(await confirmDialog({ message: `确定开始「${phaseDisplayMap[phaseCode] || phaseCode}」阶段？` }))) return;
     try { await startPhase(projectId, phaseCode); loadData(); toast('阶段已开始', 'success'); }
     catch { toast('操作失败', 'error'); }
   };
 
   const handleComplete = async (phaseCode: string) => {
-    if (!confirm(`确定完成「${phaseDisplayMap[phaseCode] || phaseCode}」阶段？请确保已上传必要文档。`)) return;
+    if (!(await confirmDialog({ message: `确定完成「${phaseDisplayMap[phaseCode] || phaseCode}」阶段？请确保已上传必要文档。` }))) return;
     try { await completePhase(projectId, phaseCode); loadData(); toast('阶段已完成', 'success'); }
     catch (e: unknown) { toast(e instanceof Error ? e.message : '操作失败', 'error'); }
   };
 
   const handleRevert = async (phaseCode: string) => {
-    if (!confirm(`确定回退「${phaseDisplayMap[phaseCode] || phaseCode}」阶段？`)) return;
+    if (!(await confirmDialog({ message: `确定回退「${phaseDisplayMap[phaseCode] || phaseCode}」阶段？` }))) return;
     try { await revertPhase(projectId, phaseCode); loadData(); toast('阶段已回退', 'success'); }
     catch { toast('操作失败', 'error'); }
   };
@@ -238,7 +239,7 @@ export default function ProjectDetailPage({ projectId, onBack }: { projectId: st
   };
 
   const handleSubmitReview = async (docId: string) => {
-    if (!confirm('提交审核后文档将锁定，是否继续？')) return;
+    if (!(await confirmDialog({ message: '提交审核后文档将锁定，是否继续？' }))) return;
     try { await submitForReview(docId); toast('已提交审核', 'success'); if (selectedPhase) loadDocuments(selectedPhase); }
     catch { toast('操作失败', 'error'); }
   };
@@ -489,7 +490,7 @@ export default function ProjectDetailPage({ projectId, onBack }: { projectId: st
                       {doc.reviewStatus === 'pending' && (
                         <button onClick={() => handleSubmitReview(doc.id)} className="px-2 py-1 text-[10px] text-gold-400 hover:bg-gold-500/10 rounded">提交审核</button>
                       )}
-                      <button onClick={async () => { if (confirm('删除此文档？')) { await deleteDocument(doc.id); loadDocuments(selectedPhase!); } }} className="px-2 py-1 text-[10px] text-cinnabar-400 hover:bg-cinnabar-500/10 rounded">删除</button>
+                      <button onClick={async () => { if (await confirmDialog({ message: '删除此文档？', danger: true })) { await deleteDocument(doc.id); loadDocuments(selectedPhase!); } }} className="px-2 py-1 text-[10px] text-cinnabar-400 hover:bg-cinnabar-500/10 rounded">删除</button>
                     </div>
                   </div>
                 ))}

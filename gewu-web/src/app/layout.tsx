@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { Providers } from '@/store/Providers';
 import { ToastProvider } from '@/components/ui/Toast';
+import { ConfirmProvider } from '@/components/ui/ConfirmDialog';
 import ThemeSync from '@/components/ThemeSync';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import './globals.css';
@@ -20,7 +21,9 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <Providers>
           <ThemeSync />
           <ToastProvider>
-            <ErrorBoundary>{children}</ErrorBoundary>
+            <ConfirmProvider>
+              <ErrorBoundary>{children}</ErrorBoundary>
+            </ConfirmProvider>
           </ToastProvider>
         </Providers>
       </body>

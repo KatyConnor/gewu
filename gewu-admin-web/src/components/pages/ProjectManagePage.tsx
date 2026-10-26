@@ -5,6 +5,7 @@ import {
   LayoutGrid, List, BarChart3, Eye, FolderOpen, Calendar, Users,
 } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
+import { confirmDialog } from '@/components/ui/ConfirmDialog';
 import Modal from '@/components/ui/Modal';
 import { listAppSystems, type AppSystemDTO } from '@/lib/appsystem';
 import { listUserOptions, type UserOption } from '@/lib/user';
@@ -318,7 +319,7 @@ export default function ProjectManagePage() {
   };
 
   const confirmDelete = async (p: AdminProjectDTO) => {
-    if (!window.confirm(`确认删除项目「${p.projectName}」？项目对技术负责人与团队成员即刻不可见（逻辑删除；沙箱等运行产物暂不级联清理）。`)) return;
+    if (!(await confirmDialog({ message: `确认删除项目「${p.projectName}」？项目对技术负责人与团队成员即刻不可见（逻辑删除；沙箱等运行产物暂不级联清理）。`, danger: true }))) return;
     try {
       await deleteProject(p.projectId);
       toast('项目已删除', 'success');

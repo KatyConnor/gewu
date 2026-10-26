@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import { useToast } from '@/components/ui/Toast';
+import { confirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   gitPull, gitFetch, gitStatus, gitLog, gitBranches, gitStashList,
   gitCommit, gitPush, gitCreateBranch, gitCheckout, gitDeleteBranch, gitMerge,
@@ -182,9 +183,9 @@ export default function DevGitMenu({ project, onRefresh }: Props) {
 
   const doPush = () => run('push', () => gitPush(projectId), '推送成功', () => setDialog(null));
 
-  const doBranchAction = (action: 'checkout' | 'merge' | 'delete', name: string) => {
-    if (action === 'delete' && !confirm(`确认删除本地分支 ${name}？（未合入当前分支的会被拒绝）`)) return;
-    if (action === 'merge' && !confirm(`确认将 ${name} 合并到当前分支？`)) return;
+  const doBranchAction = async (action: 'checkout' | 'merge' | 'delete', name: string) => {
+    if (action === 'delete' && !(await confirmDialog({ message: `确认删除本地分支 ${name}？（未合入当前分支的会被拒绝）`, danger: true }))) return;
+    if (action === 'merge' && !(await confirmDialog({ message: `确认将 ${name} 合并到当前分支？` }))) return;
     run(`branch-${action}`, async () => {
       if (action === 'checkout') await gitCheckout(projectId, name);
       else if (action === 'merge') await gitMerge(projectId, name);
@@ -230,15 +231,15 @@ export default function DevGitMenu({ project, onRefresh }: Props) {
       async () => setReleases(await listReleases(projectId).catch(() => [])));
   };
 
-  const doCherryPick = (hash: string, message: string) => {
-    if (!confirm(`摘取提交 ${message || hash} 到当前分支？`)) return;
+  const doCherryPick = async (hash: string, message: string) => {
+    if (!(await confirmDialog({ message: `摘取提交 ${message || hash} 到当前分支？` }))) return;
     run(`cp-${hash}`, () => cherryPick(projectId, hash), '摘取成功', async () => {
       await onRefresh();
     });
   };
 
-  const doRevert = (hash: string, message: string) => {
-    if (!confirm(`撤销提交 ${message || hash}？（生成反向提交，不改历史）`)) return;
+  const doRevert = async (hash: string, message: string) => {
+    if (!(await confirmDialog({ message: `撤销提交 ${message || hash}？（生成反向提交，不改历史）` }))) return;
     run(`rv-${hash}`, () => revertCommit(projectId, hash), '撤销成功', async () => {
       await onRefresh();
     });
@@ -253,9 +254,9 @@ export default function DevGitMenu({ project, onRefresh }: Props) {
     }
   };
 
-  const doResetHard = (selector: string, sha: string, subject: string) => {
-    if (!confirm(`危险操作：将工作区与分支强制回退到 ${selector}（${subject}）？\n未提交的修改将全部丢失！`)) return;
-    if (!confirm('再次确认：确定硬重置？')) return;
+  const doResetHard = async (selector: string, sha: string, subject: string) => {
+    if (!(await confirmDialog({ message: `危险操作：将工作区与分支强制回退到 ${selector}（${subject}）？\n未提交的修改将全部丢失！`, danger: true, confirmText: '确认硬重置' }))) return;
+    if (!(await confirmDialog({ message: '再次确认：确定硬重置？', danger: true, confirmText: '确认硬重置' }))) return;
     run(`reset-${sha}`, () => resetHard(projectId, sha), '已硬重置', async () => {
       setReflogList(await listReflog(projectId).catch(() => []));
       await onRefresh();
@@ -269,8 +270,8 @@ export default function DevGitMenu({ project, onRefresh }: Props) {
       `附件已上传到 Release ${tagName}`);
   };
 
-  const doDeleteTag = (name: string) => {
-    if (!confirm(`确认删除标签 ${name}？`)) return;
+  const doDeleteTag = async (name: string) => {
+    if (!(await confirmDialog({ message: `确认删除标签 ${name}？`, danger: true }))) return;
     run(`tag-del-${name}`, () => deleteTag(projectId, name, true), `标签 ${name} 已删除`,
       async () => setTags(await listTags(projectId).catch(() => [])));
   };
@@ -281,7 +282,7 @@ export default function DevGitMenu({ project, onRefresh }: Props) {
       '对比完成', () => undefined);
   };
 
-  const doRollback = () => {
+  const doRollback = async () => {
     const st = status;
     if (!st) return;
     const tracked: string[] = [];
@@ -292,7 +293,7 @@ export default function DevGitMenu({ project, onRefresh }: Props) {
       else tracked.push(c.path);
     });
     if (tracked.length + untracked.length === 0) return;
-    if (!confirm(`确认回滚 ${tracked.length + untracked.length} 个文件的更改？此操作不可撤销。`)) return;
+    if (!(await confirmDialog({ message: `确认回滚 ${tracked.length + untracked.length} 个文件的更改？此操作不可撤销。`, danger: true }))) return;
     run('rollback', () => gitRollback(projectId, tracked, untracked), '回滚成功', () => setDialog(null));
   };
 
@@ -498,7 +499,7 @@ export default function DevGitMenu({ project, onRefresh }: Props) {
             <div key={s.index} className="flex items-center gap-2 px-2 py-1.5 rounded hover:bg-tech-500/5">
               <span className="font-mono text-[10px] text-ink-500 flex-shrink-0">{'stash@{'}{s.index}{'}'}</span>
               <span className="text-xs text-ink-200 truncate flex-1" title={s.message}>{s.message || '（无备注）'}</span>
-              <button onClick={() => { if (confirm(`弹出 stash@{${s.index}} 到当前工作区？`)) doStashPop(s.index); }}
+              <button onClick={async () => { if (await confirmDialog({ message: `弹出 stash@{${s.index}} 到当前工作区？` })) doStashPop(s.index); }}
                 disabled={!!busy} className="text-[11px] text-ink-300 hover:text-tech-400 disabled:opacity-50 flex items-center gap-1 flex-shrink-0">
                 {busy === `stash-pop-${s.index}` ? <Loader2 className="w-3 h-3 animate-spin" /> : null}弹出
               </button>

@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { Loader2, X, Plus, Trash2, KeyRound } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
+import { confirmDialog } from '@/components/ui/ConfirmDialog';
 import Modal from '@/components/ui/Modal';
 import { listRoles, listPermissions, assignPermissions, createRole, deleteRole, updateRole, type RoleDTO, type PermissionDTO } from '@/lib/role';
 
@@ -80,7 +81,7 @@ export default function RoleManagePage() {
   };
 
   const handleDelete = async (role: RoleDTO) => {
-    if (!confirm(`确认删除角色 ${role.roleName}？关联的用户与权限将被清理。`)) return;
+    if (!(await confirmDialog({ message: `确认删除角色 ${role.roleName}？关联的用户与权限将被清理。`, danger: true }))) return;
     try {
       await deleteRole(role.roleId);
       toast('角色已删除', 'success');

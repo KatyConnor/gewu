@@ -4,6 +4,7 @@ import { Plus, Settings, Trash2, Loader2, X, Upload } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import CustomSelect from '@/components/ui/Select';
 import { useToast } from '@/components/ui/Toast';
+import { confirmDialog } from '@/components/ui/ConfirmDialog';
 import { listMySkills, uninstallSkill, createSkill, updateSkill, publishSkill, type SkillDTO, type CreateSkillCommand, type UpdateSkillCommand } from '@/lib/skill';
 
 function formatDate(ts?: number): string {
@@ -88,7 +89,7 @@ export default function MySkillsPage() {
   };
 
   const handleUninstall = async (id: string) => {
-    if (!confirm('确认卸载此技能？')) return;
+    if (!(await confirmDialog({ message: '确认卸载此技能？', danger: true }))) return;
     try {
       await uninstallSkill(id);
       toast('技能已卸载', 'success');

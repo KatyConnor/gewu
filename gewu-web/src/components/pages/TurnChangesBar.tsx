@@ -2,6 +2,7 @@
 import { useState } from 'react';
 import { ChevronDown, ChevronRight, FileText, RotateCcw } from 'lucide-react';
 import type { TurnFileChangeDTO } from '@/lib/sessionFileChanges';
+import { confirmDialog } from '@/components/ui/ConfirmDialog';
 
 /**
  * 回合文件汇总条（AI 回复尾部，zcode 风格）：
@@ -43,7 +44,7 @@ export default function TurnChangesBar({ files, undonePaths, canUndo, onUndoAll,
         </button>
         {canUndo && !allUndone && (
           <button
-            onClick={() => { if (window.confirm(`撤销本次 AI 对 ${files.length} 个文件的全部修改？该操作不可恢复。`)) onUndoAll(); }}
+            onClick={async () => { if (await confirmDialog({ message: `撤销本次 AI 对 ${files.length} 个文件的全部修改？该操作不可恢复。`, danger: true, confirmText: '全部撤销' })) onUndoAll(); }}
             className="flex-shrink-0 flex items-center gap-1 px-2 py-1 rounded-md text-[11px] text-ink-400 hover:text-tech-300 hover:bg-tech-500/10 border border-transparent hover:border-tech-500/20 transition-all"
             aria-label="撤销本次回复的全部文件修改"
             title="恢复这些文件到本次回复开始前的状态">
