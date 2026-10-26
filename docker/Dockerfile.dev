@@ -22,9 +22,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     cargo \
     && rm -rf /var/lib/apt/lists/*
 
-# Go 工具链 + delve 调试器（apt golang-go 版本过旧无法编译新版 delve，取官方 tarball）
+# Go 工具链 + delve 调试器（apt golang-go 版本过旧无法编译新版 delve，取官方 tarball；
+# GOPROXY 走国内镜像——proxy.golang.org 在受限网络不可达）
 RUN curl -fsSL https://go.dev/dl/go1.22.10.linux-amd64.tar.gz | tar -C /usr/local -xz
 ENV PATH=/usr/local/go/bin:/root/go/bin:$PATH
+ENV GOPROXY=https://goproxy.cn,direct
 RUN go install github.com/go-delve/delve/cmd/dlv@v1.22.1
 
 # 时区

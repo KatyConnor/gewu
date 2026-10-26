@@ -52,14 +52,28 @@ public class DevDebugService {
     private static final int DEBUG_PORT = 5005;
 
     /** 容器内驱动脚本：全部 shell 复杂度收敛于此（writeFile 下发，Java 侧单层引用调用）。
-     *  DPROMPT 环境变量参数化调试器提示符。 */
+     *  DPROMPT 环境变量参数化调试器提示符；isprompt 兼容 jdb 停点后的类上下文提示符变体（main[1] ）。 */
     private static final String DBG_SCRIPT = String.join("\n",
             "#!/bin/sh",
             "# 调试驱动脚本（DevDebugService 下发）",
             "DIR=/workspace/.dwdbg",
             "JLOG=$DIR/jdb.log",
             "DPROMPT=${DPROMPT:-\"> \"}",
-            "PLEN=${#DPROMPT}",
+            "# 提示符在场判定：固定 DPROMPT 尾配；java 附加变体（jdb 停点后提示符变为 'main[1] ' 类上下文形态）",
+            "isprompt() {",
+            "  T=$(tail -c 40 $JLOG 2>/dev/null | tr -d '\\r\\n')",
+            "  case \"$T\" in",
+            "    *\"$DPROMPT\") return 0 ;;",
+            "  esac",
+            "  if [ \"$DPROMPT\" = \"> \" ]; then",
+            "    case \"$T\" in",
+            "      *\"]\"|*\"] \")",
+            "        if printf '%s' \"$T\" | grep -qE '(^|[^[])[A-Za-z0-9_$]+\\[[0-9]+\\] ?$'; then return 0; fi",
+            "        ;;",
+            "    esac",
+            "  fi",
+            "  return 1",
+            "}",
             "case \"$1\" in",
             //  waitapp <sec>：等待被调试 JVM 的 JDWP 监听日志（仅 java 模式；返回 1/0）
             "  waitapp)",
@@ -71,28 +85,27 @@ public class DevDebugService {
             "    printf '%s\\n' \"$2\" > $DIR/in",
             "    N=$(( ${3:-15} * 5 )); i=0",
             "    while [ $i -lt $N ]; do",
-            "      NOW=$(wc -c < $JLOG)",
-            "      if [ \"$NOW\" -gt \"$BEFORE\" ] && [ \"$(tail -c $PLEN $JLOG)\" = \"$DPROMPT\" ]; then break; fi",
+            "      if isprompt && [ \"$(wc -c < $JLOG)\" -gt \"$BEFORE\" ]; then break; fi",
             "      sleep 0.2; i=$((i+1))",
             "    done",
-            "    tail -c +$((BEFORE+1)) $JLOG ;;",
+            "    tail -c +$((BEFORE+1)) $JLOG | sed 's/\\x1b\\[[0-9;]*m//g' ;;",
             //  ready <sec>：等待调试器提示符（启动握手用）
             "  ready)",
             "    N=$(( ${2:-20} * 5 )); i=0",
             "    while [ $i -lt $N ]; do",
-            "      if [ \"$(tail -c $PLEN $JLOG 2>/dev/null)\" = \"$DPROMPT\" ]; then echo READY; exit 0; fi",
+            "      if isprompt; then echo READY; exit 0; fi",
             "      sleep 0.2; i=$((i+1))",
             "    done",
             "    echo TIMEOUT ;;",
             //  poll <offset>：提示符在场则返回日志增量（断点异步命中探测）
             "  poll)",
-            "    if [ \"$(tail -c $PLEN $JLOG 2>/dev/null)\" = \"$DPROMPT\" ]; then tail -c +$(( $2 + 1 )) $JLOG; fi ;;",
+            "    if isprompt; then tail -c +$(( $2 + 1 )) $JLOG | sed 's/\\x1b\\[[0-9;]*m//g'; fi ;;",
             //  applog <offset>：被调试应用控制台增量（java 模式独立 app.log）
             "  applog)",
             "    tail -c +$(( $2 + 1 )) $DIR/app.log 2>/dev/null ;;",
             //  jlog <offset>：调试日志增量（python/node 模式控制台=调试日志过滤提示符）
             "  jlog)",
-            "    tail -c +$(( $2 + 1 )) $JLOG 2>/dev/null ;;",
+            "    tail -c +$(( $2 + 1 )) $JLOG 2>/dev/null | sed 's/\\x1b\\[[0-9;]*m//g' ;;",
             "esac");
 
     private static final String PROMPT_JAVA = "> ";
@@ -111,7 +124,7 @@ public class DevDebugService {
     private static final Pattern FRAME_JAVA = Pattern.compile(
             "\\s*\\[\\d+\\]\\s+([\\w.$]+)\\.([\\w$<>]+)\\s*\\(([\\w.$]+\\.java)?(?::(\\d+))?\\)");
     /** locals 变量行："    name = value"（缩进 2+） */
-    private static final Pattern LOCAL_JAVA = Pattern.compile("^\\s{2,}(\\w[\\w.$]*)\\s*=\\s(.*)$");
+    private static final Pattern LOCAL_JAVA = Pattern.compile("^\\s*(\\w[\\w.$]*)\\s*=\\s(.+)$");
     private static final Pattern CLASS_NAME = Pattern.compile("^[A-Za-z_][A-Za-z0-9_$.]*$");
 
     // ===== python（pdb）解析 =====
@@ -132,7 +145,7 @@ public class DevDebugService {
     /** 命中行："> main.main() /workspace/.../main.go:10 (hits: 1 total: 1)" */
     private static final Pattern HIT_GO = Pattern.compile("> (\\S+)\\(\\) (\\S+\\.go):(\\d+)");
     /** stack 栈帧行：" 0  0x... in main.main at /workspace/.../main.go:10" */
-    private static final Pattern FRAME_GO = Pattern.compile("\\d+\\s+0x\\S+ in (\\S+) at (\\S+):(\\d+)");
+    private static final Pattern FRAME_GO = Pattern.compile("\\d+\\s+0x\\S+ in (\\S+)\\s+at\\s+(\\S+):(\\d+)");
     /** locals 变量行："x = 5"（顶格） */
     private static final Pattern LOCAL_GO = Pattern.compile("^(\\w+)\\s*=\\s(.+)$");
 
@@ -146,7 +159,7 @@ public class DevDebugService {
 
     // ===== 线程/协程解析（jdb threads / dlv goroutines / gdb info threads） =====
     /** "  (java.lang.Thread)0x1  main                running" */
-    private static final Pattern THREAD_JAVA = Pattern.compile("^\\s+\\(([^)]+)\\)(0x[0-9a-fA-F]+)\\s+(\\S+)\\s+(\\S+)");
+    private static final Pattern THREAD_JAVA = Pattern.compile("^\\s+\\(([^)]+)\\)(0x[0-9a-fA-F]+|\\d+)\\s+(\\S+)\\s+(\\S+)");
     /** "* Goroutine 1 - User: /path/main.go:10 main.main (0x...)" */
     private static final Pattern THREAD_GO = Pattern.compile("^(\\*\\s*)?Goroutine (\\d+) - User:\\s*(.*)$");
     /** "* 1    Thread 0x... (LWP 5) \"name\" 0x... in main () at main.c:10" */
@@ -272,7 +285,7 @@ public class DevDebugService {
             throw BusinessException.of(ResultCode.PARAM_INVALID,
                     "Go 调试需包路径形式（如 go run . / go run ./cmd/app），不支持直接调试 .go 文件");
         }
-        return "dlv debug" + (arg.isEmpty() ? "" : " " + arg);
+        return "dlv debug --allow-non-terminal-interactive=true" + (arg.isEmpty() ? "" : " " + arg);
     }
 
     /** ./binary → gdb -q --args（gcc/g++/rustc 构建产物直接调试） */
@@ -910,8 +923,14 @@ public class DevDebugService {
             session.topFrame = frames.get(0);
             session.status = "stopped";
         } else {
-            session.status = "terminated";
+            // 无栈帧：VM 运行中（jdb 运行态 where 报 No thread）或已退出——终止只由退出标记判定
             session.topFrame = null;
+            if (!"java".equals(session.kind) && (where.toLowerCase().contains("not being run")
+                    || where.toLowerCase().contains("not launched"))) {
+                session.status = "terminated";
+            } else {
+                session.status = "running";
+            }
         }
     }
 
@@ -1213,10 +1232,16 @@ public class DevDebugService {
         return stripPrompt(session.kind, out);
     }
 
-    /** 去掉尾部调试器提示符 */
+    /** 去掉尾部调试器提示符（java 兼容 main[1] 类上下文形态） */
     private static String stripPrompt(String kind, String out) {
+        String t = out;
+        if ("java".equals(kind)) {
+            t = t.replaceFirst("(?s)\\n?[A-Za-z0-9_$]+\\[[0-9]+\\] $", "");
+        }
         String prompt = promptOf(kind);
-        String t = out.endsWith(prompt) ? out.substring(0, out.length() - prompt.length()) : out;
+        if (t.endsWith(prompt)) {
+            t = t.substring(0, t.length() - prompt.length());
+        }
         return t.endsWith("\n") ? t.substring(0, t.length() - 1) : t;
     }
 
@@ -1296,9 +1321,9 @@ public class DevDebugService {
     /** 容器绝对路径 → 仓库相对路径（仓库外路径原样保留，前端定位时自然失败提示） */
     private String relOrAbs(DebugSession session, String abs) {
         if (abs.startsWith(session.repoDir + "/")) {
-            return abs.substring(session.repoDir.length() + 1);
+            abs = abs.substring(session.repoDir.length() + 1);
         }
-        return abs;
+        return abs.startsWith("./") ? abs.substring(2) : abs;
     }
 
     /** python 文件路径 → 模块点路径标签 */
