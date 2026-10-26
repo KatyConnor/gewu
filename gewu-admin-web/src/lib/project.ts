@@ -74,6 +74,8 @@ export interface ProjectPayload {
   worktree?: string;
   iconColor?: string;
   repoUrl?: string;
+  /** 克隆分支；留空=跟随仓库远程默认分支（Gitee 多为 master、GitHub/GitLab 多为 main） */
+  repoBranch?: string;
   platformType?: string;
   apiBase?: string;
   repoCredentialType?: string;

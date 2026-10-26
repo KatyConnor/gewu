@@ -850,7 +850,7 @@ export default function DevWorkspacePage() {
             </button>
             {selectedProject && (
               <div className={`text-[10px] mt-1.5 px-2 ${selectedProject.cloneStatus === 'failed' ? 'text-cinnabar-400' : 'text-ink-600'}`}>
-                {selectedProject.repoBranch} · {cloneStatusDesc(selectedProject)}
+                {selectedProject.repoBranch || '默认分支'} · {cloneStatusDesc(selectedProject)}
               </div>
             )}
             {projectMenuOpen && (
@@ -867,7 +867,7 @@ export default function DevWorkspacePage() {
                         <span className="truncate flex-1">{p.projectName}</span>
                       </div>
                       <div className={`text-[10px] ml-5 ${p.cloneStatus === 'failed' ? 'text-cinnabar-400' : 'text-ink-600'}`}>
-                        {p.repoBranch} · {cloneStatusDesc(p)}
+                        {p.repoBranch || '默认分支'} · {cloneStatusDesc(p)}
                       </div>
                     </div>
                   ))}
@@ -929,7 +929,7 @@ export default function DevWorkspacePage() {
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-ink-500 flex-shrink-0">分支</span>
-                  <span className="text-ink-200">{selectedProject.repoBranch || 'main'}</span>
+                  <span className="text-ink-200">{selectedProject.repoBranch || '默认分支'}</span>
                 </div>
                 <div className="flex items-center justify-between gap-2">
                   <span className="text-ink-500 flex-shrink-0">认证方式</span>

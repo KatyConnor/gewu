@@ -143,6 +143,9 @@ public class AdminProjectService {
         project.setIconUrl(command.getIconUrl());
         project.setIconColor(command.getIconColor());
         project.setRepoUrl(command.getRepoUrl());
+        // 分支留空=跟随仓库远程默认分支（克隆时由 ProjectRepoService 回填实际分支名）
+        project.setRepoBranch(command.getRepoBranch() != null && !command.getRepoBranch().isBlank()
+                ? command.getRepoBranch().trim() : null);
         project.setPlatformType(command.getPlatformType());
         project.setApiBase(command.getApiBase());
         applyRepoCredential(project, command.getRepoCredentialType(), command.getRepoUsername(), command.getRepoCredential());
@@ -188,6 +191,10 @@ public class AdminProjectService {
         if (command.getIconUrl() != null) project.setIconUrl(command.getIconUrl());
         if (command.getIconColor() != null) project.setIconColor(command.getIconColor());
         if (command.getRepoUrl() != null) project.setRepoUrl(command.getRepoUrl());
+        // 分支：null=不修改；空白=清除并回落仓库远程默认分支
+        if (command.getRepoBranch() != null) {
+            project.setRepoBranch(command.getRepoBranch().isBlank() ? null : command.getRepoBranch().trim());
+        }
         if (command.getPlatformType() != null) project.setPlatformType(command.getPlatformType());
         if (command.getApiBase() != null) project.setApiBase(command.getApiBase());
         if (command.getRepoCredential() != null && !command.getRepoCredential().isBlank()) {

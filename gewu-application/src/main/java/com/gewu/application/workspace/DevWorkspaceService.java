@@ -344,7 +344,8 @@ public class DevWorkspaceService {
                 .projectId(p.getId())
                 .projectName(p.getProjectName())
                 .repoUrl(p.getRepoUrl())
-                .repoBranch(p.getRepoBranch() != null ? p.getRepoBranch() : "main")
+                // 未配置/未克隆时如实传 null（克隆成功后回填远程默认分支），前端显示「默认分支」
+                .repoBranch(p.getRepoBranch())
                 .localPath(p.getRepoLocalPath() != null ? p.getRepoLocalPath() : "projects/" + p.getId() + "/repo")
                 .cloneStatus(p.getCloneStatus() != null ? p.getCloneStatus() : "pending")
                 .cloneError(p.getCloneError())

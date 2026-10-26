@@ -37,6 +37,8 @@ public class AdminProjectUpdateCommand {
     private String iconColor;
 
     private String repoUrl;
+    /** 克隆分支（null=不修改；空白=清除并回落仓库远程默认分支） */
+    private String repoBranch;
     /** 托管平台类型（github/gitlab/gitee/gitea；空=按域名推断） */
     private String platformType;
     /** 自建实例 REST API 根地址（空=按平台默认推导） */

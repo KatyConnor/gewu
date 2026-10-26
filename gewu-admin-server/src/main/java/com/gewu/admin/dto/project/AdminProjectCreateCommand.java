@@ -39,6 +39,8 @@ public class AdminProjectCreateCommand {
     private String iconColor;
 
     private String repoUrl;
+    /** 克隆分支（空=跟随仓库远程默认分支，Gitee 多为 master、GitHub/GitLab 多为 main） */
+    private String repoBranch;
     /** 托管平台类型（github/gitlab/gitee/gitea；空=按域名推断） */
     private String platformType;
     /** 自建实例 REST API 根地址（空=按平台默认推导） */

@@ -38,6 +38,9 @@ public class ProjectRepoService {
 
     /**
      * 克隆项目仓库到开发沙箱（按项目配置的 Git 地址与凭证）。
+     * <p>分支优先级：入参 &gt; 项目配置 &gt; 远程默认分支——未配置时不假定 main
+     * （托管平台主分支名不统一：Gitee 多为 master、GitHub/GitLab 多为 main），
+     * 直接克隆远程 HEAD 并在成功后回填实际分支名。
      */
     @Transactional
     public Project cloneProjectRepo(String projectId, String repoUrl, String branch) {
@@ -46,31 +49,42 @@ public class ProjectRepoService {
         String localPath = project.getRepoLocalPath() != null
                 ? project.getRepoLocalPath()
                 : "projects/" + projectId + "/repo";
-        String resolvedBranch = branch != null && !branch.isBlank() ? branch
-                : project.getRepoBranch() != null && !project.getRepoBranch().isBlank() ? project.getRepoBranch() : "main";
+        String configuredBranch = branch != null && !branch.isBlank() ? branch
+                : project.getRepoBranch() != null && !project.getRepoBranch().isBlank() ? project.getRepoBranch() : null;
         String effectiveUrl = resolveCredentialUrl(project, repoUrl);
         // ssh_key 型凭证：私钥先注入容器（token/password 已在 URL 内携带）
         injectSshKeyIfConfigured(project, sandboxId);
 
         // 更新状态为 cloning（首次克隆同时落定容器内路径，pull/push/build/run 均依赖它）
         project.setRepoUrl(repoUrl);
-        project.setRepoBranch(resolvedBranch);
+        project.setRepoBranch(configuredBranch);
         project.setRepoLocalPath(localPath);
         project.setCloneStatus("cloning");
         project.setCloneError(null);
         projectMapper.updateById(project);
 
         // 创建目录并 clone（用户输入经 shellQuote 防注入，L3-SEC-002；
-        // GIT_SSH_COMMAND：容器内首连远程无 TTY，自动接受新主机指纹 + 禁用交互提示）
+        // GIT_SSH_COMMAND：容器内首连远程无 TTY，自动接受新主机指纹 + 禁用交互提示；
+        // 未配置分支时不带 --branch，克隆远程默认分支）
         sandboxClient.execCommand(sandboxId, "mkdir -p " + shellQuote("/workspace/" + localPath), 5);
         String cloneCmd = "GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes\""
-                + " git clone --branch " + shellQuote(resolvedBranch) + " " + shellQuote(effectiveUrl)
+                + " git clone" + (configuredBranch != null ? " --branch " + shellQuote(configuredBranch) : "")
+                + " " + shellQuote(effectiveUrl)
                 + " " + shellQuote("/workspace/" + localPath);
         ExecCommandResponse resp = sandboxClient.execCommand(sandboxId, cloneCmd, 120);
 
         if (resp.getExitCode() != null && resp.getExitCode() == 0) {
             project.setCloneStatus("ready");
             project.setCloneError(null);
+            // 未配置分支：回填克隆到的实际分支（远程默认分支），后续 pull/需求分支创建均以它为准
+            if (configuredBranch == null) {
+                ExecCommandResponse branchResp = sandboxClient.execCommand(sandboxId,
+                        "git -C " + shellQuote("/workspace/" + localPath) + " rev-parse --abbrev-ref HEAD", 10);
+                if (branchResp.getExitCode() != null && branchResp.getExitCode() == 0
+                        && branchResp.getStdout() != null && !branchResp.getStdout().isBlank()) {
+                    project.setRepoBranch(branchResp.getStdout().trim());
+                }
+            }
             ExecCommandResponse headResp = sandboxClient.execCommand(
                     sandboxId, "git -C " + shellQuote("/workspace/" + localPath) + " rev-parse HEAD", 10);
             project.setHeadCommit(headResp.getStdout().trim());
@@ -109,10 +123,14 @@ public class ProjectRepoService {
         }
 
         String pullDir = shellQuote("/workspace/" + localPath);
-        String pullBranch = shellQuote(project.getRepoBranch() != null ? project.getRepoBranch() : "main");
-        ExecCommandResponse pullResp = sandboxClient.execCommand(sandboxId,
-                "GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes\""
-                        + " git -C " + pullDir + " pull origin " + pullBranch, 60);
+        // 未配置分支：不带 refspec 直接 pull 当前分支上游（克隆时落定的远程默认分支），
+        // 避免对 Gitee（master）等硬编码 main 误拉
+        String pullCmd = "GIT_TERMINAL_PROMPT=0 GIT_SSH_COMMAND=\"ssh -o StrictHostKeyChecking=accept-new -o BatchMode=yes\""
+                + " git -C " + pullDir + " pull";
+        if (project.getRepoBranch() != null && !project.getRepoBranch().isBlank()) {
+            pullCmd += " origin " + shellQuote(project.getRepoBranch());
+        }
+        ExecCommandResponse pullResp = sandboxClient.execCommand(sandboxId, pullCmd, 60);
         // 失败不静默：认证失败/冲突等直接抛出（与 DevWorkspace 拉取报错口径一致）
         if (pullResp.getExitCode() == null || pullResp.getExitCode() != 0) {
             String stderr = pullResp.getStderr() != null && !pullResp.getStderr().isBlank()

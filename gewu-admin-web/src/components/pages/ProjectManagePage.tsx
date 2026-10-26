@@ -97,6 +97,7 @@ interface ProjectForm {
   worktree: string;
   iconColor: string;
   repoUrl: string;
+  repoBranch: string;
   platformType: string;
   apiBase: string;
   authMode: 'credential' | 'password';
@@ -112,7 +113,7 @@ interface ProjectForm {
 const EMPTY_FORM: ProjectForm = {
   projectId: '', projectName: '', shortName: '', systemName: '', description: '',
   visibility: 0, status: 1, techStack: '', vcs: 'git', worktree: '', iconColor: '#00b894',
-  repoUrl: '', platformType: '', apiBase: '', authMode: 'credential', credType: 'token', credential: '',
+  repoUrl: '', repoBranch: '', platformType: '', apiBase: '', authMode: 'credential', credType: 'token', credential: '',
   repoUsername: '', repoPassword: '',
   techLeadUserId: '', techLeadName: '', memberUsers: [],
 };
@@ -191,6 +192,7 @@ export default function ProjectManagePage() {
     worktree: p.worktree || '',
     iconColor: p.iconColor || '#00b894',
     repoUrl: p.repoUrl || '',
+    repoBranch: p.repoBranch || '',
     platformType: p.platformType || '',
     apiBase: p.apiBase || '',
     authMode: 'credential',
@@ -284,6 +286,8 @@ export default function ProjectManagePage() {
       worktree: form.worktree.trim() || undefined,
       iconColor: form.iconColor || undefined,
       repoUrl: form.repoUrl.trim() || undefined,
+      // 留空=跟随仓库远程默认分支（编辑时始终提交，空白由后端落 null）
+      repoBranch: form.repoBranch.trim(),
       platformType: form.platformType || undefined,
       apiBase: form.apiBase.trim() || undefined,
       repoCredentialType,
@@ -536,6 +540,10 @@ export default function ProjectManagePage() {
                   <div>
                     <label className={labelCls}>仓库地址</label>
                     <input value={form.repoUrl} onChange={e => setForm({ ...form, repoUrl: e.target.value })} placeholder="如：https://github.com/org/repo.git" className={inputCls} />
+                    <div>
+                      <label className="block text-xs text-ink-500 mb-1">克隆分支（可选）</label>
+                      <input value={form.repoBranch} onChange={e => setForm({ ...form, repoBranch: e.target.value })} placeholder="留空跟随仓库默认分支（Gitee 多为 master，GitHub 多为 main）" className={inputCls} />
+                    </div>
                     <div className="grid grid-cols-2 gap-3">
                       <div>
                         <label className="block text-xs text-ink-500 mb-1">托管平台（可选，自建实例必选）</label>
