@@ -1,0 +1,134 @@
+# 格物平台 - Git 忽略文件
+
+# ==================== Java ====================
+*.class
+*.jar
+*.war
+*.ear
+*.nar
+
+# AI 模型文件（大文件，不入库）
+models/*.onnx
+models/*.onnx_data
+models/*.safetensors
+models/*.bin
+models/tokenizer.json
+models/config.json
+models/*.gguf
+
+# Maven
+target/
+pom.xml.tag
+pom.xml.releaseBackup
+pom.xml.versionsBackup
+pom.xml.next
+release.properties
+dependency-reduced-pom.xml
+buildNumber.properties
+.mvn/timing.properties
+.mvn/wrapper/maven-wrapper.jar
+
+# ==================== IDE ====================
+.idea/
+*.iws
+*.iml
+*.ipr
+.vscode/
+*.swp
+*.swo
+*~
+.factorypath
+.project
+.classpath
+.settings/
+bin/
+*.log
+
+# ==================== OS ====================
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# ==================== Logs ====================
+*.log
+logs/
+
+# ==================== Docker ====================
+.dockerignore
+
+# ==================== Node.js ====================
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# ==================== Build ====================
+dist/
+# build/ 为 Java 模块产物规则；gewu-desktop/build 存放入库资源（icon）与产物（jre）
+build/
+!gewu-desktop/build/
+gewu-desktop/build/jre/
+out/
+
+# ==================== Environment ====================
+.env
+.env.local
+.env.*.local
+
+# ==================== Project Specific ====================
+# 本机启停脚本（scripts/gewu-ctl.sh）的 PID 文件
+run/
+# 本地配置文件
+application-local.yml
+application-local.properties
+
+# 临时文件
+tmp/
+temp/
+
+# Next.js 构建产物（gewu-admin-web）
+.next/
+
+# 私服备份（S4 旧表退役备份等，不入库）
+deploy/backup/
+
+# gewu-desktop 运行时数据与产物（Phase 1）
+gewu-desktop-runtime/data/
+gewu-desktop-runtime/workspace/
+gewu-desktop/release/
+gewu-desktop/workspace/
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+bower_components/
+jspm_packages/
+__pycache__/
+site-packages/
+venv/
+coverage/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.egg-info/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）
