@@ -242,6 +242,95 @@ export async function gitRollback(projectId: string, paths: string[], untrackedP
   await unwrap<void>(request.post<ApiResponse<void>>(`/v1/dev-workspaces/projects/${projectId}/git/rollback`, { paths, untrackedPaths }));
 }
 
+// ==================== Debug 调试（IDEA 式·P1 Java 断点调试） ====================
+
+export interface DebugFrame {
+  className: string;
+  methodName: string;
+  fileName?: string;
+  line?: number;
+}
+
+export interface DebugLocal {
+  name: string;
+  value: string;
+}
+
+export interface DebugBreakpointInfo {
+  path: string;
+  line: number;
+  className: string;
+  /** 条件表达式（空=无条件） */
+  condition?: string;
+}
+
+export interface DebugWatch {
+  expr: string;
+  value?: string;
+}
+
+export interface DebugThread {
+  id: string;
+  name: string;
+  current: boolean;
+  statusDesc?: string;
+}
+
+/** 调试会话状态快照（jdb/pdb/node inspect 解析结果） */
+export interface DebugState {
+  /** inactive | running | stopped（断点/步进停点）| terminated */
+  status: string;
+  /** 调试语言驱动：java | python | node */
+  kind?: string;
+  message?: string;
+  currentClass?: string;
+  currentMethod?: string;
+  currentFile?: string;
+  currentLine?: number;
+  thread?: string;
+  console?: string;
+  frames: DebugFrame[];
+  locals: DebugLocal[];
+  watches: DebugWatch[];
+  breakpoints: DebugBreakpointInfo[];
+  threads: DebugThread[];
+  /** 当前选中线程（线程视图） */
+  currentThread?: string;
+}
+
+/** 调试运行：注入 JDWP 启动目标进程并挂接 jdb；mode=attach 附加已运行进程（仅 Java） */
+export async function debugStart(projectId: string, command?: string, mode?: 'launch' | 'attach'): Promise<DebugState> {
+  return unwrap<DebugState>(request.post<ApiResponse<DebugState>>(`/v1/dev-workspaces/projects/${projectId}/debug/start`, { command, mode }));
+}
+
+export async function debugState(projectId: string): Promise<DebugState> {
+  return unwrap<DebugState>(request.get<ApiResponse<DebugState>>(`/v1/dev-workspaces/projects/${projectId}/debug/state`));
+}
+
+export async function debugStop(projectId: string): Promise<DebugState> {
+  return unwrap<DebugState>(request.post<ApiResponse<DebugState>>(`/v1/dev-workspaces/projects/${projectId}/debug/stop`));
+}
+
+/** 断点设置/删除（path=工作空间相对源文件路径；condition=条件表达式） */
+export async function debugBreakpoint(projectId: string, path: string, line: number, remove?: boolean, condition?: string): Promise<DebugState> {
+  return unwrap<DebugState>(request.post<ApiResponse<DebugState>>(`/v1/dev-workspaces/projects/${projectId}/debug/breakpoint`, { path, line, remove, condition }));
+}
+
+/** 执行控制：cont 继续 / next 步过 / step 步入 / stepUp 步出 / runTo 运行到光标 / thread 切换线程 */
+export async function debugAction(projectId: string, op: 'cont' | 'next' | 'step' | 'stepUp' | 'runTo' | 'thread', path?: string, line?: number, threadId?: string): Promise<DebugState> {
+  return unwrap<DebugState>(request.post<ApiResponse<DebugState>>(`/v1/dev-workspaces/projects/${projectId}/debug/action`, { op, path, line, threadId }));
+}
+
+/** Watch 表达式登记/移除 */
+export async function debugWatch(projectId: string, expr: string, remove?: boolean): Promise<DebugState> {
+  return unwrap<DebugState>(request.post<ApiResponse<DebugState>>(`/v1/dev-workspaces/projects/${projectId}/debug/watch`, { expr, remove }));
+}
+
+/** 表达式求值（顶层栈帧） */
+export async function debugEval(projectId: string, expr: string): Promise<DebugState> {
+  return unwrap<DebugState>(request.post<ApiResponse<DebugState>>(`/v1/dev-workspaces/projects/${projectId}/debug/eval`, { expr }));
+}
+
 export async function buildProject(projectId: string, command: string): Promise<ExecResult> {
   return unwrap<ExecResult>(request.post<ApiResponse<ExecResult>>(`/v1/dev-workspaces/projects/${projectId}/build`, { command }));
 }

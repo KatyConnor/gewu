@@ -1,5 +1,5 @@
 # 格物平台开发沙箱基础镜像
-# 预装: git, openssh, jdk-21, maven, node-20, python-3
+# 预装: git, openssh, jdk-21, maven, node-20, python-3, go+dlv, gdb, rustc/cargo
 FROM eclipse-temurin:21-jdk-jammy
 
 # 安装开发工具链
@@ -17,7 +17,15 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     python3-pip \
     nodejs \
     npm \
+    gdb \
+    rustc \
+    cargo \
     && rm -rf /var/lib/apt/lists/*
+
+# Go 工具链 + delve 调试器（apt golang-go 版本过旧无法编译新版 delve，取官方 tarball）
+RUN curl -fsSL https://go.dev/dl/go1.22.10.linux-amd64.tar.gz | tar -C /usr/local -xz
+ENV PATH=/usr/local/go/bin:/root/go/bin:$PATH
+RUN go install github.com/go-delve/delve/cmd/dlv@v1.22.1
 
 # 时区
 ENV TZ=Asia/Shanghai

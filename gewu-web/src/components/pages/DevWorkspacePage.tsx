@@ -3,17 +3,19 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import { useDispatch } from 'react-redux';
 import { setPage } from '@/store';
-import { Loader2, Play, Square, GitBranch, Terminal, Save, RefreshCw, Pencil, Undo2, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, FileText } from 'lucide-react';
+import { Loader2, Play, Square, GitBranch, Terminal, Save, RefreshCw, Pencil, Undo2, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, FileText, Bug } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import MarkdownReader from '@/components/ui/MarkdownReader';
 import DevGitMenu from './DevGitMenu';
 import DevQuickOpen from './DevQuickOpen';
+import DevDebugPanel from './DevDebugPanel';
 import { isMarkdownPath, isProbablyBinary, monacoLangOf } from '@/lib/fileLanguage';
 import {
   getDevWorkspace, startSandbox, stopSandbox, readFile, writeFile,
   listProjects, gitPull, buildProject, runProject,
   listFileEntries,
-  type DevWorkspaceInfo, type GitProject, type FileEntry,
+  debugStart, debugState as fetchDebugState, debugStop, debugBreakpoint, debugAction, debugEval, debugWatch,
+  type DevWorkspaceInfo, type GitProject, type FileEntry, type DebugState,
 } from '@/lib/dev-workspace';
 // 终端面板客户端专用（ssr:false）：@xterm/addon-fit UMD 顶层引用 self，SSR 预渲染会崩
 const TerminalPanel = dynamic(() => import('@/components/ui/TerminalPanel'), { ssr: false });
@@ -92,6 +94,18 @@ export default function DevWorkspacePage() {
   /** 编辑器主题（持久化到 localStorage，默认格物暗色） */
   const [editorTheme, setEditorTheme] = useState<string>(() =>
     (typeof window !== 'undefined' && window.localStorage.getItem('dw-editor-theme')) || 'gewu-dark');
+  // ===== IDEA 式 Debug（P1 Java 断点调试） =====
+  const [debugState, setDebugState] = useState<DebugState | null>(null);
+  /** 累积的应用控制台文本 */
+  const [debugConsole, setDebugConsole] = useState('');
+  /** 正在执行的调试动作 */
+  const [debugBusy, setDebugBusy] = useState<string | null>(null);
+  /** 本地断点登记：repoRelPath:line */
+  const [bpLines, setBpLines] = useState<Set<string>>(new Set());
+  /** 停点自动定位去重（同停点只自动打开一次） */
+  const lastAutoOpen = useRef<string>('');
+  /** 调试会话是否进行中 */
+  const debugActive = !!debugState && debugState.status !== 'inactive';
   // 文件树（IDEA 式工作台）：path → entries 懒加载缓存 + 展开集合
   const [tree, setTree] = useState<Record<string, FileEntry[]>>({});
   const [expandedDirs, setExpandedDirs] = useState<Set<string>>(new Set());
@@ -355,6 +369,22 @@ export default function DevWorkspacePage() {
   // Ctrl+E 最近文件、Ctrl+Shift+F 全局搜索（检索面板打开时让位给面板自身的键处理）
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
+      // 调试 F 键（IDEA 对齐）：F9 继续 / F8 步过 / Shift+F8 步出 / F7 步入 / Alt+F9 运行到光标
+      if (debugActive && !e.ctrlKey && !e.metaKey) {
+        if (!e.altKey && ['F7', 'F8', 'F9'].includes(e.key)) {
+          e.preventDefault();
+          if (e.key === 'F9') onDebugAction('cont');
+          else if (e.key === 'F8' && e.shiftKey) onDebugAction('stepUp');
+          else if (e.key === 'F8') onDebugAction('next');
+          else if (e.key === 'F7') onDebugAction('step');
+          return;
+        }
+        if (e.altKey && !e.shiftKey && e.key === 'F9') {
+          e.preventDefault();
+          onDebugRunTo();
+          return;
+        }
+      }
       if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
         if (viewMode === 'edit') handleSaveFile();
@@ -377,7 +407,7 @@ export default function DevWorkspacePage() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, currentPath, fileContent, saving, quick, selectedProject]);
+  }, [viewMode, currentPath, fileContent, saving, quick, selectedProject, debugActive]);
 
   // 编辑器主题持久化
   useEffect(() => {
@@ -428,6 +458,228 @@ export default function DevWorkspacePage() {
     }
   };
 
+  // ==================== Debug 调试（IDEA 式 P1：Java 断点调试） ====================
+
+  /** 应用调试状态：合并控制台增量 + 停点自动定位源文件（同停点只定位一次） */
+  const applyDebugState = (st: DebugState) => {
+    setDebugState(st);
+    if (st.console) setDebugConsole(prev => (prev + st.console).slice(-20000));
+    const key = st.status === 'stopped' && st.currentFile ? `${st.currentFile}:${st.currentLine}` : '';
+    if (key && key !== lastAutoOpen.current) {
+      lastAutoOpen.current = key;
+      // python/node 停点携带仓库相对路径（含 /）直接定位；java 携带文件名+类名走 Maven 约定映射
+      if (st.currentFile && st.currentFile.includes('/')) {
+        const full = `${selectedProject?.localPath}/${st.currentFile}`;
+        readFile(full)
+          .then(() => openRepoFile(st.currentFile!, st.currentLine))
+          .catch(() => undefined); // 外部依赖源码不可得，静默
+      } else {
+        const fileMatched = !!st.currentFile && (currentPath.endsWith('/' + st.currentFile) || currentPath === st.currentFile);
+        if (st.currentClass && !fileMatched) {
+          const guess = `src/main/java/${st.currentClass.replace(/\./g, '/')}.java`;
+          readFile(`${selectedProject?.localPath}/${guess}`)
+            .then(() => openRepoFile(guess, st.currentLine))
+            .catch(() => undefined);
+        }
+      }
+    }
+  };
+
+  const startDebug = async () => {
+    if (!selectedProject) return;
+    const cmd = prompt(
+      '调试运行命令（自动识别：mvn/java=Java、python=Python、node=Node、go run=Go、./二进制=C/C++/Rust；输入 attach 附加已运行的 Java 进程）:',
+      'mvn spring-boot:run');
+    if (!cmd) return;
+    const attach = cmd.trim() === 'attach';
+    setDebugBusy('start');
+    try {
+      setDebugConsole('');
+      applyDebugState(await debugStart(selectedProject.projectId, attach ? undefined : cmd, attach ? 'attach' : undefined));
+      toast(attach ? '已附加到运行中的调试进程' : '调试会话已启动', 'success');
+      // 本地已登记断点重放到新会话
+      for (const key of Array.from(bpLines)) {
+        const idx = key.lastIndexOf(':');
+        const line = Number(key.slice(idx + 1));
+        if (Number.isFinite(line)) {
+          await debugBreakpoint(selectedProject.projectId, key.slice(0, idx), line).catch(() => undefined);
+        }
+      }
+    } catch (e) {
+      toast('调试启动失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    } finally {
+      setDebugBusy(null);
+    }
+  };
+
+  const stopDebug = async () => {
+    if (!selectedProject) return;
+    setDebugBusy('stop');
+    try {
+      const st = await debugStop(selectedProject.projectId);
+      setDebugState(st.status === 'inactive' ? null : st);
+      toast('调试已停止', 'success');
+    } catch (e) {
+      toast('停止失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    } finally {
+      setDebugBusy(null);
+    }
+  };
+
+  const onDebugAction = async (op: 'cont' | 'next' | 'step' | 'stepUp') => {
+    if (!selectedProject || debugBusy) return;
+    setDebugBusy(op);
+    try {
+      applyDebugState(await debugAction(selectedProject.projectId, op));
+    } catch (e) {
+      toast('调试操作失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    } finally {
+      setDebugBusy(null);
+    }
+  };
+
+  const onDebugEval = async (expr: string) => {
+    if (!selectedProject || debugBusy) return;
+    setDebugBusy('eval');
+    try {
+      applyDebugState(await debugEval(selectedProject.projectId, expr));
+    } catch (e) {
+      toast('求值失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    } finally {
+      setDebugBusy(null);
+    }
+  };
+
+  /** 行号槽切换断点（Shift+点击=条件断点；会话中即时下发；未启动仅本地登记，启动时重放） */
+  const toggleBreakpoint = async (line: number, shiftKey?: boolean) => {
+    if (!selectedProject?.localPath || !currentPath) return;
+    const repoRel = currentPath.startsWith(selectedProject.localPath + '/')
+      ? currentPath.slice(selectedProject.localPath.length + 1) : currentPath;
+    const key = `${repoRel}:${line}`;
+    const removing = bpLines.has(key);
+    const next = new Set(bpLines);
+    if (removing) next.delete(key); else next.add(key);
+    setBpLines(next);
+    if (debugActive) {
+      try {
+        // Shift+点击设置/更新条件；普通添加为无条件（后端空条件=清除）
+        let condition: string | undefined;
+        if (!removing && shiftKey) {
+          const input = prompt('断点条件表达式（命中且求值为 true 时挂起，如 i == 5）:', '');
+          if (input === null) return; // 取消
+          condition = input.trim() || undefined;
+        }
+        applyDebugState(await debugBreakpoint(selectedProject.projectId, repoRel, line, removing, condition));
+        if (condition) toast(`条件断点已设置: ${condition}`, 'success');
+      } catch (e) {
+        setBpLines(bpLines);
+        toast('断点设置失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+      }
+    } else if (!removing && shiftKey) {
+      toast('条件将在调试启动后生效（当前仅本地登记）', 'info');
+    }
+  };
+
+  /** Watch 登记/移除 */
+  const onDebugWatch = async (expr: string, remove?: boolean) => {
+    if (!selectedProject || debugBusy) return;
+    try {
+      const st = await debugWatch(selectedProject.projectId, expr, remove);
+      setDebugState(st); // watch 不产控制台增量，避免重复合并
+    } catch (e) {
+      toast('Watch 操作失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    }
+  };
+
+  /** 运行到光标（临时断点 + 继续；IDEA Alt+F9） */
+  const onDebugRunTo = async () => {
+    if (!selectedProject?.localPath || !currentPath || debugBusy) return;
+    const repoRel = currentPath.startsWith(selectedProject.localPath + '/')
+      ? currentPath.slice(selectedProject.localPath.length + 1) : currentPath;
+    setDebugBusy('runTo');
+    try {
+      applyDebugState(await debugAction(selectedProject.projectId, 'runTo', repoRel, cursor.line));
+    } catch (e) {
+      toast('运行到光标失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    } finally {
+      setDebugBusy(null);
+    }
+  };
+
+  /** 栈帧定位源文件（python/node=仓库相对路径直开；java=类名 Maven 约定映射；外部依赖提示） */
+  const gotoFrame = (className: string, fileName?: string, line?: number) => {
+    if (!selectedProject?.localPath) return;
+    let guess: string | null = null;
+    if (fileName && fileName.startsWith('/')) {
+      toast('未能定位源文件（外部依赖）: ' + fileName, 'error');
+      return;
+    }
+    if (fileName && fileName.includes('/')) {
+      guess = fileName; // python/node 停点/栈帧行携带仓库相对路径
+    } else if (className) {
+      guess = `src/main/java/${className.replace(/\./g, '/')}.java`;
+    }
+    if (!guess) return;
+    readFile(`${selectedProject.localPath}/${guess}`)
+      .then(() => openRepoFile(guess!, line))
+      .catch(() => toast('未能定位源文件: ' + guess, 'error'));
+  };
+
+  /** 线程切换（调试面板线程选择器） */
+  const onDebugThread = async (threadId: string) => {
+    if (!selectedProject || debugBusy) return;
+    setDebugBusy('thread');
+    try {
+      applyDebugState(await debugAction(selectedProject.projectId, 'thread', undefined, undefined, threadId));
+    } catch (e) {
+      toast('线程切换失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    } finally {
+      setDebugBusy(null);
+    }
+  };
+
+  // 运行态轮询：cont 后断点异步命中时自动刷新停点（仅调试中且运行态，5s 间隔）
+  useEffect(() => {
+    if (!debugActive || debugState?.status !== 'running' || !selectedProject) return;
+    const timer = setInterval(async () => {
+      try {
+        const st = await fetchDebugState(selectedProject.projectId);
+        if (st.status !== 'inactive') applyDebugState(st);
+      } catch { /* 会话失效静默，下次操作会显式报错 */ }
+    }, 5000);
+    return () => clearInterval(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [debugActive, debugState?.status, selectedProject?.projectId]);
+
+  /** 当前文件断点行集合与调试当前行（编辑器装饰数据源） */
+  const currentRepoRel = selectedProject?.localPath && currentPath.startsWith(selectedProject.localPath + '/')
+    ? currentPath.slice(selectedProject.localPath.length + 1) : '';
+  const currentBreakpoints = currentRepoRel
+    ? Array.from(bpLines).filter(k => k.startsWith(currentRepoRel + ':')).map(k => Number(k.slice(currentRepoRel.length + 1)))
+    : [];
+  /** 条件断点行（琥珀色 ? 点，取自会话状态） */
+  const currentCondBreakpoints = currentRepoRel && debugState
+    ? debugState.breakpoints.filter(b => b.condition && b.path === currentRepoRel).map(b => b.line)
+    : [];
+  const fileStopped = debugState?.status === 'stopped' && !!debugState.currentFile
+    && (currentPath.endsWith('/' + debugState.currentFile) || currentPath === debugState.currentFile);
+  const debugCurrentLine = fileStopped ? debugState.currentLine : undefined;
+  /** 行尾内联变量值（IDEA inline values：前 6 个局部变量快照） */
+  const inlineValue = fileStopped && debugState && debugState.locals.length > 0
+    ? {
+        line: debugState.currentLine!,
+        text: debugState.locals.slice(0, 6).map(l => `${l.name}=${l.value.length > 40 ? l.value.slice(0, 40) + '…' : l.value}`).join('   ·   '),
+      }
+    : undefined;
+  /** 悬停求值（word → 局部变量/Watch 取值） */
+  const debugValueLookup = (word: string): string | undefined => {
+    if (!debugState || debugState.status !== 'stopped') return undefined;
+    const local = debugState.locals.find(l => l.name === word);
+    if (local) return local.value;
+    const watch = debugState.watches.find(w => w.expr === word);
+    return watch?.value;
+  };
+
   if (loading) {
     return <div className="flex items-center justify-center py-20"><Loader2 className="w-6 h-6 text-tech-400 animate-spin" /></div>;
   }
@@ -464,6 +716,11 @@ export default function DevWorkspacePage() {
               <DevGitMenu project={selectedProject} onRefresh={afterGitRefresh} />
               <button onClick={() => handleBuild('mvn compile')} disabled={execLoading} className="px-2 py-1.5 text-xs text-ink-300 hover:text-tech-400 border border-ink-700/60 rounded transition-all disabled:opacity-50">构建</button>
               <button onClick={handleRun} disabled={execLoading} className="px-2 py-1.5 text-xs text-ink-300 hover:text-tech-400 border border-ink-700/60 rounded transition-all disabled:opacity-50">运行</button>
+              <button onClick={startDebug} disabled={!projectReady || debugBusy !== null}
+                className="flex items-center gap-1 px-2 py-1.5 text-xs text-ink-300 hover:text-tech-400 border border-ink-700/60 rounded transition-all disabled:opacity-50"
+                title="调试运行（Java，注入 JDWP；行号槽点击设断点）">
+                {debugBusy === 'start' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bug className="w-3 h-3" />}调试
+              </button>
             </>
           ) : (
             <button onClick={() => handlePull(selectedProject)} disabled={pulling || selectedProject.cloneStatus === 'cloning'}
@@ -665,6 +922,12 @@ export default function DevWorkspacePage() {
                 theme={editorTheme}
                 gotoLine={gotoLine}
                 onCursor={(line, col) => setCursor({ line, col })}
+                breakpoints={currentBreakpoints}
+                conditionalBreakpoints={currentCondBreakpoints}
+                onToggleBreakpoint={toggleBreakpoint}
+                currentLine={debugCurrentLine}
+                inlineValue={inlineValue}
+                valueLookup={debugValueLookup}
                 onChange={(v) => { setFileContent(v ?? ''); setDirty(true); }}
               />
             </div>
@@ -687,6 +950,12 @@ export default function DevWorkspacePage() {
                 theme={editorTheme}
                 gotoLine={gotoLine}
                 onCursor={(line, col) => setCursor({ line, col })}
+                breakpoints={currentBreakpoints}
+                conditionalBreakpoints={currentCondBreakpoints}
+                onToggleBreakpoint={toggleBreakpoint}
+                currentLine={debugCurrentLine}
+                inlineValue={inlineValue}
+                valueLookup={debugValueLookup}
               />
             </div>
           ) : (
@@ -694,6 +963,22 @@ export default function DevWorkspacePage() {
               <p className="text-sm">{projectReady ? '从左侧文件树选择文件进行查看或编辑' : '选择项目后自动拉取代码，或点击顶部「拉取代码」'}</p>
               {projectReady && <p className="text-xs mt-2 text-ink-600">Ctrl+Shift+N 文件检索 · Ctrl+Shift+F 全局搜索 · Ctrl+E 最近文件</p>}
             </div>
+          )}
+
+          {/* 调试面板（IDEA Debug：工具条 + 变量/调用栈/控制台） */}
+          {debugActive && debugState && (
+            <DevDebugPanel
+              state={debugState}
+              consoleText={debugConsole}
+              busy={debugBusy}
+              onAction={onDebugAction}
+              onRunTo={onDebugRunTo}
+              onThread={onDebugThread}
+              onStop={stopDebug}
+              onEval={onDebugEval}
+              onWatch={onDebugWatch}
+              onGoto={gotoFrame}
+            />
           )}
 
           {/* 状态栏（IDEA 式）：语言 · 行列 · 编码缩进 · 主题切换 */}

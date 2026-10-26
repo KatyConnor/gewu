@@ -333,3 +333,48 @@ div[onclick], [role="button"] {
 @media (prefers-reduced-motion: reduce) {
   .modal-backdrop, .modal-panel, .modal-backdrop.modal-closing, .modal-panel.modal-closing { animation: none; }
 }
+
+/* ===== 开发工作空间 Debug 装饰（Monaco decorations：断点红点/当前行绿箭头） ===== */
+.dw-bp-glyph::after {
+  content: '';
+  display: block;
+  width: 9px;
+  height: 9px;
+  margin: 3px 0 0 4px;
+  border-radius: 9999px;
+  background: #ef4444;
+  box-shadow: 0 0 5px rgba(239, 68, 68, 0.9);
+}
+.dw-current-arrow::after {
+  content: '\25B6';
+  display: block;
+  color: #34d399;
+  font-size: 9px;
+  line-height: 18px;
+  margin-left: 2px;
+}
+.dw-current-line {
+  background: rgba(52, 211, 153, 0.13) !important;
+  border: 1px solid rgba(52, 211, 153, 0.45);
+  border-radius: 2px;
+}
+.dw-bp-glyph-cond::after {
+  content: '?';
+  display: block;
+  width: 10px;
+  height: 10px;
+  margin: 2px 0 0 2px;
+  border-radius: 9999px;
+  background: #f59e0b;
+  color: #1a1205;
+  font-size: 8px;
+  font-weight: 700;
+  line-height: 10px;
+  text-align: center;
+  box-shadow: 0 0 5px rgba(245, 158, 11, 0.8);
+}
+.dw-inline-val {
+  color: #7ec8a9;
+  font-style: italic;
+  opacity: 0.85;
+}

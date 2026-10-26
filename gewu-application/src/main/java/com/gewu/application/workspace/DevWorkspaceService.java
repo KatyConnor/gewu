@@ -355,8 +355,8 @@ public class DevWorkspaceService {
     // 项目仓库路径 = 领域 Project.repoLocalPath；操作统一经 gitExec（SSH 非交互环境 +
     // 失败不静默）；入口统一 requireGitProject（成员/所有者门 + 仓库就绪门）。
 
-    /** Git 操作入口校验：项目存在 → 当前用户为所有者或项目成员 → 仓库已就绪 */
-    private com.gewu.domain.project.Project requireGitProject(String projectId) {
+    /** Git 操作入口校验：项目存在 → 当前用户为所有者或项目成员 → 仓库已就绪（包内共享：调试服务复用） */
+    com.gewu.domain.project.Project requireGitProject(String projectId) {
         com.gewu.domain.project.Project project = projectEntityMapper.selectById(projectId);
         if (project == null) {
             throw BusinessException.of(ResultCode.NOT_FOUND, "项目不存在");

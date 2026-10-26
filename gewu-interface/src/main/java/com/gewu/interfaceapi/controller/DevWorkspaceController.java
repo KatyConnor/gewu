@@ -1,7 +1,10 @@
 package com.gewu.interfaceapi.controller;
 
 import com.gewu.application.project.ProjectRepoService;
+import com.gewu.application.workspace.DevDebugService;
 import com.gewu.application.workspace.DevWorkspaceService;
+import com.gewu.application.workspace.dto.DebugOpCommand;
+import com.gewu.application.workspace.dto.DebugStateDTO;
 import com.gewu.application.workspace.dto.DevWorkspaceDTO;
 import com.gewu.application.workspace.dto.GrepHitDTO;
 import com.gewu.application.workspace.dto.GitBranchesDTO;
@@ -37,6 +40,7 @@ import java.util.Map;
 public class DevWorkspaceController {
 
     private final DevWorkspaceService devWorkspaceService;
+    private final DevDebugService devDebugService;
     private final ProjectRepoService projectRepoService;
 
     // ==================== 沙箱管理 ====================
@@ -268,6 +272,54 @@ public class DevWorkspaceController {
     public Result<Void> gitRollback(@PathVariable String projectId, @RequestBody GitOpCommand command) {
         devWorkspaceService.gitRollback(projectId, command.getPaths(), command.getUntrackedPaths());
         return Result.success();
+    }
+
+    // ==================== Debug 调试（IDEA 式·P1 Java 断点调试） ====================
+
+    @PostMapping("/projects/{projectId}/debug/start")
+    @Operation(summary = "调试运行", description = "注入 JDWP 启动目标进程并挂接 jdb；mode=attach 时附加已运行进程（仅 Java，需已开调试端口）")
+    public Result<DebugStateDTO> debugStart(@PathVariable String projectId, @RequestBody(required = false) DebugOpCommand command) {
+        String cmd = command != null ? command.getCommand() : null;
+        Boolean suspend = command != null ? command.getSuspend() : null;
+        String mode = command != null ? command.getMode() : null;
+        return Result.success(devDebugService.start(projectId, cmd, suspend, mode));
+    }
+
+    @GetMapping("/projects/{projectId}/debug/state")
+    @Operation(summary = "调试状态", description = "状态快照（断点异步命中探测 + 控制台增量；挂起态附栈/变量）")
+    public Result<DebugStateDTO> debugState(@PathVariable String projectId) {
+        return Result.success(devDebugService.state(projectId));
+    }
+
+    @PostMapping("/projects/{projectId}/debug/stop")
+    @Operation(summary = "停止调试", description = "结束被调试进程与 jdb 并清理容器内调试目录")
+    public Result<DebugStateDTO> debugStop(@PathVariable String projectId) {
+        return Result.success(devDebugService.stop(projectId));
+    }
+
+    @PostMapping("/projects/{projectId}/debug/breakpoint")
+    @Operation(summary = "断点设置/删除", description = "path=工作空间相对源文件路径；remove=true 删除；condition=条件表达式（命中求值 true 才挂起）")
+    public Result<DebugStateDTO> debugBreakpoint(@PathVariable String projectId, @RequestBody DebugOpCommand command) {
+        return Result.success(devDebugService.breakpoint(projectId, command.getPath(), command.getLine(),
+                command.getRemove(), command.getCondition()));
+    }
+
+    @PostMapping("/projects/{projectId}/debug/action")
+    @Operation(summary = "执行控制", description = "op: cont 继续 / next 步过 / step 步入 / stepUp 步出 / runTo 运行到光标（需 path+line）/ thread 切换线程（需 threadId）")
+    public Result<DebugStateDTO> debugAction(@PathVariable String projectId, @RequestBody DebugOpCommand command) {
+        return Result.success(devDebugService.action(projectId, command.getOp(), command.getPath(), command.getLine(), command.getThreadId()));
+    }
+
+    @PostMapping("/projects/{projectId}/debug/watch")
+    @Operation(summary = "Watch 登记/移除", description = "挂起态逐个求值回填（IDEA Watches 面板）")
+    public Result<DebugStateDTO> debugWatch(@PathVariable String projectId, @RequestBody DebugOpCommand command) {
+        return Result.success(devDebugService.watch(projectId, command.getExpr(), command.getRemove()));
+    }
+
+    @PostMapping("/projects/{projectId}/debug/eval")
+    @Operation(summary = "表达式求值", description = "顶层栈帧上求值（IDEA Alt+F8 对应）")
+    public Result<DebugStateDTO> debugEval(@PathVariable String projectId, @RequestBody DebugOpCommand command) {
+        return Result.success(devDebugService.eval(projectId, command.getExpr()));
     }
 
     // ==================== 辅助 ====================

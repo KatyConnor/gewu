@@ -123,6 +123,7 @@ function ensureEditorExtras(monaco: Monaco) {
 export default function MonacoEditor({
   value, language, path, onChange, readOnly = false, wordWrap = 'on',
   theme, minimap = false, gotoLine, onCursor,
+  breakpoints, conditionalBreakpoints, onToggleBreakpoint, currentLine, inlineValue, valueLookup,
 }: {
   value: string;
   language: string;
@@ -140,9 +141,28 @@ export default function MonacoEditor({
   gotoLine?: number;
   /** 光标位置变化回调（状态栏 Ln,Col 展示） */
   onCursor?: (line: number, column: number) => void;
+  /** 断点行集合（行号槽数点，IDEA Debug） */
+  breakpoints?: number[];
+  /** 条件断点行集合（琥珀色点，IDEA Debug） */
+  conditionalBreakpoints?: number[];
+  /** 行号槽点击切换断点（shiftKey=设置条件断点，IDEA Ctrl+点击语义） */
+  onToggleBreakpoint?: (lineNumber: number, shiftKey?: boolean) => void;
+  /** 调试当前执行行高亮（IDEA Debug） */
+  currentLine?: number;
+  /** 行尾内联变量值（IDEA inline values，调试停点快照） */
+  inlineValue?: { line: number; text: string };
+  /** 悬停取值（IDEA hover 求值：word → 变量值） */
+  valueLookup?: (word: string) => string | undefined;
 }) {
   void ensureLoader();
   const editorRef = useRef<MonacoEditorAPI.IStandaloneCodeEditor | null>(null);
+  const monacoRef = useRef<Monaco | null>(null);
+  const decorationsRef = useRef<MonacoEditorAPI.IEditorDecorationsCollection | null>(null);
+  // 最新回调经 ref 透传，避免装饰/鼠标监听反复重绑
+  const toggleBpRef = useRef(onToggleBreakpoint);
+  toggleBpRef.current = onToggleBreakpoint;
+  const lookupRef = useRef(valueLookup);
+  lookupRef.current = valueLookup;
 
   // 跳行定位：文件打开或 gotoLine 变化时居中目标行
   useEffect(() => {
@@ -152,6 +172,52 @@ export default function MonacoEditor({
     ed.setPosition({ lineNumber: gotoLine, column: 1 });
     if (!readOnly) ed.focus();
   }, [gotoLine, path, readOnly]);
+
+  // 断点槽 + 当前行装饰（IDEA Debug：红点断点、琥珀点条件断点、绿箭头当前执行行、行尾内联值）
+  useEffect(() => {
+    const monaco = monacoRef.current;
+    const collection = decorationsRef.current;
+    if (!monaco || !collection) return;
+    const decorations: MonacoEditorAPI.IModelDeltaDecoration[] = [];
+    (breakpoints || []).forEach((l) => {
+      decorations.push({
+        range: new monaco.Range(l, 1, l, 1),
+        options: {
+          linesDecorationsClassName: 'dw-bp-glyph',
+          overviewRuler: { color: '#ef4444', position: monaco.editor.OverviewRulerLane.Right },
+        },
+      });
+    });
+    (conditionalBreakpoints || []).forEach((l) => {
+      decorations.push({
+        range: new monaco.Range(l, 1, l, 1),
+        options: {
+          linesDecorationsClassName: 'dw-bp-glyph-cond',
+          overviewRuler: { color: '#f59e0b', position: monaco.editor.OverviewRulerLane.Right },
+        },
+      });
+    });
+    if (currentLine && currentLine > 0) {
+      decorations.push({
+        range: new monaco.Range(currentLine, 1, currentLine, 1),
+        options: {
+          isWholeLine: true,
+          className: 'dw-current-line',
+          linesDecorationsClassName: 'dw-current-arrow',
+          overviewRuler: { color: '#34d399', position: monaco.editor.OverviewRulerLane.Right },
+        },
+      });
+    }
+    if (inlineValue && inlineValue.line > 0 && inlineValue.text) {
+      decorations.push({
+        range: new monaco.Range(inlineValue.line, 1, inlineValue.line, 1),
+        options: {
+          after: { content: '    ' + inlineValue.text, inlineClassName: 'dw-inline-val' },
+        },
+      });
+    }
+    collection.set(decorations);
+  }, [breakpoints, conditionalBreakpoints, currentLine, inlineValue, path]);
 
   return (
     <Editor
@@ -163,10 +229,41 @@ export default function MonacoEditor({
       onChange={onChange}
       onMount={(ed, monaco) => {
         editorRef.current = ed;
+        monacoRef.current = monaco;
+        decorationsRef.current = ed.createDecorationsCollection([]);
         ensureEditorExtras(monaco);
         if (theme && theme !== 'vs-dark') monaco.editor.setTheme(theme);
         if (onCursor) {
           ed.onDidChangeCursorPosition((e) => onCursor(e.position.lineNumber, e.position.column));
+        }
+        if (onToggleBreakpoint) {
+          // 行号槽/边槽点击 = 切换断点；Shift+点击 = 条件断点（IDEA 交互）
+          ed.onMouseDown((e) => {
+            const t = e.target.type;
+            const isGutter =
+              t === monaco.editor.MouseTargetType.GUTTER_MARGIN ||
+              t === monaco.editor.MouseTargetType.GUTTER_GLYPH_MARGIN ||
+              t === monaco.editor.MouseTargetType.LINE_NUMBERS;
+            if (isGutter && e.target.position) {
+              toggleBpRef.current?.(e.target.position.lineNumber, e.event.shiftKey);
+            }
+          });
+        }
+        if (valueLookup) {
+          // 悬停求值（IDEA Debug hover：word 命中调试变量时展示取值）
+          const disposable = monaco.languages.registerHoverProvider('*', {
+            provideHover(model: MonacoEditorAPI.ITextModel, position: Position) {
+              const word = model.getWordAtPosition(position);
+              if (!word) return null;
+              const v = lookupRef.current?.(word.word);
+              if (v === undefined || v === null || v === '') return null;
+              return {
+                range: new monaco.Range(position.lineNumber, word.startColumn, position.lineNumber, word.endColumn),
+                contents: [{ value: '`' + word.word + '` = **' + v + '**' }],
+              };
+            },
+          });
+          ed.onDidDispose(() => disposable.dispose());
         }
       }}
       options={{
