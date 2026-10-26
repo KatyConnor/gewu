@@ -1,5 +1,6 @@
 packages:
   - gewu-web
+  - gewu-admin-web
   - gewu-desktop
   - packages/*
 overrides:

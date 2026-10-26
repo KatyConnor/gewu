@@ -143,6 +143,41 @@ build_backend() {
 # ------------------------------------------------------------
 # 前端打包：Next.js 构建 + 运行时依赖收集
 # ------------------------------------------------------------
+# workspace 依赖安装（全项目一次装齐，幂等）：
+#   在仓库根执行一次 --frozen-lockfile，覆盖 gewu-web/gewu-admin-web/gewu-desktop/packages/*
+#   全部成员。此后各项目构建阶段不再重复 install——根因修复：此前在 gewu-web 与
+#   gewu-admin-web 目录分别 install（admin-web 当时不属于 workspace 成员且自带独立
+#   lockfile），两种依赖解析模式对同一物理 node_modules 交替重排，表现为
+#   -506/+506 互剪与「modules will be removed and reinstalled」Y/N 交互，
+#   并波及 gewu-desktop 的 node_modules（启动报错）。
+install_frontend_deps() {
+    (
+        cd "$PROJECT_ROOT" || exit 1
+        if command -v pnpm >/dev/null 2>&1; then
+            CI=true pnpm install --frozen-lockfile \
+                || { log_warn "frozen 安装失败，回退常规安装（将更新 lockfile）"; CI=true pnpm install; }
+        else
+            npm install
+        fi
+    ) || { log_error "前端依赖安装失败"; exit 1; }
+}
+
+# 运行时产物依赖：pnpm deploy 从 workspace 生成自包含生产 node_modules
+# （硬拷贝+独立 lockfile，不回链根 node_modules——web/admin/desktop 完全隔离）。
+# pnpm deploy 需 workspace 注入语义支持；失败时回退 npm --omit=dev（npm 不识别
+# pnpm-workspace，天然隔离）。
+deploy_runtime_deps() {
+    local pkg_name="${1:-gewu-client}"     # workspace 包名（package.json name）
+    local out_dir="${2:-$DIST_DIR/web}"
+    (
+        cd "$PROJECT_ROOT" || exit 1
+        # deploy 要求目标目录为空（ERR_PNPM_DEPLOY_DIR_NOT_EMPTY）——整目录清空后重建，
+        # 构建产物（.next/public/配置）由调用方在 deploy 之后拷入
+        rm -rf "$out_dir"
+        pnpm --filter "$pkg_name" deploy --legacy --prod "$out_dir"
+    ) || { log_error "生产依赖部署失败: $out_dir"; exit 1; }
+}
+
 build_web() {
     local web_dir="${1:-$PROJECT_ROOT/gewu-web}"
     local out_dir="${2:-$DIST_DIR/web}"
@@ -150,11 +185,7 @@ build_web() {
     log_step "前端构建（$web_dir → $out_dir，端口 $port）"
     (
         cd "$web_dir" || exit 1
-        if command -v pnpm >/dev/null 2>&1; then
-            pnpm install --frozen-lockfile || pnpm install
-        else
-            npm install
-        fi
+        # 依赖已由 install_frontend_deps 在根目录一次装齐，构建阶段不再 install
         if command -v pnpm >/dev/null 2>&1; then
             pnpm exec next build --no-lint
         else
@@ -163,15 +194,15 @@ build_web() {
     ) || { log_error "前端构建失败"; exit 1; }
 
     mkdir -p "$out_dir"
+    # 运行时依赖先部署（pnpm deploy 生成自包含 node_modules），再覆盖构建产物
+    # 包名从各自 package.json 读取——admin-web 复用本函数，禁止硬编码 web 包名
+    local pkg_name
+    pkg_name="$(node -e "console.log(require(process.argv[1]).name)" "$web_dir/package.json" 2>/dev/null || echo gewu-client)"
+    deploy_runtime_deps "$pkg_name" "$out_dir"
     cp -r "$web_dir/.next" "$out_dir/"
     cp -r "$web_dir/public" "$out_dir/" 2>/dev/null || true
     cp "$web_dir/package.json" "$out_dir/"
     cp "$web_dir/next.config.mjs" "$out_dir/"
-    cp "$web_dir/pnpm-lock.yaml" "$out_dir/" 2>/dev/null || cp "$web_dir/package-lock.json" "$out_dir/" 2>/dev/null || true
-    (
-        cd "$out_dir" || exit 1
-        if command -v pnpm >/dev/null 2>&1; then pnpm install --prod; else npm install --omit=dev; fi
-    ) || { log_error "前端生产依赖安装失败"; exit 1; }
     rm -rf "$out_dir/.next/cache"
     log_info "前端构建完成: $out_dir"
 }
@@ -196,6 +227,12 @@ if [[ "$CLEAN" == true ]]; then
     if [[ "$TARGET" == "all" || "$TARGET" == "admin" ]]; then
         rm -rf gewu-admin-web/.next
     fi
+fi
+
+# 前端依赖一次装齐（web/admin/desktop/agent-ui 全 workspace 成员覆盖）：
+# 本轮打包内不再重复 install——消除 -506/+506 互剪与 Y/N 交互（docs/design/43 关联修复）
+if [[ "$TARGET" == "all" || "$TARGET" == "web" || "$TARGET" == "admin" ]]; then
+    install_frontend_deps
 fi
 
 if [[ "$TARGET" == "all" || "$TARGET" == "backend" ]]; then
