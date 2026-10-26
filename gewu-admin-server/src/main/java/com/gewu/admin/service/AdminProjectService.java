@@ -150,10 +150,13 @@ public class AdminProjectService {
         projectMapper.insert(project);
 
         insertMember(project.getId(), project.getOwnerId(), ROLE_OWNER);
-        if (lead != null) {
+        if (lead != null && !lead.getId().equals(project.getOwnerId())) {
             insertMember(project.getId(), lead.getId(), ROLE_TECH_LEAD);
         }
-        members.forEach(m -> insertMember(project.getId(), m.getId(), ROLE_MEMBER));
+        // 成员排除所有者（uk_project_member 同人单行；所有者行已承担语义）
+        List<UserAccount> safeMembers = members.stream()
+                .filter(u -> !u.getId().equals(project.getOwnerId())).toList();
+        safeMembers.forEach(m -> insertMember(project.getId(), m.getId(), ROLE_MEMBER));
 
         initializePhases(project.getId());
 
@@ -201,20 +204,26 @@ public class AdminProjectService {
     }
 
     /**
-     * 团队整队同步：保留 OWNER 行，替换 TECH_LEAD/MEMBER 行。
-     * 负责人变更同步 ownerId（保持"所有者=技术负责人"不变量；清除负责人时所有者不动）。
+     * 团队整队同步：全量软删 + 物理清理 + 按 OWNER/TECH_LEAD/MEMBER 重建。
+     * <p>不变量："所有者=技术负责人"（负责人变更跟随 ownerId）；同一用户在项目内仅一行
+     * （uk_project_member 不含 deleted，同人双角色行必撞键——历史缺陷根因）。
+     * <p>具体语义：目标 ownerId = 新负责人（为空时沿用现 OWNER 行）；新负责人与所有者同人以
+     * OWNER 行承担技术负责人语义；成员清单排除所有者与负责人。
      */
     private void syncTeam(Project project, AdminProjectUpdateCommand command) {
         Map<String, ProjectMember> current = projectMemberMapper.selectList(
                         new LambdaQueryWrapper<ProjectMember>().eq(ProjectMember::getProjectId, project.getId()))
                 .stream()
                 .collect(Collectors.toMap(ProjectMember::getUserId, Function.identity(), (a, b) -> a));
+        ProjectMember ownerRow = current.values().stream()
+                .filter(m -> ROLE_OWNER.equals(m.getRoleCode())).findFirst().orElse(null);
 
         UserAccount newLead;
         if (command.getTechLeadUserId() == null) {
             String currentLeadId = current.values().stream()
                     .filter(m -> ROLE_TECH_LEAD.equals(m.getRoleCode()))
-                    .map(ProjectMember::getUserId).findFirst().orElse(null);
+                    .map(ProjectMember::getUserId).findFirst()
+                    .orElse(ownerRow != null ? ownerRow.getUserId() : project.getOwnerId());
             newLead = resolveEnabledUser(currentLeadId);
         } else {
             newLead = resolveEnabledUser(command.getTechLeadUserId().isBlank() ? null : command.getTechLeadUserId());
@@ -230,19 +239,26 @@ public class AdminProjectService {
             newMembers = resolveEnabledUsers(command.getMemberUserIds(), newLead);
         }
 
-        // 逻辑删除旧技术角色行 + 物理清理历史删除行（防 uk_project_member 撞键）后重建
+        // 目标 ownerId：负责人变更跟随；否则沿用现 OWNER 行
+        String ownerId = newLead != null ? newLead.getId()
+                : (ownerRow != null ? ownerRow.getUserId() : project.getOwnerId());
+        // 同人单行：成员清单排除所有者与负责人（防御成员含所有者时撞 OWNER 行）
+        newMembers = newMembers.stream()
+                .filter(u -> !u.getId().equals(ownerId)
+                        && (newLead == null || !u.getId().equals(newLead.getId())))
+                .toList();
+
+        // 全量软删（含 OWNER 行——可能换人或同人重建）+ 物理清理逻辑删除行，杜绝 uk 撞键
         projectMemberMapper.delete(new LambdaQueryWrapper<ProjectMember>()
-                .eq(ProjectMember::getProjectId, project.getId())
-                .in(ProjectMember::getRoleCode, ROLE_TECH_LEAD, ROLE_MEMBER));
+                .eq(ProjectMember::getProjectId, project.getId()));
         projectMemberMapper.purgeDeletedByProjectId(project.getId());
 
-        if (newLead != null) {
+        insertMember(project.getId(), ownerId, ROLE_OWNER);
+        if (newLead != null && !newLead.getId().equals(ownerId)) {
             insertMember(project.getId(), newLead.getId(), ROLE_TECH_LEAD);
-            project.setTechLead(newLead.getDisplayName());
-            project.setOwnerId(newLead.getId());
-        } else {
-            project.setTechLead(null);
         }
+        project.setTechLead(newLead != null ? newLead.getDisplayName() : null);
+        project.setOwnerId(ownerId);
         project.setTeamMembers(newMembers.stream().map(UserAccount::getDisplayName).collect(Collectors.joining(", ")));
         newMembers.forEach(m -> insertMember(project.getId(), m.getId(), ROLE_MEMBER));
     }
