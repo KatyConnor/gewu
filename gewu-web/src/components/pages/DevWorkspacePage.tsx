@@ -12,7 +12,7 @@ import DevDebugPanel from './DevDebugPanel';
 import DevAgentDrawer from './DevAgentDrawer';
 import DevRunConfigDialog, { DEFAULT_BUILD_CMD, type DevRunConf } from './DevRunConfigDialog';
 import Modal from '@/components/ui/Modal';
-import MonacoDiff from '@/components/pages/MonacoDiff';
+import DevCompareModal, { type DevCompareResult, type CompareItem } from './DevCompareModal';
 import DevFileHistoryModal from './DevFileHistoryModal';
 import type { editor as MonacoEditorApi } from 'monaco-editor';
 import { isMarkdownPath, isProbablyBinary, monacoLangOf } from '@/lib/fileLanguage';
@@ -225,9 +225,10 @@ export default function DevWorkspacePage() {
   /** 重命名：目标 + 新名称输入 */
   const [renameDialog, setRenameDialog] = useState<{ path: string; isDir: boolean; oldName: string } | null>(null);
   const [renameName, setRenameName] = useState('');
-  /** 比较对象：第一次标记 → 左键点击第二项 → 打开比较 */
-  const [compareSel, setCompareSel] = useState<{ path: string; isDir: boolean } | null>(null);
-  const [compareResult, setCompareResult] = useState<{ kind: 'file' | 'dir'; original: string; modified: string; text: string; leftTitle: string; rightTitle: string } | null>(null);
+  /** 比较对象：右侧目标选择框（右键第一项 → 弹框选第二项） */
+  const [comparePicker, setComparePicker] = useState<{ a: { path: string; isDir: boolean }; kind: 'dir' | 'file'; options: string[] } | null>(null);
+  const [compareFilter, setCompareFilter] = useState('');
+  const [compareResult, setCompareResult] = useState<DevCompareResult | null>(null);
   /** 树内部剪贴板（IDEA 式：剪切/复制路径状态） */
   const treeClipRef = useRef<{ path: string; isDir: boolean; mode: 'copy' | 'cut' } | null>(null);
   const [pulling, setPulling] = useState(false);
@@ -479,17 +480,6 @@ export default function DevWorkspacePage() {
     }
   };
 
-  /** 树行左键：比较模式下作为第二个比较对象，否则常规展开/打开 */
-  const onTreeRowClick = (nodePath: string, isDir: boolean, absPath: string) => {
-    if (compareSel) {
-      if (nodePath === compareSel.path) { setCompareSel(null); toast('已取消比较标记', 'info'); return; }
-      if (isDir !== compareSel.isDir) { toast('比较对象类型需一致（目录对目录 / 文件对文件）', 'error'); return; }
-      void openCompare(compareSel, { path: nodePath, isDir });
-      return;
-    }
-    if (isDir) toggleDir(nodePath); else handleReadFile(absPath);
-  };
-
   const openTreeMenu = (e: ReactMouseEvent, nodePath: string, isDir: boolean) => {
     e.preventDefault();
     e.stopPropagation();
@@ -618,35 +608,75 @@ export default function DevWorkspacePage() {
     }
   };
 
-  /** 比较对象：菜单触发（已有标记则直接与当前目标比较） */
-  const compareFromMenu = () => {
+  /** 比较对象：弹出选择框列出仓库内同类对象，选定后执行比较 */
+  const compareFromMenu = async () => {
     const t = treeMenu;
-    if (!t) return;
+    if (!t || !selectedProject) return;
     setTreeMenu(null);
-    if (compareSel && compareSel.path !== t.path) {
-      if (compareSel.isDir !== t.isDir) { toast('比较对象类型需一致（目录对目录 / 文件对文件）', 'error'); return; }
-      void openCompare(compareSel, { path: t.path, isDir: t.isDir });
-      return;
+    const kind: 'dir' | 'file' = t.isDir ? 'dir' : 'file';
+    try {
+      const findExpr = kind === 'dir' ? '-type d' : '-type f';
+      const r = await execCommand(`find "/workspace/${selectedProject.localPath}" ${findExpr} -not -path "*/.git/*" -not -path "*/target/*" -not -path "*/node_modules/*"`, 30);
+      const options = (r.stdout || '').split('\n')
+        .map(v => v.trim().replace(/^\/workspace\//, ''))
+        .filter(v => v && v !== t.path)
+        .sort();
+      setCompareFilter('');
+      setComparePicker({ a: { path: t.path, isDir: t.isDir }, kind, options });
+    } catch (e) {
+      toast('加载对象清单失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     }
-    setCompareSel({ path: t.path, isDir: t.isDir });
-    toast('已标记比较对象，请在目录树中左键点击另一个要比较的对象', 'info');
   };
 
   const openCompare = async (a: { path: string; isDir: boolean }, b: { path: string; isDir: boolean }) => {
-    setCompareSel(null);
     if (!selectedProject) return;
     const la = displayPathOf(a.path, selectedProject.localPath, selectedProject.repoUrl);
     const lb = displayPathOf(b.path, selectedProject.localPath, selectedProject.repoUrl);
-    try {
-      if (!a.isDir) {
+    if (!a.isDir) {
+      try {
         const [ca, cb] = await Promise.all([readFile(a.path), readFile(b.path)]);
-        setCompareResult({ kind: 'file', original: ca, modified: cb, text: '', leftTitle: la, rightTitle: lb });
-      } else {
-        const r = await execCommand(`diff -rq --exclude=.git "/workspace/${a.path}" "/workspace/${b.path}"`, 30);
-        setCompareResult({ kind: 'dir', original: '', modified: '', text: (r.stdout || '').trim() || '两个目录内容一致', leftTitle: la, rightTitle: lb });
+        setCompareResult({ kind: 'file', original: ca, modified: cb, leftTitle: la, rightTitle: lb });
+      } catch (e) {
+        toast('读取比较内容失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
       }
+      return;
+    }
+    // 目录比较：diff -rq 解析差异/独有清单 + find 集合求无差异清单
+    const exclNames = ['.git', 'target', 'node_modules', '.idea'];
+    const findFilters = ['-not -path "*/.git/*"', ...exclNames.map(n => `-not -path "*/${n}/*"`)].join(' ');
+    const diffExcludes = exclNames.map(n => `--exclude=${n}`).join(' ');
+    const toRelA = (v: string) => v.startsWith('/workspace/' + a.path + '/') ? v.slice(('/workspace/' + a.path).length + 1) : v;
+    try {
+      const [rd, fa] = await Promise.all([
+        execCommand(`diff -rq ${diffExcludes} "/workspace/${a.path}" "/workspace/${b.path}"`, 60),
+        execCommand(`find "/workspace/${a.path}" -type f ${findFilters}`, 60).catch(() => null),
+      ]);
+      const items: CompareItem[] = [];
+      const differRels = new Set<string>();
+      (rd.stdout || '').split('\n').filter(Boolean).forEach(line => {
+        if (line.startsWith('Files ')) {
+          const left = line.slice('Files '.length).split(' and ')[0];
+          items.push({ rel: toRelA(left), kind: 'diff' });
+          differRels.add(toRelA(left));
+        } else if (line.startsWith('Only in ')) {
+          const m = /^Only in (.+?): (.+)$/.exec(line);
+          if (m) {
+            const dirAbs = m[1], name = m[2];
+            const relBase = dirAbs.startsWith('/workspace/' + a.path + '/') ? dirAbs.slice(('/workspace/' + a.path).length + 1)
+              : dirAbs.startsWith('/workspace/' + b.path + '/') ? dirAbs.slice(('/workspace/' + b.path).length + 1) : '';
+            items.push({ rel: relBase ? `${relBase}/${name}` : name, kind: dirAbs.startsWith('/workspace/' + a.path) ? 'onlyA' : 'onlyB' });
+          }
+        }
+      });
+      // 无差异 = 左侧清单 − 差异 − 仅左（右侧独有不入此组）
+      const onlyASet = new Set(items.filter(i => i.kind === 'onlyA').map(i => i.rel));
+      const faRels = (fa?.stdout || '').split('\n').map(v => v.trim())
+        .filter(v => v.startsWith('/workspace/' + a.path + '/') && !differRels.has(toRelA(v)) && !onlyASet.has(toRelA(v)))
+        .map(v => toRelA(v));
+      faRels.sort().forEach(rel => items.push({ rel, kind: 'same' }));
+      setCompareResult({ kind: 'dir', original: '', modified: '', dirA: a.path, dirB: b.path, items, leftTitle: la, rightTitle: lb });
     } catch (e) {
-      toast('读取比较内容失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+      toast('目录比较失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     }
   };
 
@@ -692,13 +722,13 @@ export default function DevWorkspacePage() {
     return (
       <div key={nodePath}>
         <button
-          onClick={() => onTreeRowClick(nodePath, isDir, absPath)}
+          onClick={() => (isDir ? toggleDir(nodePath) : handleReadFile(absPath))}
           onContextMenu={(e) => openTreeMenu(e, nodePath, isDir)}
           className={`w-full text-left flex items-center gap-1.5 px-2 py-1.5 rounded text-xs transition-all ${
             currentPath === absPath || (isDir && currentPath.startsWith(nodePath + '/'))
               ? 'bg-tech-500/15 text-tech-400'
               : 'text-ink-300 hover:bg-tech-500/5'
-          } ${compareSel?.path === nodePath ? 'outline outline-1 outline-gold-400/60' : ''}`}
+          }`}
           style={{ paddingLeft: 8 + depth * 14 }}
           title={nodePath}
         >
@@ -1878,24 +1908,33 @@ export default function DevWorkspacePage() {
         </Modal>
       )}
 
-      {/* 比较对象（文件=内容左右对照 / 目录=差异清单） */}
-      {compareResult && (
-        <Modal open onClose={() => setCompareResult(null)} zIndex="z-[75]" ariaLabel="比较对象"
-          panelClassName="glass-dark rounded-xl w-full max-w-[1430px] h-[88vh] p-4 border border-tech-500/15 shadow-2xl flex flex-col">
-          <div className="flex items-center justify-between mb-3 flex-shrink-0">
-            <div className="text-sm font-semibold text-ink-50 truncate">
-              比较对象<span className="text-xs text-ink-500 font-normal ml-2">{compareResult.leftTitle} vs {compareResult.rightTitle}</span>
-            </div>
-            <button onClick={() => setCompareResult(null)} className="text-ink-500 hover:text-ink-200 text-xs">关闭</button>
+      {/* 比较对象选择框 */}
+      {comparePicker && (
+        <Modal open onClose={() => setComparePicker(null)} zIndex="z-[88]" ariaLabel="选择比较对象"
+          panelClassName="glass-dark rounded-xl w-full max-w-md h-[70vh] p-4 border border-tech-500/15 shadow-2xl flex flex-col">
+          <div className="text-sm font-semibold text-ink-50 mb-2">选择比较对象</div>
+          <div className="text-[10px] text-ink-500 mb-2 truncate">
+            与「{displayPathOf(comparePicker.a.path, selectedProject?.localPath, selectedProject?.repoUrl)}」比较（{comparePicker.kind === 'dir' ? '目录' : '文件'}）
           </div>
-          <div className="flex-1 min-h-0 border border-tech-500/10 rounded-lg overflow-hidden">
-            {compareResult.kind === 'file' ? (
-              <MonacoDiff original={compareResult.original} modified={compareResult.modified} language={monacoLangOf(compareResult.rightTitle)} path={compareResult.rightTitle} theme={editorTheme} />
-            ) : (
-              <pre className="h-full overflow-auto scrollbar-thin p-3 font-mono text-[11px] leading-5 whitespace-pre-wrap break-all text-ink-200">{compareResult.text}</pre>
+          <input autoFocus value={compareFilter} onChange={e => setCompareFilter(e.target.value)}
+            placeholder="输入路径过滤…" className="mb-2 w-full px-2.5 py-1.5 text-xs bg-ink-900/60 border border-tech-500/10 rounded-lg text-ink-100 placeholder:text-ink-600 outline-none focus:border-tech-500/40" />
+          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin space-y-0.5">
+            {comparePicker.options.filter(o => !compareFilter.trim() || o.includes(compareFilter.trim())).map(o => (
+              <button key={o} onClick={() => { const a = comparePicker.a; setComparePicker(null); void openCompare(a, { path: o, isDir: comparePicker.kind === 'dir' }); }}
+                className="w-full text-left px-2 py-1 rounded-md text-[11px] text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all truncate" title={o}>
+                {o}
+              </button>
+            ))}
+            {comparePicker.options.filter(o => !compareFilter.trim() || o.includes(compareFilter.trim())).length === 0 && (
+              <div className="text-center py-6 text-ink-500 text-xs">无可比较对象</div>
             )}
           </div>
         </Modal>
+      )}
+
+      {/* 比较对象结果（版本历史式布局：分类清单 + 左右对照） */}
+      {compareResult && (
+        <DevCompareModal open={!!compareResult} result={compareResult} theme={editorTheme} onClose={() => setCompareResult(null)} />
       )}
 
       {/* 运行/调试配置对话框（IDEA 式：类型/主类/JVM/程序参数/构建命令） */}
