@@ -101,7 +101,7 @@ export default function DevFileHistoryModal({ open, project, path, worktreeConte
 
   return (
     <Modal open={open} onClose={onClose} zIndex="z-[75]" ariaLabel="文件历史版本"
-      panelClassName="glass-dark rounded-xl w-full max-w-[1100px] h-[74vh] p-4 border border-tech-500/15 shadow-2xl flex flex-col">
+      panelClassName="glass-dark rounded-xl w-full max-w-[1430px] h-[96vh] p-4 border border-tech-500/15 shadow-2xl flex flex-col">
       <div className="flex items-center justify-between mb-3 flex-shrink-0">
         <div className="text-sm font-semibold text-ink-50 min-w-0 truncate">
           历史版本<span className="text-xs text-ink-500 font-normal ml-2">{path?.slice((project?.localPath || '').length + 1)}</span>
