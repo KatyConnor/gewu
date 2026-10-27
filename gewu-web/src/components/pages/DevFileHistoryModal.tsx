@@ -20,13 +20,15 @@ interface HistEntry {
   status: string;
 }
 
-export default function DevFileHistoryModal({ open, project, path, worktreeContent, onClose }: {
+export default function DevFileHistoryModal({ open, project, path, worktreeContent, theme, onClose }: {
   open: boolean;
   project: { projectId: string; localPath: string } | null;
   /** 文件卷内绝对路径（localPath/rel） */
   path: string | null;
   /** 工作区当前内容（用于「未提交的修改」对比项；null=该文件未打开过/不可比） */
   worktreeContent?: string | null;
+  /** diff 编辑器主题（跟随代码编辑区选择，避免全局主题被 vs-dark 污染） */
+  theme?: string;
   onClose: () => void;
 }) {
   const [entries, setEntries] = useState<HistEntry[]>([]);
@@ -56,15 +58,16 @@ export default function DevFileHistoryModal({ open, project, path, worktreeConte
         const list: HistEntry[] = [];
         for (const line of logOut.split('\n')) {
           if (!line) continue;
-          if (!line.startsWith('\t')) {
-            const [rev, author, at, ...msg] = line.split('\t');
-            if (rev && /^[0-9a-f]{40}$/.test(rev)) {
-              list.push({ rev, author, time: new Date(Number(at) * 1000).toLocaleString(), message: msg.join('\t'), filePath: rel, status: 'M' });
-            }
+          const tab = line.indexOf('\t');
+          const first = tab >= 0 ? line.slice(0, tab) : line;
+          // 格式行 = 首段恰为 40 位完整哈希；其余（无前导 TAB 的 R100/A/M/D 行）为该提交的状态行
+          if (tab >= 0 && /^[0-9a-f]{40}$/.test(first)) {
+            const [, author, at, ...msg] = line.split('\t');
+            list.push({ rev: first, author, time: new Date(Number(at) * 1000).toLocaleString(), message: msg.join('\t'), filePath: rel, status: 'M' });
           } else {
             const cur = list[list.length - 1];
             if (!cur) continue;
-            const parts = line.trim().split('\t');
+            const parts = line.split('\t');
             cur.status = parts[0] || 'M';
             cur.filePath = parts[parts.length - 1] || rel; // R/C 为 old\tnew，取新路径
           }
@@ -172,7 +175,7 @@ export default function DevFileHistoryModal({ open, project, path, worktreeConte
             {diffLoading ? (
               <div className="flex items-center justify-center h-full"><Loader2 className="w-4 h-4 text-tech-400 animate-spin" /></div>
             ) : diff ? (
-              <MonacoDiff original={diff.original} modified={diff.modified} language={diffLang} path={path || 'diff'} />
+              <MonacoDiff original={diff.original} modified={diff.modified} language={diffLang} path={path || 'diff'} theme={theme} />
             ) : emptyHint ? (
               <div className="flex items-center justify-center h-full text-ink-500 text-xs">该版本未读取到文件内容（可能为空文件，或文件路径在历史中变更且不在跟踪窗口内）</div>
             ) : (

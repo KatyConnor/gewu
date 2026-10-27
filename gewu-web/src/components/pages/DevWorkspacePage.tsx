@@ -1542,6 +1542,7 @@ export default function DevWorkspacePage() {
           project={selectedProject}
           path={currentPath}
           worktreeContent={fileContent}
+          theme={editorTheme}
           onClose={() => setHistoryOpen(false)}
         />
       )}

@@ -20,11 +20,13 @@ async function ensureLoader() {
   loader.config({ paths: { vs: g.__GEWU_MONACO_VS_PATH__ || '/monaco/vs' } });
 }
 
-export default function MonacoDiff({ original, modified, language }: {
+export default function MonacoDiff({ original, modified, language, theme }: {
   original: string;
   modified: string;
   language: string;
   path: string;
+  /** diff 编辑器主题（Monaco 主题为全局单例——不传会用 vs-dark 污染宿主编辑器主题） */
+  theme?: string;
 }) {
   void ensureLoader();
   return (
@@ -33,7 +35,7 @@ export default function MonacoDiff({ original, modified, language }: {
       language={language}
       original={original}
       modified={modified}
-      theme="vs-dark"
+      theme={theme || 'vs-dark'}
       options={{
         renderSideBySide: true,
         minimap: { enabled: false },
