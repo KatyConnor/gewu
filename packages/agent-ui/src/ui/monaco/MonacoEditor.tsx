@@ -123,7 +123,7 @@ function ensureEditorExtras(monaco: Monaco) {
 
 export default function MonacoEditor({
   value, language, path, onChange, readOnly = false, wordWrap = 'on',
-  theme, minimap = false, gotoLine, onCursor,
+  theme, minimap = false, gotoLine, onCursor, onReady,
   breakpoints, conditionalBreakpoints, onToggleBreakpoint, currentLine, inlineValue, lineAfter, valueLookup,
 }: {
   value: string;
@@ -142,6 +142,8 @@ export default function MonacoEditor({
   gotoLine?: number;
   /** 光标位置变化回调（状态栏 Ln,Col 展示） */
   onCursor?: (line: number, column: number) => void;
+  /** 编辑器实例就绪回调（自定义右键菜单/命令触发等宿主扩展） */
+  onReady?: (editor: MonacoEditorAPI.IStandaloneCodeEditor) => void;
   /** 断点行集合（行号槽数点，IDEA Debug） */
   breakpoints?: number[];
   /** 条件断点行集合（琥珀色点，IDEA Debug） */
@@ -247,6 +249,7 @@ export default function MonacoEditor({
         decorationsRef.current = ed.createDecorationsCollection([]);
         ensureEditorExtras(monaco);
         if (theme && theme !== 'vs-dark') monaco.editor.setTheme(theme);
+        onReady?.(ed);
         if (onCursor) {
           ed.onDidChangeCursorPosition((e) => onCursor(e.position.lineNumber, e.position.column));
         }

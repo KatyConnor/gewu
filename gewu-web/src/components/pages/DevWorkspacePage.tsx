@@ -1,5 +1,5 @@
 'use client';
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, type MouseEvent as ReactMouseEvent } from 'react';
 import dynamic from 'next/dynamic';
 import { useDispatch } from 'react-redux';
 import { setPage } from '@/store';
@@ -11,6 +11,8 @@ import DevQuickOpen from './DevQuickOpen';
 import DevDebugPanel from './DevDebugPanel';
 import DevAgentDrawer from './DevAgentDrawer';
 import DevRunConfigDialog, { DEFAULT_BUILD_CMD, type DevRunConf } from './DevRunConfigDialog';
+import DevFileHistoryModal from './DevFileHistoryModal';
+import type { editor as MonacoEditorApi } from 'monaco-editor';
 import { isMarkdownPath, isProbablyBinary, monacoLangOf } from '@/lib/fileLanguage';
 
 /** 运行配置读写（localStorage 按项目隔离；兼容旧版裸命令键） */
@@ -205,6 +207,14 @@ export default function DevWorkspacePage() {
   const [agentOpen, setAgentOpen] = useState(false);
   /** 运行/调试配置对话框 */
   const [runConfOpen, setRunConfOpen] = useState(false);
+  /** 未提交变更表（git status -z）：仓库相对路径 → M 修改 / A 新增 / D 删除（文件树变色数据源） */
+  const [gitStatusMap, setGitStatusMap] = useState<Record<string, 'M' | 'A' | 'D'>>({});
+  /** 编辑器实例（自定义右键菜单动作） */
+  const editorRef = useRef<MonacoEditorApi.IStandaloneCodeEditor | null>(null);
+  /** 编辑器右键菜单位置 */
+  const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
+  /** 文件历史版本弹窗 */
+  const [historyOpen, setHistoryOpen] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [termOpen, setTermOpen] = useState(false);
   const [termFullscreen, setTermFullscreen] = useState(false);
@@ -423,6 +433,11 @@ export default function DevWorkspacePage() {
     // 折叠链：仅含单一子目录的目录向下合并，标签显示完整链（如 com/hx/nine/eleven/socket）
     const { label, nodePath } = isDir ? compactOf(absPath, entry.name) : { label: entry.name, nodePath: absPath };
     const isExpanded = expandedDirs.has(nodePath);
+    // 未提交变更着色（IDEA 语义：修改=蓝，新增=绿，删除=红删除线；目录不改色）
+    const rel = nodePath.slice((selectedProject?.localPath || '').length + 1);
+    const changeCls = !isDir
+      ? (gitStatusMap[rel] === 'M' ? 'text-sky-400' : gitStatusMap[rel] === 'A' ? 'text-green-400' : gitStatusMap[rel] === 'D' ? 'text-cinnabar-400 line-through' : '')
+      : '';
     return (
       <div key={nodePath}>
         <button
@@ -443,7 +458,7 @@ export default function DevWorkspacePage() {
           ) : (
             <FileTypeIcon name={entry.name} />
           )}
-          <span className="truncate">{label}</span>
+          <span className={`truncate ${changeCls}`}>{label}</span>
         </button>
         {isDir && isExpanded && ideaSortEntries(tree[nodePath] || []).map(child => renderTreeNode(child, nodePath, depth + 1))}
         {isDir && isExpanded && treeLoading && !tree[nodePath] && (
@@ -491,6 +506,7 @@ export default function DevWorkspacePage() {
       setSavedContent(fileContent);
       setDirty(false);
       toast('已保存', 'success');
+      refreshGitStatus();
     } catch (e) {
       toast('保存失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     } finally {
@@ -559,7 +575,33 @@ export default function DevWorkspacePage() {
   const afterGitRefresh = async () => {
     await load();
     if (selectedProject?.localPath) refreshTree();
+    refreshGitStatus();
   };
+
+  /** 刷新未提交变更表（文件树变色数据源）：git status --porcelain -z（NUL 分隔，原生支持中文/重命名） */
+  const refreshGitStatus = useCallback(async () => {
+    if (!selectedProject || selectedProject.cloneStatus !== 'ready' || !selectedProject.localPath) { setGitStatusMap({}); return; }
+    try {
+      const r = await execCommand(`git -C /workspace/${selectedProject.localPath} status --porcelain=v1 -z`, 15);
+      const map: Record<string, 'M' | 'A' | 'D'> = {};
+      const fields = (r.stdout || '').split('\u0000').filter(f => f.length >= 3);
+      for (let i = 0; i < fields.length; i++) {
+        const f = fields[i];
+        const x = f[0], y = f[1];
+        let p = f.slice(3);
+        if (x === 'R' || y === 'R' || x === 'C' || y === 'C') i++; // 重命名/拷贝：下一字段为原路径
+        if (!p) continue;
+        if (x === '?' || y === '?') { map[p] = 'A'; continue; }
+        const code = x + y;
+        if (code.includes('D')) map[p] = 'D';
+        else if (code.includes('A') || code.includes('C')) map[p] = 'A';
+        else map[p] = 'M';
+      }
+      setGitStatusMap(map);
+    } catch { /* 沙箱未就绪等忽略 */ }
+  }, [selectedProject, selectedProject?.cloneStatus, selectedProject?.localPath]);
+
+  useEffect(() => { refreshGitStatus(); }, [refreshGitStatus]);
 
   const handleBuild = async (cmd: string) => {
     if (!selectedProject) return;
@@ -592,20 +634,9 @@ export default function DevWorkspacePage() {
    *  命令经 base64 中转落盘执行——接口层 XSS 过滤会转义 JSON 字符串中的 > <，
    *  重定向符号必须写进脚本文件（容器内解码）绕开过滤，不削弱安全层。
    *  setsid 独立进程组：停止时按组杀净 mvn→java 孙进程，不留孤儿。 */
-  const startRun = async () => {
-    if (!selectedProject || runBusy) return;
-    const conf = loadRunConf(selectedProject.projectId);
-    if (!conf) {
-      setRunConfOpen(true);
-      toast('请先填写运行/调试配置（运行类型、启动类等）', 'info');
-      return;
-    }
-    const cmd = composeRunCmd(conf, selectedProject.projectId);
-    if (!cmd) {
-      setRunConfOpen(true);
-      toast('运行配置不完整，请补充命令', 'info');
-      return;
-    }
+  /** 启动后台运行（base64 落盘 + setsid 进程组 + pidfile）；配置运行与主类右键运行共用 */
+  const launchRun = async (cmd: string, title: string) => {
+    if (!selectedProject) return;
     setRunBusy(true); setRunExited(false); setRunLog('');
     try {
       const key = selectedProject.projectId;
@@ -620,12 +651,29 @@ export default function DevWorkspacePage() {
       if (!pid) throw new Error(r.stderr || '未获取到进程 PID');
       setRunProc({ pid, cmd });
       setConsoleOpen(true);
-      toast(`已启动运行（PID ${pid}）`, 'success');
+      toast(`已启动运行（PID ${pid}）：${title}`, 'success');
     } catch (e) {
-      toast('启动失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+      toast('运行启动失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     } finally {
       setRunBusy(false);
     }
+  };
+
+  const startRun = async () => {
+    if (!selectedProject || runBusy) return;
+    const conf = loadRunConf(selectedProject.projectId);
+    if (!conf) {
+      setRunConfOpen(true);
+      toast('请先填写运行/调试配置（运行类型、启动类等）', 'info');
+      return;
+    }
+    const cmd = composeRunCmd(conf, selectedProject.projectId);
+    if (!cmd) {
+      setRunConfOpen(true);
+      toast('运行配置不完整，请补充命令', 'info');
+      return;
+    }
+    await launchRun(cmd, '运行配置');
   };
 
   /** 停止运行：杀整个进程组（setsid 组，含 mvn→java 孙进程），TERM → 宽限 1s → KILL */
@@ -688,6 +736,70 @@ export default function DevWorkspacePage() {
     })();
     return () => { dead = true; };
   }, [selectedProject?.projectId]);
+
+  /** 当前文件是否含 main 方法的 Java 类（右键「运行/调试主类」数据源；fqcn 由 src/main/java 相对路径推导） */
+  const mainRunInfo = useMemo(() => {
+    if (!selectedProject || !currentPath || !currentPath.endsWith('.java') || !fileContent) return null;
+    if (!/static\s+(?:final\s+)?void\s+main\s*\(/.test(fileContent)) return null;
+    const rel = currentPath.slice((selectedProject.localPath || '').length + 1);
+    // 多模块工程取最后一段 src/main|test/java（如 code/src/main/java/...）
+    const seg = rel.lastIndexOf('src/main/java/') >= 0 ? 'src/main/java/' : 'src/test/java/';
+    const idx = rel.lastIndexOf(seg);
+    if (idx < 0) return null;
+    const fqcn = rel.slice(idx + seg.length).replace(/\.java$/, '').replace(/\//g, '.');
+    return fqcn.includes('.') ? { fqcn } : null;
+  }, [selectedProject, currentPath, fileContent]);
+
+  /** 编辑器右键：接管 Monaco 内置英文菜单，改显中文菜单 */
+  const onEditorContextMenu = useCallback((e: ReactMouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setCtxMenu({ x: e.clientX, y: e.clientY });
+  }, []);
+
+  const menuAct = (handlerId: string) => {
+    editorRef.current?.trigger('ctx-menu', handlerId, null);
+    setCtxMenu(null);
+  };
+
+  /** 右键运行主类：先保存未提交内容（磁盘为准），编译+类路径后后台运行（复用控制台/停止） */
+  const runMain = async () => {
+    setCtxMenu(null);
+    if (!mainRunInfo || !selectedProject) return;
+    if (dirty && currentPath) {
+      try { await writeFile(currentPath, fileContent); setSavedContent(fileContent); setDirty(false); refreshGitStatus(); } catch { /* 保存失败按磁盘版本运行 */ }
+    }
+    const conf = loadRunConf(selectedProject.projectId);
+    const jvm = conf?.type === 'java' ? (conf.jvmOpts || '') : '';
+    const cmd = ['mvn compile -DskipTests',
+      `mvn -q dependency:build-classpath -Dmdep.outputFile=/workspace/.gewu/cp-${selectedProject.projectId}.txt -Dmdep.includeScope=runtime`,
+      `java ${jvm} -cp "target/classes:$(cat /workspace/.gewu/cp-${selectedProject.projectId}.txt)" ${mainRunInfo.fqcn}`.replace(/\s+/g, ' ')].join('\n');
+    await launchRun(cmd, `主类 ${mainRunInfo.fqcn}`);
+  };
+
+  /** 右键调试主类：保存 → 类路径准备 → 单行 java 命令交后端注入 JDWP */
+  const debugMain = async () => {
+    setCtxMenu(null);
+    if (!mainRunInfo || !selectedProject || debugBusy) return;
+    setDebugBusy('start');
+    try {
+      if (dirty && currentPath) {
+        try { await writeFile(currentPath, fileContent); setSavedContent(fileContent); setDirty(false); refreshGitStatus(); } catch { /* 保存失败按磁盘版本调试 */ }
+      }
+      toast('正在准备类路径（编译 + 依赖清单）…', 'info');
+      const prep = await execCommand(`cd /workspace/${selectedProject.localPath} && mvn -q compile dependency:build-classpath -Dmdep.outputFile=/workspace/.gewu/cp-${selectedProject.projectId}.txt -Dmdep.includeScope=runtime`, 180);
+      if (prep.exitCode !== 0) {
+        throw new Error('类路径准备失败: ' + ((prep.stderr || prep.stdout || '').trim().slice(-200) || '未知原因'));
+      }
+      setDebugConsole('');
+      applyDebugState(await debugStart(selectedProject.projectId, `java -cp "target/classes:$(cat /workspace/.gewu/cp-${selectedProject.projectId}.txt)" ${mainRunInfo.fqcn}`));
+      toast('调试会话已启动', 'success');
+    } catch (e) {
+      toast('调试启动失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    } finally {
+      setDebugBusy(null);
+    }
+  };
 
   // 控制台自动滚底
   useEffect(() => {
@@ -1240,13 +1352,14 @@ export default function DevWorkspacePage() {
           {contentLoading ? (
             <div className="flex items-center justify-center py-20"><Loader2 className="w-5 h-5 text-tech-400 animate-spin" /></div>
           ) : viewMode === 'edit' ? (
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0" onContextMenuCapture={onEditorContextMenu}>
               <MonacoFileEditor
                 value={fileContent}
                 language={monacoLangOf(currentPath)}
                 path={`dw-${currentPath}`}
                 wordWrap="on"
                 theme={editorTheme}
+                onReady={(ed) => { editorRef.current = ed; }}
                 gotoLine={gotoLine}
                 onCursor={(line, col) => setCursor({ line, col })}
                 breakpoints={currentBreakpoints}
@@ -1267,7 +1380,7 @@ export default function DevWorkspacePage() {
               <p className="text-sm">二进制文件不支持预览</p>
             </div>
           ) : fileContent ? (
-            <div className="flex-1 min-h-0">
+            <div className="flex-1 min-h-0" onContextMenuCapture={onEditorContextMenu}>
               <MonacoFileEditor
                 value={fileContent}
                 language={monacoLangOf(currentPath)}
@@ -1275,6 +1388,7 @@ export default function DevWorkspacePage() {
                 readOnly
                 wordWrap="off"
                 theme={editorTheme}
+                onReady={(ed) => { editorRef.current = ed; }}
                 gotoLine={gotoLine}
                 onCursor={(line, col) => setCursor({ line, col })}
                 breakpoints={currentBreakpoints}
@@ -1377,6 +1491,58 @@ export default function DevWorkspacePage() {
           recentPaths={recentFiles}
           onClose={() => setQuick(null)}
           onOpenFile={openRepoFile}
+        />
+      )}
+
+      {/* 编辑器右键菜单（中文；替代 Monaco 内置英文菜单；支持快捷键，剪/复/粘走 Monaco 剪贴板动作） */}
+      {ctxMenu && (
+        <>
+          <div className="fixed inset-0 z-[85]" onClick={() => setCtxMenu(null)} onContextMenu={e => { e.preventDefault(); setCtxMenu(null); }} />
+          <div className="fixed z-[86] min-w-[210px] glass-dark rounded-lg border border-tech-500/15 shadow-2xl py-1 text-xs"
+            style={{ left: Math.min(ctxMenu.x, window.innerWidth - 230), top: Math.min(ctxMenu.y, window.innerHeight - 320) }}>
+            <button onClick={() => menuAct('undo')} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all flex items-center justify-between gap-3">
+              <span>撤销</span><span className="text-[10px] text-ink-600">Ctrl+Z</span>
+            </button>
+            <button onClick={() => menuAct('redo')} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all flex items-center justify-between gap-3">
+              <span>重做</span><span className="text-[10px] text-ink-600">Ctrl+Shift+Z</span>
+            </button>
+            <div className="h-px bg-tech-500/10 my-1" />
+            <button onClick={() => menuAct('editor.action.clipboardCutAction')} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all flex items-center justify-between gap-3">
+              <span>剪切</span><span className="text-[10px] text-ink-600">Ctrl+X</span>
+            </button>
+            <button onClick={() => menuAct('editor.action.clipboardCopyAction')} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all flex items-center justify-between gap-3">
+              <span>复制</span><span className="text-[10px] text-ink-600">Ctrl+C</span>
+            </button>
+            <button onClick={() => menuAct('editor.action.clipboardPasteAction')} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all flex items-center justify-between gap-3">
+              <span>粘贴</span><span className="text-[10px] text-ink-600">Ctrl+V</span>
+            </button>
+            <div className="h-px bg-tech-500/10 my-1" />
+            <button onClick={() => { setCtxMenu(null); setHistoryOpen(true); }} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all" title="查看本文件的最近提交与左右差异对比">
+              历史版本
+            </button>
+            {mainRunInfo && (
+              <>
+                <div className="h-px bg-tech-500/10 my-1" />
+                <button onClick={runMain} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all truncate" title={`java ${mainRunInfo.fqcn}`}>
+                  运行主类
+                </button>
+                <button onClick={debugMain} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all truncate" title={`调试 ${mainRunInfo.fqcn}`}>
+                  调试主类
+                </button>
+              </>
+            )}
+          </div>
+        </>
+      )}
+
+      {/* 文件历史版本（左列表右对照 diff） */}
+      {historyOpen && selectedProject && currentPath && (
+        <DevFileHistoryModal
+          open={historyOpen}
+          project={selectedProject}
+          path={currentPath}
+          worktreeContent={fileContent}
+          onClose={() => setHistoryOpen(false)}
         />
       )}
 
