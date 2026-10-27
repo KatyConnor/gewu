@@ -3,7 +3,7 @@
 // 左列 = 最近提交（含未提交的工作区对比项），右侧 = MonacoDiff 左右对照（左=修改前，右=修改后）。
 // 数据全部经沙箱 exec 的 git 命令获取（git log --follow / git show），无后端改动。
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Loader2 } from 'lucide-react';
+import { ChevronDown, ChevronUp, Loader2 } from 'lucide-react';
 import Modal from '@/components/ui/Modal';
 import MonacoDiff from '@/components/pages/MonacoDiff';
 import { execCommand } from '@/lib/dev-workspace';
@@ -38,6 +38,9 @@ export default function DevFileHistoryModal({ open, project, path, worktreeConte
   const [listLoading, setListLoading] = useState(false);
   const [diffLoading, setDiffLoading] = useState(false);
   const [emptyHint, setEmptyHint] = useState(false);
+  /** diff 导航：变更块起点行列表（降序无关，升序存储）与 diff 编辑器实例 */
+  const changeStartsRef = useRef<number[]>([]);
+  const diffEdRef = useRef<{ getModifiedEditor: () => { revealLineInCenter(lineNumber: number): void; setPosition(p: { lineNumber: number; column: number }): void; getPosition(): { lineNumber: number } | null } } | null>(null);
   const diffLang = path ? monacoLangOf(path) : 'plaintext';
 
   const git = useCallback(async (command: string, timeout = 20) => {
@@ -50,7 +53,7 @@ export default function DevFileHistoryModal({ open, project, path, worktreeConte
     if (!open || !project || !path) return;
     const rel = path.slice((project.localPath || '').length + 1);
     let cancelled = false;
-    setListLoading(true); setEntries([]); setSel(-1); setDiff(null); setEmptyHint(false);
+    setListLoading(true); setEntries([]); setSel(-1); setDiff(null); setEmptyHint(false); changeStartsRef.current = [];
     (async () => {
       try {
         // --follow --name-status：每条提交附带其当时的状态与文件路径（改名跟随），取内容必须用各自路径
@@ -120,8 +123,34 @@ export default function DevFileHistoryModal({ open, project, path, worktreeConte
         // 两边都读不到内容 → 不渲染空 diff，给出明确提示
         if (!cancelled) {
           setEmptyHint(!original && !modified);
-          if (!original && !modified) setDiff(null);
-          else setDiff({ original, modified });
+          if (!original && !modified) { setDiff(null); changeStartsRef.current = []; }
+          else {
+            setDiff({ original, modified });
+            // 变更块起点（1 基行号）：供「上一处/下一处差异」导航
+            const a = original.split('\n'), b = modified.split('\n');
+            let st = 0;
+            while (st < a.length && st < b.length && a[st] === b[st]) st++;
+            let ae = a.length, be = b.length;
+            while (ae > st && be > st && a[ae - 1] === b[be - 1]) { ae--; be--; }
+            const A = a.slice(st, ae), B = b.slice(st, be);
+            const starts: number[] = [];
+            if (A.length * B.length > 4000000 || A.length === 0 || B.length === 0) {
+              if (A.length !== B.length) starts.push(st + 1); // 整块改动/单侧增删：一处即可达
+            } else {
+              const m = A.length, n = B.length;
+              const dp = new Uint32Array((m + 1) * (n + 1));
+              for (let i = m - 1; i >= 0; i--) for (let j = n - 1; j >= 0; j--) dp[i * (n + 1) + j] = A[i] === B[j] ? dp[(i + 1) * (n + 1) + j + 1] + 1 : Math.max(dp[(i + 1) * (n + 1) + j], dp[i * (n + 1) + j + 1]);
+              const changed = new Array(n).fill(false);
+              let i = 0, j = 0;
+              while (i < m && j < n) {
+                if (A[i] === B[j]) { i++; j++; }
+                else { changed[j] = true; if (dp[(i + 1) * (n + 1) + j] >= dp[i * (n + 1) + j + 1]) i++; else j++; }
+              }
+              while (j < n) { changed[j] = true; j++; }
+              for (let k = 0; k < n; k++) if (changed[k] && (k === 0 || !changed[k - 1])) starts.push(st + k + 1);
+            }
+            changeStartsRef.current = starts;
+          }
         }
       } catch {
         if (!cancelled) { setDiff(null); setEmptyHint(true); }
@@ -130,12 +159,24 @@ export default function DevFileHistoryModal({ open, project, path, worktreeConte
     return () => { cancelled = true; };
   }, [sel, dirtyFirst, open, project?.projectId, project?.localPath, path, entries, worktreeContent, git]);
 
+  /** 跳转到上一处/下一处差异块（以右侧编辑器光标行为基准） */
+  const gotoDiff = (dir: 1 | -1) => {
+    const ed = diffEdRef.current?.getModifiedEditor?.();
+    const starts = changeStartsRef.current;
+    if (!ed || !starts.length) return;
+    const cur = ed.getPosition()?.lineNumber ?? (dir === 1 ? 0 : Number.MAX_SAFE_INTEGER);
+    const target = dir === 1 ? starts.find(l => l > cur) : [...starts].reverse().find(l => l < cur);
+    if (target == null) return;
+    ed.revealLineInCenter(target);
+    ed.setPosition({ lineNumber: target, column: 1 });
+  };
+
   const selLabel = sel === -1 && dirtyFirst ? '工作区（未提交） vs HEAD'
     : entries[sel] ? `${entries[sel].message.slice(0, 40)} vs 上一版本` : '';
 
   return (
     <Modal open={open} onClose={onClose} zIndex="z-[75]" ariaLabel="文件历史版本"
-      panelClassName="glass-dark rounded-xl w-full max-w-[1430px] h-[96vh] p-4 border border-tech-500/15 shadow-2xl flex flex-col">
+      panelClassName="glass-dark rounded-xl w-full max-w-[1573px] h-[96vh] p-4 border border-tech-500/15 shadow-2xl flex flex-col">
       <div className="flex items-center justify-between mb-3 flex-shrink-0">
         <div className="text-sm font-semibold text-ink-50 min-w-0 truncate">
           历史版本<span className="text-xs text-ink-500 font-normal ml-2">{path?.slice((project?.localPath || '').length + 1)}</span>
@@ -170,12 +211,24 @@ export default function DevFileHistoryModal({ open, project, path, worktreeConte
         </div>
         {/* 右侧：左右对照 diff */}
         <div className="flex-1 min-w-0 flex flex-col">
-          <div className="text-[10px] text-ink-500 mb-1.5 flex-shrink-0">{selLabel || '选择左侧版本查看差异'}</div>
+          <div className="text-[10px] text-ink-500 mb-1.5 flex-shrink-0 flex items-center gap-2">
+            <span className="truncate">{selLabel || '选择左侧版本查看差异'}</span>
+            <span className="ml-auto flex items-center gap-1 flex-shrink-0">
+              <button onClick={() => gotoDiff(-1)} disabled={diffLoading || !diff || changeStartsRef.current.length === 0}
+                className="p-1 text-ink-400 hover:text-tech-400 hover:bg-tech-500/10 rounded transition-all disabled:opacity-40" title="上一处差异">
+                <ChevronUp className="w-3.5 h-3.5" />
+              </button>
+              <button onClick={() => gotoDiff(1)} disabled={diffLoading || !diff || changeStartsRef.current.length === 0}
+                className="p-1 text-ink-400 hover:text-tech-400 hover:bg-tech-500/10 rounded transition-all disabled:opacity-40" title="下一处差异">
+                <ChevronDown className="w-3.5 h-3.5" />
+              </button>
+            </span>
+          </div>
           <div className="flex-1 min-h-0 border border-tech-500/10 rounded-lg overflow-hidden">
             {diffLoading ? (
               <div className="flex items-center justify-center h-full"><Loader2 className="w-4 h-4 text-tech-400 animate-spin" /></div>
             ) : diff ? (
-              <MonacoDiff original={diff.original} modified={diff.modified} language={diffLang} path={path || 'diff'} theme={theme} />
+              <MonacoDiff original={diff.original} modified={diff.modified} language={diffLang} path={path || 'diff'} theme={theme} onReady={(ed) => { diffEdRef.current = ed; }} />
             ) : emptyHint ? (
               <div className="flex items-center justify-center h-full text-ink-500 text-xs">该版本未读取到文件内容（可能为空文件，或文件路径在历史中变更且不在跟踪窗口内）</div>
             ) : (
