@@ -10,7 +10,43 @@ import DevGitMenu from './DevGitMenu';
 import DevQuickOpen from './DevQuickOpen';
 import DevDebugPanel from './DevDebugPanel';
 import DevAgentDrawer from './DevAgentDrawer';
+import DevRunConfigDialog, { DEFAULT_BUILD_CMD, type DevRunConf } from './DevRunConfigDialog';
 import { isMarkdownPath, isProbablyBinary, monacoLangOf } from '@/lib/fileLanguage';
+
+/** 运行配置读写（localStorage 按项目隔离；兼容旧版裸命令键） */
+const loadRunConf = (pid: string): DevRunConf | null => {
+  if (typeof window === 'undefined' || !pid) return null;
+  try {
+    const raw = window.localStorage.getItem(`dw-runconf-${pid}`);
+    if (raw) return JSON.parse(raw) as DevRunConf;
+  } catch { /* 损坏配置忽略 */ }
+  const legacy = window.localStorage.getItem(`dw-run-cmd-${pid}`);
+  return legacy ? { type: 'custom', cmd: legacy } : null;
+};
+const saveRunConf = (pid: string, conf: DevRunConf) => {
+  if (typeof window === 'undefined' || !pid) return;
+  window.localStorage.setItem(`dw-runconf-${pid}`, JSON.stringify(conf));
+  window.localStorage.removeItem(`dw-run-cmd-${pid}`);
+};
+
+/** 运行命令组合（写 .cmd 文件执行；java 类型=编译→类路径→java 多行脚本） */
+const composeRunCmd = (conf: DevRunConf, pid: string): string => {
+  if (conf.type === 'maven') return `mvn ${(conf.goals || 'spring-boot:run').trim()}`;
+  if (conf.type === 'custom') return (conf.cmd || '').trim();
+  const jvm = (conf.jvmOpts || '').trim();
+  const args = (conf.programArgs || '').trim();
+  const javaLine = `java ${jvm} -cp "target/classes:$(cat /workspace/.gewu/cp-${pid}.txt)" ${(conf.mainClass || '').trim()} ${args}`.replace(/\s+/g, ' ');
+  return ['mvn compile -DskipTests', `mvn -q dependency:build-classpath -Dmdep.outputFile=/workspace/.gewu/cp-${pid}.txt -Dmdep.includeScope=runtime`, javaLine].join('\n');
+};
+
+/** 调试命令组合（后端按前缀注入 JDWP，必须单行：java 直插 / mvn 走 jvmArguments；java 类型类路径由启动前准备步骤生成） */
+const composeDebugCmd = (conf: DevRunConf, pid: string): string => {
+  if (conf.type === 'maven') return `mvn ${(conf.goals || 'spring-boot:run').trim()}`;
+  if (conf.type === 'custom') return (conf.cmd || '').trim();
+  const jvm = (conf.jvmOpts || '').trim();
+  const args = (conf.programArgs || '').trim();
+  return `java ${jvm} -cp "target/classes:$(cat /workspace/.gewu/cp-${pid}.txt)" ${(conf.mainClass || '').trim()} ${args}`.replace(/\s+/g, ' ');
+};
 import { confirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   getDevWorkspace, startSandbox, readFile, writeFile,
@@ -167,6 +203,8 @@ export default function DevWorkspacePage() {
   const consoleBodyRef = useRef<HTMLDivElement>(null);
   /** 项目绑定 Agent 会话抽屉 */
   const [agentOpen, setAgentOpen] = useState(false);
+  /** 运行/调试配置对话框 */
+  const [runConfOpen, setRunConfOpen] = useState(false);
   const [pulling, setPulling] = useState(false);
   const [termOpen, setTermOpen] = useState(false);
   const [termFullscreen, setTermFullscreen] = useState(false);
@@ -556,9 +594,18 @@ export default function DevWorkspacePage() {
    *  setsid 独立进程组：停止时按组杀净 mvn→java 孙进程，不留孤儿。 */
   const startRun = async () => {
     if (!selectedProject || runBusy) return;
-    const stored = window.localStorage.getItem(`dw-run-cmd-${selectedProject.projectId}`);
-    const cmd = stored || prompt('运行命令（保存为该项目运行配置，可经运行按钮旁箭头修改）:', 'mvn spring-boot:run');
-    if (!cmd) return;
+    const conf = loadRunConf(selectedProject.projectId);
+    if (!conf) {
+      setRunConfOpen(true);
+      toast('请先填写运行/调试配置（运行类型、启动类等）', 'info');
+      return;
+    }
+    const cmd = composeRunCmd(conf, selectedProject.projectId);
+    if (!cmd) {
+      setRunConfOpen(true);
+      toast('运行配置不完整，请补充命令', 'info');
+      return;
+    }
     setRunBusy(true); setRunExited(false); setRunLog('');
     try {
       const key = selectedProject.projectId;
@@ -571,7 +618,6 @@ export default function DevWorkspacePage() {
       const r = await execCommand(sh, 15);
       const pid = (r.stdout || '').trim().split('\n').pop() || '';
       if (!pid) throw new Error(r.stderr || '未获取到进程 PID');
-      window.localStorage.setItem(`dw-run-cmd-${selectedProject.projectId}`, cmd);
       setRunProc({ pid, cmd });
       setConsoleOpen(true);
       toast(`已启动运行（PID ${pid}）`, 'success');
@@ -678,16 +724,32 @@ export default function DevWorkspacePage() {
 
   const startDebug = async () => {
     if (!selectedProject) return;
-    const cmd = prompt(
-      '调试运行命令（自动识别：mvn/java=Java、python=Python、node=Node、go run=Go、./二进制=C/C++/Rust；输入 attach 附加已运行的 Java 进程）:',
-      'mvn spring-boot:run');
-    if (!cmd) return;
-    const attach = cmd.trim() === 'attach';
+    const conf = loadRunConf(selectedProject.projectId);
+    if (!conf) {
+      setRunConfOpen(true);
+      toast('请先填写运行/调试配置（运行类型、启动类等）', 'info');
+      return;
+    }
+    const cmd = composeDebugCmd(conf, selectedProject.projectId);
+    if (!cmd) {
+      setRunConfOpen(true);
+      toast('运行配置不完整，请补充命令', 'info');
+      return;
+    }
     setDebugBusy('start');
     try {
+      if (conf.type === 'java') {
+        // JDWP 注入要求单行 java 命令——类路径清单先同步生成（编译 + 运行时依赖清单）
+        toast('正在准备类路径（编译 + 依赖清单）…', 'info');
+        const prep = await execCommand(
+          `cd /workspace/${selectedProject.localPath} && mvn -q compile dependency:build-classpath -Dmdep.outputFile=/workspace/.gewu/cp-${selectedProject.projectId}.txt -Dmdep.includeScope=runtime`, 180);
+        if (prep.exitCode !== 0) {
+          throw new Error('类路径准备失败: ' + ((prep.stderr || prep.stdout || '').trim().slice(-200) || '未知原因'));
+        }
+      }
       setDebugConsole('');
-      applyDebugState(await debugStart(selectedProject.projectId, attach ? undefined : cmd, attach ? 'attach' : undefined));
-      toast(attach ? '已附加到运行中的调试进程' : '调试会话已启动', 'success');
+      applyDebugState(await debugStart(selectedProject.projectId, cmd));
+      toast('调试会话已启动', 'success');
       // 本地已登记断点重放到新会话
       for (const key of Array.from(bpLines)) {
         const idx = key.lastIndexOf(':');
@@ -932,7 +994,7 @@ export default function DevWorkspacePage() {
           {selectedProject && (projectReady ? (
             <>
               <DevGitMenu project={selectedProject} onRefresh={afterGitRefresh} />
-              <button onClick={() => handleBuild('mvn compile')} disabled={execLoading} className="px-2 py-1.5 text-xs text-ink-300 hover:text-tech-400 border border-ink-700/60 rounded transition-all disabled:opacity-50">构建</button>
+                  <button onClick={() => handleBuild(loadRunConf(selectedProject.projectId)?.buildCmd || DEFAULT_BUILD_CMD)} disabled={execLoading} className="px-2 py-1.5 text-xs text-ink-300 hover:text-tech-400 border border-ink-700/60 rounded transition-all disabled:opacity-50" title="构建（命令在运行/调试配置中设置）">构建</button>
               {runProc ? (
                 <button onClick={stopRun} disabled={runBusy}
                   className="flex items-center gap-1 px-2 py-1.5 text-xs border border-cinnabar-500/30 text-cinnabar-400 hover:bg-cinnabar-500/10 rounded transition-all disabled:opacity-50"
@@ -945,14 +1007,8 @@ export default function DevWorkspacePage() {
                     className="px-2 py-1.5 text-xs text-ink-300 hover:text-tech-400 border border-ink-700/60 rounded transition-all disabled:opacity-50"
                     title="运行（后台进程 + 控制台输出；命令取自运行配置）">运行</button>
                   <button
-                    onClick={() => {
-                      const c = prompt('运行命令（保存为该项目运行配置）:', window.localStorage.getItem(`dw-run-cmd-${selectedProject.projectId}`) || 'mvn spring-boot:run');
-                      if (c) {
-                        window.localStorage.setItem(`dw-run-cmd-${selectedProject.projectId}`, c);
-                        toast('运行配置已保存', 'success');
-                      }
-                    }}
-                    className="px-0.5 py-1.5 text-ink-500 hover:text-tech-400 transition-all" title="编辑运行配置">
+                    onClick={() => setRunConfOpen(true)}
+                    className="px-0.5 py-1.5 text-ink-500 hover:text-tech-400 transition-all" title="运行/调试配置（运行类型、启动类、JVM/程序参数、构建命令）">
                     <ChevronDown className="w-3 h-3" />
                   </button>
                 </>
@@ -966,7 +1022,7 @@ export default function DevWorkspacePage() {
               ) : (
                 <button onClick={startDebug} disabled={!projectReady || debugBusy !== null}
                   className="flex items-center gap-1 px-2 py-1.5 text-xs text-ink-300 hover:text-tech-400 border border-ink-700/60 rounded transition-all disabled:opacity-50"
-                  title="调试运行（Java，注入 JDWP；行号槽点击设断点）">
+                  title="调试运行（按运行/调试配置启动；Java 自动注入 JDWP；行号槽点击设断点）">
                   {debugBusy === 'start' ? <Loader2 className="w-3 h-3 animate-spin" /> : <Bug className="w-3 h-3" />}调试
                 </button>
               )}
@@ -1323,6 +1379,18 @@ export default function DevWorkspacePage() {
           onOpenFile={openRepoFile}
         />
       )}
+
+      {/* 运行/调试配置对话框（IDEA 式：类型/主类/JVM/程序参数/构建命令） */}
+      <DevRunConfigDialog
+        open={runConfOpen}
+        conf={selectedProject ? loadRunConf(selectedProject.projectId) : null}
+        onClose={() => setRunConfOpen(false)}
+        onSave={(c) => {
+          if (selectedProject) saveRunConf(selectedProject.projectId, c);
+          setRunConfOpen(false);
+          toast('运行/调试配置已保存', 'success');
+        }}
+      />
 
       {/* 项目 Agent 抽屉：绑定当前项目的 AI 会话 */}
       {agentOpen && selectedProject && (
