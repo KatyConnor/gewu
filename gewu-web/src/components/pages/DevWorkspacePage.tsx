@@ -11,6 +11,8 @@ import DevQuickOpen from './DevQuickOpen';
 import DevDebugPanel from './DevDebugPanel';
 import DevAgentDrawer from './DevAgentDrawer';
 import DevRunConfigDialog, { DEFAULT_BUILD_CMD, type DevRunConf } from './DevRunConfigDialog';
+import Modal from '@/components/ui/Modal';
+import MonacoDiff from '@/components/pages/MonacoDiff';
 import DevFileHistoryModal from './DevFileHistoryModal';
 import type { editor as MonacoEditorApi } from 'monaco-editor';
 import { isMarkdownPath, isProbablyBinary, monacoLangOf } from '@/lib/fileLanguage';
@@ -52,7 +54,7 @@ const composeDebugCmd = (conf: DevRunConf, pid: string): string => {
 import { confirmDialog } from '@/components/ui/ConfirmDialog';
 import {
   getDevWorkspace, startSandbox, readFile, writeFile,
-  listProjects, gitPull, buildProject, execCommand,
+  listProjects, gitPull, buildProject, execCommand, deleteFile,
   listFileEntries, blame as fetchBlame,
   debugStart, debugState as fetchDebugState, debugStop, debugBreakpoint, debugAction, debugEval, debugWatch,
   type DevWorkspaceInfo, type GitProject, type FileEntry, type DebugState,
@@ -215,6 +217,19 @@ export default function DevWorkspacePage() {
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   /** 文件历史版本弹窗 */
   const [historyOpen, setHistoryOpen] = useState(false);
+  /** 文件树右键菜单（目标节点 + 新建子菜单展开态） */
+  const [treeMenu, setTreeMenu] = useState<{ x: number; y: number; path: string; name: string; isDir: boolean; sub?: boolean } | null>(null);
+  /** 新建文件/目录：父目录 + 类型 + 名称输入 */
+  const [newFileDialog, setNewFileDialog] = useState<{ parentPath: string; type: { label: string; kind: string; ext: string } } | null>(null);
+  const [newFileName, setNewFileName] = useState('');
+  /** 重命名：目标 + 新名称输入 */
+  const [renameDialog, setRenameDialog] = useState<{ path: string; isDir: boolean; oldName: string } | null>(null);
+  const [renameName, setRenameName] = useState('');
+  /** 比较对象：第一次标记 → 左键点击第二项 → 打开比较 */
+  const [compareSel, setCompareSel] = useState<{ path: string; isDir: boolean } | null>(null);
+  const [compareResult, setCompareResult] = useState<{ kind: 'file' | 'dir'; original: string; modified: string; text: string; leftTitle: string; rightTitle: string } | null>(null);
+  /** 树内部剪贴板（IDEA 式：剪切/复制路径状态） */
+  const treeClipRef = useRef<{ path: string; isDir: boolean; mode: 'copy' | 'cut' } | null>(null);
   const [pulling, setPulling] = useState(false);
   const [termOpen, setTermOpen] = useState(false);
   const [termFullscreen, setTermFullscreen] = useState(false);
@@ -426,6 +441,242 @@ export default function DevWorkspacePage() {
     paths.forEach(p => loadEntries(p));
   };
 
+  // ==================== 文件树右键：新建/剪切/复制/粘贴/重命名/删除/比较 ====================
+  const relOf = (v: string) => v.slice((selectedProject?.localPath || '').length + 1);
+
+  const NEW_FILE_TYPES = [
+    { label: 'Java 类', kind: 'java', ext: '.java' },
+    { label: 'Markdown 文件', kind: 'md', ext: '.md' },
+    { label: 'XML 文件', kind: 'xml', ext: '.xml' },
+    { label: 'YAML 文件', kind: 'yaml', ext: '.yml' },
+    { label: 'Properties 配置', kind: 'props', ext: '.properties' },
+    { label: 'JSON 文件', kind: 'json', ext: '.json' },
+    { label: 'HTML 文件', kind: 'html', ext: '.html' },
+    { label: 'CSS 样式表', kind: 'css', ext: '.css' },
+    { label: 'JavaScript 文件', kind: 'js', ext: '.js' },
+    { label: 'TypeScript 文件', kind: 'ts', ext: '.ts' },
+    { label: 'SQL 脚本', kind: 'sql', ext: '.sql' },
+    { label: 'Shell 脚本', kind: 'sh', ext: '.sh' },
+    { label: '文本文件', kind: 'txt', ext: '.txt' },
+    { label: '目录', kind: 'dir', ext: '' },
+  ];
+  const escapeReg = (v: string) => v.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  /** 新建文件模板（Java 类自动补 package 声明） */
+  const templateFor = (kind: string, name: string, parentRel: string): string => {
+    switch (kind) {
+      case 'java': {
+        const segs = ['src/main/java/', 'src/test/java/'];
+        const seg = segs.find(x => parentRel.includes(x));
+        const pkg = seg ? parentRel.slice(parentRel.indexOf(seg) + seg.length).replace(/\//g, '.') : '';
+        return (pkg ? `package ${pkg};\n\n` : '') + `/**\n * ${name}\n */\npublic class ${name} {\n}\n`;
+      }
+      case 'md': return `# ${name}\n`;
+      case 'xml': return '<?xml version="1.0" encoding="UTF-8"?>\n';
+      case 'html': return `<!DOCTYPE html>\n<html lang="zh-CN">\n<head>\n  <meta charset="UTF-8">\n  <title>${name}</title>\n</head>\n<body>\n</body>\n</html>\n`;
+      case 'sh': return '#!/bin/sh\n';
+      case 'json': return '{\n}\n';
+      default: return '';
+    }
+  };
+
+  /** 树行左键：比较模式下作为第二个比较对象，否则常规展开/打开 */
+  const onTreeRowClick = (nodePath: string, isDir: boolean, absPath: string) => {
+    if (compareSel) {
+      if (nodePath === compareSel.path) { setCompareSel(null); toast('已取消比较标记', 'info'); return; }
+      if (isDir !== compareSel.isDir) { toast('比较对象类型需一致（目录对目录 / 文件对文件）', 'error'); return; }
+      void openCompare(compareSel, { path: nodePath, isDir });
+      return;
+    }
+    if (isDir) toggleDir(nodePath); else handleReadFile(absPath);
+  };
+
+  const openTreeMenu = (e: ReactMouseEvent, nodePath: string, isDir: boolean) => {
+    e.preventDefault();
+    e.stopPropagation();
+    const name = nodePath.split('/').pop() || nodePath;
+    setTreeMenu({ x: e.clientX, y: e.clientY, path: nodePath, name, isDir, sub: false });
+  };
+
+  const treeCopyPath = () => {
+    if (!treeMenu || !selectedProject) return;
+    const display = displayPathOf(treeMenu.path, selectedProject.localPath, selectedProject.repoUrl);
+    navigator.clipboard.writeText(display).then(
+      () => toast('路径已复制：' + display, 'success'),
+      () => toast('复制失败（浏览器剪贴板权限）', 'error'),
+    );
+    setTreeMenu(null);
+  };
+
+  const treePaste = async () => {
+    const clip = treeClipRef.current;
+    if (!clip || !treeMenu || !selectedProject) return;
+    setTreeMenu(null);
+    const destDir = treeMenu.isDir ? treeMenu.path : treeMenu.path.split('/').slice(0, -1).join('/');
+    const base = clip.path.split('/').pop() || '';
+    const dst = `${destDir}/${base}`;
+    if (dst === clip.path || dst.startsWith(clip.path + '/')) { toast('目标与源相同或为其子目录', 'error'); return; }
+    try {
+      const ex = await execCommand(`test -e "/workspace/${dst}" && echo E || echo N`, 8);
+      if ((ex.stdout || '').includes('E')) { toast('目标已存在同名文件/目录', 'error'); return; }
+      await execCommand(`${clip.mode === 'cut' ? 'mv' : 'cp -r'} "/workspace/${clip.path}" "/workspace/${dst}"`, 30);
+      if (clip.mode === 'cut') {
+        // 移动后修正引用路径（IDEA Move 语义的字符串级近似）
+        await updateReferencesOnRename(clip.path, dst, clip.isDir, base, base);
+        treeClipRef.current = null;
+        if (currentPath && (currentPath === clip.path || currentPath.startsWith(clip.path + '/'))) setCurrentPath(dst + currentPath.slice(clip.path.length));
+      }
+      refreshTree(); refreshGitStatus();
+      toast(clip.mode === 'cut' ? '已移动' : '已复制', 'success');
+    } catch (e) {
+      toast('粘贴失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    }
+  };
+
+  const treeDelete = async () => {
+    const t = treeMenu;
+    if (!t || !selectedProject) return;
+    setTreeMenu(null);
+    const rel = relOf(t.path);
+    if (!(await confirmDialog({ message: `删除「${t.name}」？${t.isDir ? '目录及其全部内容' : '文件'}将被移除（删除会体现在 Git 变更中）。`, danger: true, confirmText: '删除' }))) return;
+    try {
+      await deleteFile(rel);
+      if (currentPath && (currentPath === t.path || currentPath.startsWith(t.path + '/'))) { setCurrentPath(''); setFileContent(''); setSavedContent(''); setDirty(false); }
+      refreshTree(); refreshGitStatus();
+      toast('已删除', 'success');
+    } catch (e) {
+      toast('删除失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    }
+  };
+
+  /** 重命名引用更新（字符串级近似 IDEA Rename）：路径引用；Java 源码目录额外替换包名；Java 文件额外替换类名词 */
+  const updateReferencesOnRename = async (oldRel: string, newRel: string, isDir: boolean, oldName: string, newName: string): Promise<number> => {
+    if (!selectedProject) return 0;
+    const lp = selectedProject.localPath || '';
+    const jobs: Array<{ needle: string; replacement: string; word?: boolean }> = [{ needle: oldRel, replacement: newRel }];
+    if (isDir) {
+      for (const seg of ['src/main/java/', 'src/test/java/']) {
+        if (oldRel.includes(seg)) {
+          const oldPkg = oldRel.slice(oldRel.indexOf(seg) + seg.length).replace(/\//g, '.');
+          const newPkg = newRel.slice(newRel.indexOf(seg) + seg.length).replace(/\//g, '.');
+          if (oldPkg && newPkg) jobs.push({ needle: oldPkg, replacement: newPkg, word: true });
+        }
+      }
+    } else if (oldName.endsWith('.java')) {
+      jobs.push({ needle: oldName.replace(/\.java$/, ''), replacement: newName.replace(/\.java$/, ''), word: true });
+    }
+    let touched = 0;
+    for (const j of jobs) {
+      if (!j.needle || j.needle === j.replacement) continue;
+      const g = await execCommand(`grep -rIlF "${j.needle}" --exclude-dir=.git /workspace/${lp}`, 30);
+      const files = (g.stdout || '').split('\n').map(v => v.trim()).filter(Boolean).slice(0, 50);
+      for (const f of files) {
+        try {
+          const rel = f.replace(/^\/workspace\//, '');
+          const content = await readFile(rel);
+          const next = j.word
+            ? content.replace(new RegExp(`\\b${escapeReg(j.needle)}\\b`, 'g'), j.replacement)
+            : content.split(j.needle).join(j.replacement);
+          if (next !== content) { await writeFile(rel, next); touched++; }
+        } catch { /* 单文件失败不阻断 */ }
+      }
+    }
+    return touched;
+  };
+
+  const treeRename = () => {
+    const t = treeMenu;
+    if (!t) return;
+    setRenameDialog({ path: t.path, isDir: t.isDir, oldName: t.name });
+    setRenameName(t.name);
+    setTreeMenu(null);
+  };
+
+  const doRename = async () => {
+    if (!renameDialog || !selectedProject) return;
+    const oldName = renameDialog.oldName;
+    const newName = renameName.trim();
+    if (!newName || newName === oldName) { setRenameDialog(null); return; }
+    if (/[/\\"'\s]/.test(newName)) { toast('名称不能包含空格与 / \\ " \' 字符', 'error'); return; }
+    const parent = renameDialog.path.split('/').slice(0, -1).join('/');
+    const finalName = !renameDialog.isDir && !newName.includes('.') && oldName.includes('.')
+      ? newName + oldName.slice(oldName.lastIndexOf('.')) : newName;
+    const oldRel = relOf(renameDialog.path);
+    const newRel = `${parent}/${finalName}`;
+    setRenameDialog(null);
+    try {
+      const ex = await execCommand(`test -e "/workspace/${newRel}" && echo E || echo N`, 8);
+      if ((ex.stdout || '').includes('E')) { toast('目标已存在同名文件/目录', 'error'); return; }
+      // 先修正引用（grep 旧值），再移动
+      const touched = await updateReferencesOnRename(oldRel, newRel, renameDialog.isDir, oldName, finalName);
+      await execCommand(`mv "/workspace/${renameDialog.path}" "/workspace/${newRel}"`, 20);
+      if (currentPath === renameDialog.path) setCurrentPath(newRel);
+      else if (currentPath?.startsWith(renameDialog.path + '/')) setCurrentPath(newRel + currentPath.slice(renameDialog.path.length));
+      refreshTree(); refreshGitStatus();
+      toast(touched > 0 ? `已重命名，并更新 ${touched} 个引用文件` : '已重命名', 'success');
+    } catch (e) {
+      toast('重命名失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    }
+  };
+
+  /** 比较对象：菜单触发（已有标记则直接与当前目标比较） */
+  const compareFromMenu = () => {
+    const t = treeMenu;
+    if (!t) return;
+    setTreeMenu(null);
+    if (compareSel && compareSel.path !== t.path) {
+      if (compareSel.isDir !== t.isDir) { toast('比较对象类型需一致（目录对目录 / 文件对文件）', 'error'); return; }
+      void openCompare(compareSel, { path: t.path, isDir: t.isDir });
+      return;
+    }
+    setCompareSel({ path: t.path, isDir: t.isDir });
+    toast('已标记比较对象，请在目录树中左键点击另一个要比较的对象', 'info');
+  };
+
+  const openCompare = async (a: { path: string; isDir: boolean }, b: { path: string; isDir: boolean }) => {
+    setCompareSel(null);
+    if (!selectedProject) return;
+    const la = displayPathOf(a.path, selectedProject.localPath, selectedProject.repoUrl);
+    const lb = displayPathOf(b.path, selectedProject.localPath, selectedProject.repoUrl);
+    try {
+      if (!a.isDir) {
+        const [ca, cb] = await Promise.all([readFile(a.path), readFile(b.path)]);
+        setCompareResult({ kind: 'file', original: ca, modified: cb, text: '', leftTitle: la, rightTitle: lb });
+      } else {
+        const r = await execCommand(`diff -rq --exclude=.git "/workspace/${a.path}" "/workspace/${b.path}"`, 30);
+        setCompareResult({ kind: 'dir', original: '', modified: '', text: (r.stdout || '').trim() || '两个目录内容一致', leftTitle: la, rightTitle: lb });
+      }
+    } catch (e) {
+      toast('读取比较内容失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    }
+  };
+
+  /** 新建文件/目录（模板内容；Java 类自动补 package 声明） */
+  const createNew = async () => {
+    if (!newFileDialog || !selectedProject) return;
+    const { parentPath, type } = newFileDialog;
+    const name = newFileName.trim();
+    if (!name) { toast('请输入名称', 'error'); return; }
+    if (/[/"'\\]/.test(name)) { toast('名称不能包含 / 与引号字符', 'error'); return; }
+    const isDir = type.kind === 'dir';
+    const fileName = isDir ? name : (name.includes('.') ? name : name + type.ext);
+    const abs = `${parentPath}/${fileName}`;
+    const rel = relOf(abs);
+    try {
+      const ex = await execCommand(`test -e "/workspace/${abs}" && echo E || echo N`, 8);
+      if ((ex.stdout || '').includes('E')) { toast('同名文件/目录已存在', 'error'); return; }
+      await execCommand(`mkdir -p "/workspace/${parentPath}"`, 8);
+      if (isDir) await execCommand(`mkdir -p "/workspace/${abs}"`, 8);
+      else await writeFile(abs, templateFor(type.kind, fileName.endsWith(type.ext) ? fileName.slice(0, -type.ext.length) : fileName, rel));
+      setNewFileDialog(null); setNewFileName('');
+      if (!expandedDirs.has(parentPath)) toggleDir(parentPath);
+      refreshGitStatus();
+      toast(`已创建 ${rel}`, 'success');
+      if (!isDir) handleReadFile(abs);
+    } catch (e) {
+      toast('创建失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    }
+  };
+
   /** 递归渲染树节点（相对路径 = 卷内文件路径；单链目录按 IDEA 式折叠为单节点） */
   const renderTreeNode = (entry: FileEntry, parentPath: string, depth: number) => {
     const absPath = parentPath ? `${parentPath}/${entry.name}` : entry.name;
@@ -441,12 +692,13 @@ export default function DevWorkspacePage() {
     return (
       <div key={nodePath}>
         <button
-          onClick={() => (isDir ? toggleDir(nodePath) : handleReadFile(absPath))}
+          onClick={() => onTreeRowClick(nodePath, isDir, absPath)}
+          onContextMenu={(e) => openTreeMenu(e, nodePath, isDir)}
           className={`w-full text-left flex items-center gap-1.5 px-2 py-1.5 rounded text-xs transition-all ${
             currentPath === absPath || (isDir && currentPath.startsWith(nodePath + '/'))
               ? 'bg-tech-500/15 text-tech-400'
               : 'text-ink-300 hover:bg-tech-500/5'
-          }`}
+          } ${compareSel?.path === nodePath ? 'outline outline-1 outline-gold-400/60' : ''}`}
           style={{ paddingLeft: 8 + depth * 14 }}
           title={nodePath}
         >
@@ -1260,7 +1512,7 @@ export default function DevWorkspacePage() {
                 </button>
               )}
             </div>
-            <div className="flex-1 min-h-0 overflow-y-auto">
+            <div className="flex-1 min-h-0 overflow-y-auto" onContextMenu={(e) => e.preventDefault()}>
               {!selectedProject ? (
                 <div className="text-center py-8 text-ink-500 text-xs">点击上方项目<br />展示文件目录</div>
               ) : pulling || selectedProject.cloneStatus === 'cloning' ? (
@@ -1285,6 +1537,7 @@ export default function DevWorkspacePage() {
                   {/* 仓库主目录（根节点）：IDEA 式可折叠，目录名取自仓库地址主目录 */}
                   <button
                     onClick={() => setRootCollapsed(c => !c)}
+                    onContextMenu={(e) => openTreeMenu(e, selectedProject.localPath, true)}
                     className={`w-full text-left flex items-center gap-1.5 px-2 py-1.5 rounded text-xs transition-all ${
                       currentPath === selectedProject.localPath ? 'bg-tech-500/15 text-tech-400' : 'text-ink-300 hover:bg-tech-500/5'
                     }`}
@@ -1545,6 +1798,104 @@ export default function DevWorkspacePage() {
           theme={editorTheme}
           onClose={() => setHistoryOpen(false)}
         />
+      )}
+
+      {/* 文件树右键菜单（IDEA 项目视图风格；新建子菜单支持多文件类型模板） */}
+      {treeMenu && (
+        <>
+          <div className="fixed inset-0 z-[85]" onClick={() => setTreeMenu(null)} onContextMenu={e => { e.preventDefault(); setTreeMenu(null); }} />
+          <div className="fixed z-[86] min-w-[190px] glass-dark rounded-lg border border-tech-500/15 shadow-2xl py-1 text-xs"
+            style={{ left: Math.min(treeMenu.x, window.innerWidth - 230), top: Math.min(treeMenu.y, window.innerHeight - 360) }}>
+            {treeMenu.isDir && (
+              <div className="relative">
+                <button onClick={() => setTreeMenu({ ...treeMenu, sub: !treeMenu.sub })}
+                  className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all flex items-center justify-between gap-3">
+                  <span>新建</span><ChevronRight className="w-3 h-3" />
+                </button>
+                {treeMenu.sub && (
+                  <div className="absolute left-full top-0 ml-0.5 min-w-[170px] max-h-80 overflow-y-auto scrollbar-thin glass-dark rounded-lg border border-tech-500/15 shadow-2xl py-1">
+                    {NEW_FILE_TYPES.map(t => (
+                      <button key={t.kind} onClick={() => { setNewFileDialog({ parentPath: treeMenu.path, type: t }); setNewFileName(''); setTreeMenu(null); }}
+                        className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all">
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <button onClick={() => { treeClipRef.current = { path: treeMenu.path, isDir: treeMenu.isDir, mode: 'cut' }; setTreeMenu(null); toast('已剪切', 'info'); }}
+              className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all">剪切</button>
+            <button onClick={() => { treeClipRef.current = { path: treeMenu.path, isDir: treeMenu.isDir, mode: 'copy' }; setTreeMenu(null); toast('已复制', 'info'); }}
+              className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all">复制</button>
+            <button onClick={treeCopyPath}
+              className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all">复制路径</button>
+            <button onClick={treePaste} disabled={!treeClipRef.current}
+              className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all disabled:opacity-40 disabled:pointer-events-none">粘贴</button>
+            <button onClick={treeRename}
+              className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all">重命名</button>
+            <button onClick={treeDelete}
+              className="w-full text-left px-3 py-1.5 text-cinnabar-400 hover:text-cinnabar-300 hover:bg-cinnabar-500/10 transition-all">删除</button>
+            <div className="h-px bg-tech-500/10 my-1" />
+            <button onClick={compareFromMenu}
+              className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all" title="标记后点击另一个同类对象进行对比（文件内容 diff / 目录清单 diff）">
+              比较对象
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* 新建文件/目录（类型模板 + 名称输入） */}
+      {newFileDialog && (
+        <Modal open onClose={() => setNewFileDialog(null)} zIndex="z-[88]" ariaLabel="新建"
+          panelClassName="glass-dark rounded-xl w-full max-w-sm p-4 border border-tech-500/15 shadow-2xl">
+          <div className="text-sm font-semibold text-ink-50 mb-2">新建{newFileDialog.type.kind === 'dir' ? '目录' : newFileDialog.type.label}</div>
+          <div className="text-[10px] text-ink-500 mb-2 truncate">位置：{displayPathOf(newFileDialog.parentPath, selectedProject?.localPath, selectedProject?.repoUrl)}</div>
+          <input autoFocus value={newFileName} onChange={e => setNewFileName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') createNew(); }}
+            placeholder={newFileDialog.type.kind === 'dir' ? '目录名称' : `文件名称（自动追加 ${newFileDialog.type.ext}）`}
+            className="w-full px-2.5 py-1.5 text-xs bg-ink-900/60 border border-tech-500/10 rounded-lg text-ink-100 placeholder:text-ink-600 outline-none focus:border-tech-500/40" />
+          <div className="flex justify-end gap-2 mt-4">
+            <button onClick={() => setNewFileDialog(null)} className="px-3 py-1.5 text-xs text-ink-300 hover:text-ink-100 transition-colors">取消</button>
+            <button onClick={createNew} className="px-3 py-1.5 text-xs font-medium text-white bg-tech-500 hover:bg-tech-600 rounded-lg transition-colors">创建</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* 重命名（引用更新：路径/包名/类名） */}
+      {renameDialog && (
+        <Modal open onClose={() => setRenameDialog(null)} zIndex="z-[88]" ariaLabel="重命名"
+          panelClassName="glass-dark rounded-xl w-full max-w-sm p-4 border border-tech-500/15 shadow-2xl">
+          <div className="text-sm font-semibold text-ink-50 mb-2">重命名「{renameDialog.oldName}」</div>
+          <div className="text-[10px] text-ink-500 mb-2">将自动搜索并更新所有引用该{renameDialog.isDir ? '目录（含包名）' : '文件（含类名）'}的位置</div>
+          <input autoFocus value={renameName} onChange={e => setRenameName(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') doRename(); }}
+            className="w-full px-2.5 py-1.5 text-xs bg-ink-900/60 border border-tech-500/10 rounded-lg text-ink-100 outline-none focus:border-tech-500/40" />
+          <div className="flex justify-end gap-2 mt-4">
+            <button onClick={() => setRenameDialog(null)} className="px-3 py-1.5 text-xs text-ink-300 hover:text-ink-100 transition-colors">取消</button>
+            <button onClick={doRename} className="px-3 py-1.5 text-xs font-medium text-white bg-tech-500 hover:bg-tech-600 rounded-lg transition-colors">重命名</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* 比较对象（文件=内容左右对照 / 目录=差异清单） */}
+      {compareResult && (
+        <Modal open onClose={() => setCompareResult(null)} zIndex="z-[75]" ariaLabel="比较对象"
+          panelClassName="glass-dark rounded-xl w-full max-w-[1430px] h-[88vh] p-4 border border-tech-500/15 shadow-2xl flex flex-col">
+          <div className="flex items-center justify-between mb-3 flex-shrink-0">
+            <div className="text-sm font-semibold text-ink-50 truncate">
+              比较对象<span className="text-xs text-ink-500 font-normal ml-2">{compareResult.leftTitle} vs {compareResult.rightTitle}</span>
+            </div>
+            <button onClick={() => setCompareResult(null)} className="text-ink-500 hover:text-ink-200 text-xs">关闭</button>
+          </div>
+          <div className="flex-1 min-h-0 border border-tech-500/10 rounded-lg overflow-hidden">
+            {compareResult.kind === 'file' ? (
+              <MonacoDiff original={compareResult.original} modified={compareResult.modified} language={monacoLangOf(compareResult.rightTitle)} path={compareResult.rightTitle} theme={editorTheme} />
+            ) : (
+              <pre className="h-full overflow-auto scrollbar-thin p-3 font-mono text-[11px] leading-5 whitespace-pre-wrap break-all text-ink-200">{compareResult.text}</pre>
+            )}
+          </div>
+        </Modal>
       )}
 
       {/* 运行/调试配置对话框（IDEA 式：类型/主类/JVM/程序参数/构建命令） */}
