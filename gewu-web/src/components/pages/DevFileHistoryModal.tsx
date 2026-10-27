@@ -14,6 +14,10 @@ interface HistEntry {
   author: string;
   time: string;
   message: string;
+  /** 该提交时文件所在路径（--follow 跟随改名，旧提交可能是旧路径；取内容必须用它） */
+  filePath: string;
+  /** 变更状态（A/M/D/R100…，来自 --name-status） */
+  status: string;
 }
 
 export default function DevFileHistoryModal({ open, project, path, worktreeContent, onClose }: {
@@ -31,6 +35,7 @@ export default function DevFileHistoryModal({ open, project, path, worktreeConte
   const [diff, setDiff] = useState<{ original: string; modified: string } | null>(null);
   const [listLoading, setListLoading] = useState(false);
   const [diffLoading, setDiffLoading] = useState(false);
+  const [emptyHint, setEmptyHint] = useState(false);
   const diffLang = path ? monacoLangOf(path) : 'plaintext';
 
   const git = useCallback(async (command: string, timeout = 20) => {
@@ -43,14 +48,27 @@ export default function DevFileHistoryModal({ open, project, path, worktreeConte
     if (!open || !project || !path) return;
     const rel = path.slice((project.localPath || '').length + 1);
     let cancelled = false;
-    setListLoading(true); setEntries([]); setSel(-1); setDiff(null);
+    setListLoading(true); setEntries([]); setSel(-1); setDiff(null); setEmptyHint(false);
     (async () => {
       try {
-        const logOut = await git(`git -C /workspace/${project.localPath} log --follow -n 50 --format=%H%x09%an%x09%at%x09%s -- "${rel}"`);
-        const list: HistEntry[] = logOut.split('\n').filter(Boolean).map(line => {
-          const [rev, author, at, ...msg] = line.split('\t');
-          return { rev, author, time: new Date(Number(at) * 1000).toLocaleString(), message: msg.join('\t') };
-        });
+        // --follow --name-status：每条提交附带其当时的状态与文件路径（改名跟随），取内容必须用各自路径
+        const logOut = await git(`git -C /workspace/${project.localPath} log --follow -n 50 --name-status --format=%H%x09%an%x09%at%x09%s -- "${rel}"`);
+        const list: HistEntry[] = [];
+        for (const line of logOut.split('\n')) {
+          if (!line) continue;
+          if (!line.startsWith('\t')) {
+            const [rev, author, at, ...msg] = line.split('\t');
+            if (rev && /^[0-9a-f]{40}$/.test(rev)) {
+              list.push({ rev, author, time: new Date(Number(at) * 1000).toLocaleString(), message: msg.join('\t'), filePath: rel, status: 'M' });
+            }
+          } else {
+            const cur = list[list.length - 1];
+            if (!cur) continue;
+            const parts = line.trim().split('\t');
+            cur.status = parts[0] || 'M';
+            cur.filePath = parts[parts.length - 1] || rel; // R/C 为 old\tnew，取新路径
+          }
+        }
         const head = await git(`git -C /workspace/${project.localPath} show HEAD:"${rel}"`);
         if (!cancelled) {
           setEntries(list);
@@ -81,16 +99,29 @@ export default function DevFileHistoryModal({ open, project, path, worktreeConte
         } else {
           const e = entries[sel];
           if (e) {
-            // rev-list --parents 无需重定向符号（exec 层 > < 会被 XSS 过滤转义）
-            const parents = await git(`git -C /workspace/${project.localPath} rev-list --parents -n 1 ${e.rev}`);
-            const parentRev = parents.trim().split(' ')[1];
-            original = parentRev ? await git(`git -C /workspace/${project.localPath} show ${parentRev}:"${rel}"`) : '';
-            modified = await git(`git -C /workspace/${project.localPath} show ${e.rev}:"${rel}"`);
+            const deleted = e.status.startsWith('D');
+            // 右 = 本提交时该文件内容（用本条记录的当时路径）
+            modified = deleted ? '' : await git(`git -C /workspace/${project.localPath} show ${e.rev}:"${e.filePath}"`);
+            // 左 = 上一版本内容：优先取相邻下一条记录的路径（改名跟随），根提交/窗口末尾无父则左侧为空
+            const next = entries[sel + 1];
+            if (next) {
+              const nextPath = next.filePath || e.filePath;
+              original = next.status.startsWith('D') ? '' : await git(`git -C /workspace/${project.localPath} show ${next.rev}:"${nextPath}"`);
+            } else {
+              const parents = await git(`git -C /workspace/${project.localPath} rev-list --parents -n 1 ${e.rev}`);
+              const parentRev = parents.trim().split(' ')[1];
+              original = parentRev ? await git(`git -C /workspace/${project.localPath} show ${parentRev}:"${e.filePath}"`) : '';
+            }
           }
         }
-        if (!cancelled) setDiff({ original, modified });
+        // 两边都读不到内容 → 不渲染空 diff，给出明确提示
+        if (!cancelled) {
+          setEmptyHint(!original && !modified);
+          if (!original && !modified) setDiff(null);
+          else setDiff({ original, modified });
+        }
       } catch {
-        if (!cancelled) setDiff({ original: '（版本内容读取失败）', modified: '' });
+        if (!cancelled) { setDiff(null); setEmptyHint(true); }
       } finally { if (!cancelled) setDiffLoading(false); }
     })();
     return () => { cancelled = true; };
@@ -142,6 +173,8 @@ export default function DevFileHistoryModal({ open, project, path, worktreeConte
               <div className="flex items-center justify-center h-full"><Loader2 className="w-4 h-4 text-tech-400 animate-spin" /></div>
             ) : diff ? (
               <MonacoDiff original={diff.original} modified={diff.modified} language={diffLang} path={path || 'diff'} />
+            ) : emptyHint ? (
+              <div className="flex items-center justify-center h-full text-ink-500 text-xs">该版本未读取到文件内容（可能为空文件，或文件路径在历史中变更且不在跟踪窗口内）</div>
             ) : (
               <div className="flex items-center justify-center h-full text-ink-500 text-xs">选择左侧版本查看差异</div>
             )}
