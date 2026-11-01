@@ -3,19 +3,26 @@ import { useState, useEffect, useCallback, useRef, useMemo, type MouseEvent as R
 import dynamic from 'next/dynamic';
 import { useDispatch } from 'react-redux';
 import { setPage } from '@/store';
-import { Loader2, Play, Square, GitBranch, Terminal, Save, RefreshCw, Pencil, Undo2, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, FileText, Bug, Key, X, Bot } from 'lucide-react';
+import { Loader2, Play, Square, GitBranch, Terminal, Save, RefreshCw, Pencil, Undo2, ChevronRight, ChevronDown, ArrowLeft, Folder, FolderOpen, FileText, Bug, Key, X, Bot, BookOpen } from 'lucide-react';
 import { useToast } from '@/components/ui/Toast';
 import MarkdownReader from '@/components/ui/MarkdownReader';
+import DevEditorTabs from './DevEditorTabs';
 import DevGitMenu from './DevGitMenu';
-import DevQuickOpen from './DevQuickOpen';
+import DevQuickOpen, { type QuickMode, type QuickAction } from './DevQuickOpen';
 import DevDebugPanel from './DevDebugPanel';
 import DevAgentDrawer from './DevAgentDrawer';
 import DevRunConfigDialog, { DEFAULT_BUILD_CMD, type DevRunConf } from './DevRunConfigDialog';
 import Modal from '@/components/ui/Modal';
 import DevCompareModal, { type DevCompareResult, type CompareItem } from './DevCompareModal';
 import DevFileHistoryModal from './DevFileHistoryModal';
+import DevEditorSettingsDialog from './DevEditorSettingsDialog';
 import type { editor as MonacoEditorApi } from 'monaco-editor';
+import type { Monaco } from '@monaco-editor/react';
 import { isMarkdownPath, isProbablyBinary, monacoLangOf } from '@/lib/fileLanguage';
+import { loadEditorSettings, saveEditorSettings, type EditorSettings } from '@/lib/editorSettings';
+import { registerIdeaKeybindings, applySurround, SURROUND_TEMPLATES, type IdeaKeybindingHooks } from '@gewu/agent-ui/ui/monaco';
+import { parseOutline, declPatternOf } from '@/lib/structureOutline';
+import DevProjectReplaceDialog from './DevProjectReplaceDialog';
 
 /** 运行配置读写（localStorage 按项目隔离；兼容旧版裸命令键） */
 const loadRunConf = (pid: string): DevRunConf | null => {
@@ -168,6 +175,25 @@ const displayPathOf = (path: string | null, localPath: string | undefined, repoU
   return path;
 };
 
+/** 编辑器 Tab 数据模型（多 Tab 编辑 · IDEA 对齐；Phase 1 结构改造） */
+interface EditorTab {
+  path: string;           // 工作空间绝对路径（= Tab 唯一键）
+  title: string;          // 文件名（Tab 显示）
+  content: string;        // 编辑器当前内容
+  savedContent: string;   // 最近保存内容（dirty 判定基准）
+  dirty: boolean;
+  pinned: boolean;
+  preview: boolean;       // 预览 Tab（斜体；编辑/再点转正，IDEA 语义）
+  kind: 'code' | 'md' | 'binary';
+  reading: boolean;       // md 阅读视图开关（code/binary 恒 false）
+  loading: boolean;
+  gotoLine?: number;      // 打开定位行（全局搜索/调试停点跳转）
+  eol: '\n' | '\r\n';     // 换行符（保存时保留，IDEA 状态栏可切）
+}
+const tabTitleOf = (path: string): string => path.split('/').pop() || path;
+/** Tab 元数据投影（TabBar 渲染用） */
+const tabMetaOf = (t: EditorTab) => ({ path: t.path, title: t.title, dirty: t.dirty, pinned: t.pinned, preview: t.preview });
+
 /** 项目级凭证类型 → 中文描述 */
 const credTypeDesc = (p: GitProject): string => {
   if (p.repoCredentialType === 'token') return '访问令牌 (Token)';
@@ -190,12 +216,13 @@ export default function DevWorkspacePage() {
   const [loading, setLoading] = useState(true);
   const [sandboxLoading, setSandboxLoading] = useState(false);
   const [selectedProject, setSelectedProject] = useState<GitProject | null>(null);
-  const [fileContent, setFileContent] = useState('');
-  const [savedContent, setSavedContent] = useState('');
-  const [viewMode, setViewMode] = useState<'preview' | 'edit'>('preview');
-  const [dirty, setDirty] = useState(false);
-  const [currentPath, setCurrentPath] = useState('');
-  const [contentLoading, setContentLoading] = useState(false);
+  // ===== 多 Tab 编辑状态（IDEA 对齐：主组 + 可选副组分屏，2-Group 模型）=====
+  const [mainTabs, setMainTabs] = useState<EditorTab[]>([]);
+  const [mainActive, setMainActive] = useState('');
+  const [secondTabs, setSecondTabs] = useState<EditorTab[]>([]);
+  const [secondActive, setSecondActive] = useState('');
+  const [splitDir, setSplitDir] = useState<'right' | 'down' | null>(null);
+  const [focusedGroup, setFocusedGroup] = useState<'main' | 'second'>('main');
   const [saving, setSaving] = useState(false);
   const [execLoading, setExecLoading] = useState(false);
   /** IDEA 式运行：后台进程（nohup）+ 控制台轮询 + 停止 */
@@ -211,8 +238,11 @@ export default function DevWorkspacePage() {
   const [runConfOpen, setRunConfOpen] = useState(false);
   /** 未提交变更表（git status -z）：仓库相对路径 → M 修改 / A 新增 / D 删除（文件树变色数据源） */
   const [gitStatusMap, setGitStatusMap] = useState<Record<string, 'M' | 'A' | 'D'>>({});
-  /** 编辑器实例（自定义右键菜单动作） */
+  /** 编辑器实例（自定义右键菜单动作；主组/副组分屏各一） */
   const editorRef = useRef<MonacoEditorApi.IStandaloneCodeEditor | null>(null);
+  const secondEditorRef = useRef<MonacoEditorApi.IStandaloneCodeEditor | null>(null);
+  /** 聚焦组对应的编辑器实例（右键菜单动作作用于聚焦组） */
+  const focusedEditor = () => (focusedGroup === 'second' ? secondEditorRef.current : editorRef.current);
   /** 编辑器右键菜单位置 */
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number } | null>(null);
   /** 文件历史版本弹窗 */
@@ -235,17 +265,167 @@ export default function DevWorkspacePage() {
   const [termOpen, setTermOpen] = useState(false);
   const [termFullscreen, setTermFullscreen] = useState(false);
   // ===== IDEA 式编辑区增强 =====
-  /** 快速检索面板（file=文件检索/最近文件，search=全局搜索） */
-  const [quick, setQuick] = useState<'file' | 'search' | null>(null);
+  /** 快速检索面板（IDEA 统一弹层：file/search/everywhere/actions/locations/usages/symbols/structure/bookmarks） */
+  const [quick, setQuick] = useState<QuickMode | null>(null);
+  /** 弹层初始查询（跳转定义/查找用法注入光标词） */
+  const [pendingQuery, setPendingQuery] = useState('');
   /** 最近打开的文件（工作空间相对路径，最多 20 条） */
   const [recentFiles, setRecentFiles] = useState<string[]>([]);
-  /** 光标位置（状态栏 行,列 展示） */
+  /** 全项目替换（IDEA Ctrl+Shift+R） */
+  const [replaceOpen, setReplaceOpen] = useState(false);
+  /** 底部工具窗页签（控制台/问题/TODO，IDEA Run·Problems·TODO 工具窗） */
+  const [bottomTab, setBottomTab] = useState<'console' | 'problems' | 'todo'>('console');
+  /** TODO 清单（grep TODO|FIXME|XXX|HACK） */
+  const [todos, setTodos] = useState<Array<{ path: string; line: number; text: string; todoKind: string }>>([]);
+  /** 问题面板（Monaco markers 聚合：文件路径 → 问题列表） */
+  const [problemsMap, setProblemsMap] = useState<Record<string, Array<{ line: number; sev: number; msg: string }>>>({});
+  /** 使用处高亮词（Ctrl+Shift+F7；空数组=清除） */
+  const [useHighlightWords, setUseHighlightWords] = useState<string[]>([]);
+  /** 符号重命名（IDEA Shift+F6 词法近似：光标词全项目词边界替换） */
+  const [renamePrompt, setRenamePrompt] = useState<null | { word: string }>(null);
+  const [renameInput, setRenameInput] = useState('');
+  /** Double Shift 检测（上一次 Shift 按下时刻） */
+  const lastShiftAt = useRef(0);
+  // ===== Phase 4：Gutter 变更标记 / 最大化编辑器 =====
+  /** 未提交变更行标记（IDEA gutter：增=绿/改=蓝/删=红三角；git diff -U0 解析） */
+  const [changeMarksMap, setChangeMarksMap] = useState<Record<string, { added: number[]; modified: number[]; removed: number[] }>>({});
+  /** 最大化编辑器（IDEA Ctrl+Shift+F12：隐藏左栏/底部工具窗） */
+  const [maximized, setMaximized] = useState(false);
+  // ===== 跨文件导航栈（IDEA Ctrl+Alt+←/→ 后退/前进）=====
+  const navStackRef = useRef<Array<{ path: string; line?: number }>>([]);
+  const navIndexRef = useRef(-1);
+  const navLockRef = useRef(false);
+  const [, setNavVer] = useState(0); // 栈变化触发重渲染（按钮可用性）
+  /** 导航入栈：同栈顶去重；后退/前进触发的打开经 navLockRef 静默 */
+  const pushNav = useCallback((path: string, line?: number) => {
+    if (navLockRef.current || !path) return;
+    const stack = navStackRef.current;
+    const top = stack[navIndexRef.current];
+    if (top && top.path === path && (top.line ?? 0) === (line ?? 0)) return;
+    stack.splice(navIndexRef.current + 1);
+    stack.push({ path, line });
+    if (stack.length > 100) stack.shift();
+    navIndexRef.current = stack.length - 1;
+    setNavVer(v => v + 1);
+  }, []);
+
+  // ===== 激活 Tab 派生（跟随聚焦组；兼容原单文件语义的只读投影）=====
+  const focusedTabs = focusedGroup === 'second' ? secondTabs : mainTabs;
+  const focusedActive = focusedGroup === 'second' ? secondActive : mainActive;
+  const activeTab = focusedTabs.find(t => t.path === focusedActive) || null;
+  const mainActiveTab = mainTabs.find(t => t.path === mainActive) || null;
+  const secondActiveTab = secondTabs.find(t => t.path === secondActive) || null;
+  const currentPath = activeTab?.path || '';
+  const fileContent = activeTab?.content || '';
+  const savedContent = activeTab?.savedContent || '';
+  const dirty = !!activeTab?.dirty;
+  const gotoLine = activeTab?.gotoLine;
+  /** 显示模式：md 阅读视图=preview（MarkdownReader），其余=edit（IDEA 语义打开即可编辑） */
+  const viewMode: 'edit' | 'preview' = activeTab ? (activeTab.kind === 'md' && activeTab.reading ? 'preview' : 'edit') : 'preview';
+
+  // ===== Tab 操作工具（跨两组统一操作）=====
+  /** 更新指定 Tab（按 path 定位所在组；patch 可传对象或基于原 Tab 的计算函数） */
+  const patchTab = useCallback((path: string, patch: Partial<EditorTab> | ((t: EditorTab) => Partial<EditorTab>)) => {
+    const apply = (arr: EditorTab[]): EditorTab[] => {
+      const idx = arr.findIndex(t => t.path === path);
+      if (idx < 0) return arr;
+      const p = typeof patch === 'function' ? patch(arr[idx]) : patch;
+      const next = [...arr];
+      next[idx] = { ...next[idx], ...p };
+      return next;
+    };
+    setMainTabs(prev => (prev.some(t => t.path === path) ? apply(prev) : prev));
+    setSecondTabs(prev => (prev.some(t => t.path === path) ? apply(prev) : prev));
+  }, []);
+
+  /** 激活指定组的 Tab（切换=导航入栈，后退/前进时由 navLockRef 静默） */
+  const activateIn = useCallback((group: 'main' | 'second', path: string) => {
+    setFocusedGroup(group);
+    if (group === 'second') setSecondActive(path); else setMainActive(path);
+    pushNav(path);
+  }, [pushNav]);
+
+  /** 从组中移除 Tab 并修正激活项（右邻优先，否则左邻） */
+  const removeTabIn = useCallback((group: 'main' | 'second', key: string) => {
+    const fix = (arr: EditorTab[], active: string): [EditorTab[], string] => {
+      const idx = arr.findIndex(t => t.path === key);
+      if (idx < 0) return [arr, active];
+      const next = arr.filter(t => t.path !== key);
+      return [next, active === key ? (next[Math.min(idx, next.length - 1)]?.path || '') : active];
+    };
+    if (group === 'second') {
+      setSecondTabs(prev => { const [n, a] = fix(prev, secondActive); setSecondActive(a); return n; });
+    } else {
+      setMainTabs(prev => { const [n, a] = fix(prev, mainActive); setMainActive(a); return n; });
+    }
+  }, [secondActive, mainActive]);
+
+  /** 批量重命名 Tab 路径前缀（文件/目录重命名与移动时同步 Tab） */
+  const renameTabsPath = useCallback((oldPrefix: string, newPrefix: string) => {
+    const fix = (t: EditorTab): EditorTab => {
+      const np = t.path === oldPrefix ? newPrefix
+        : t.path.startsWith(oldPrefix + '/') ? newPrefix + t.path.slice(oldPrefix.length) : t.path;
+      return np === t.path ? t : { ...t, path: np, title: tabTitleOf(np) };
+    };
+    const fixActive = (a: string) =>
+      a === oldPrefix ? newPrefix : a.startsWith(oldPrefix + '/') ? newPrefix + a.slice(oldPrefix.length) : a;
+    setMainTabs(prev => prev.map(fix));
+    setMainActive(fixActive);
+    setSecondTabs(prev => prev.map(fix));
+    setSecondActive(fixActive);
+  }, []);
+
+  /** 关闭受影响路径（目录删除场景：前缀内全部 Tab）下线 */
+  const closeTabsUnder = useCallback((prefix: string) => {
+    const hit = (t: EditorTab) => t.path === prefix || t.path.startsWith(prefix + '/');
+    const nextMain = mainTabs.filter(t => !hit(t));
+    const nextSecond = secondTabs.filter(t => !hit(t));
+    setMainTabs(nextMain);
+    setMainActive(a => (nextMain.some(t => t.path === a) ? a : nextMain[nextMain.length - 1]?.path || ''));
+    setSecondTabs(nextSecond);
+    setSecondActive(a => (nextSecond.some(t => t.path === a) ? a : nextSecond[nextSecond.length - 1]?.path || ''));
+  }, [mainTabs, secondTabs]);
+
+  /** openInEditor 经 ref 互引（goNav 声明先于其定义，运行时回调已就绪） */
+  const openInEditorRef = useRef<((path: string, line?: number) => Promise<void>) | null>(null);
+  /** 后退/前进（Ctrl+Alt+←/→）：静默打开栈内目标 */
+  const goNav = useCallback((dir: -1 | 1) => {
+    const stack = navStackRef.current;
+    const idx = navIndexRef.current + dir;
+    if (idx < 0 || idx >= stack.length) return;
+    navIndexRef.current = idx;
+    setNavVer(v => v + 1);
+    navLockRef.current = true;
+    Promise.resolve(openInEditorRef.current?.(stack[idx].path, stack[idx].line))
+      .finally(() => { navLockRef.current = false; });
+  }, []);
+  /** 光标位置（状态栏 行,列 展示，跟随聚焦组） */
   const [cursor, setCursor] = useState({ line: 0, col: 0 });
-  /** 打开文件后定位到指定行（全局搜索命中跳转；无值不定位） */
-  const [gotoLine, setGotoLine] = useState<number | undefined>(undefined);
+  /** 最近光标位置（IDEA Recent Locations；跨文件光标历史，Recent Locations 弹层数据源） */
+  const [recentLocations, setRecentLocations] = useState<Array<{ path: string; line: number; col: number; text: string }>>([]);
+  const lastLocRef = useRef<{ path: string; line: number }>({ path: '', line: 0 });
   /** 编辑器主题（持久化到 localStorage，默认格物暗色） */
   const [editorTheme, setEditorTheme] = useState<string>(() =>
     (typeof window !== 'undefined' && window.localStorage.getItem('dw-editor-theme')) || 'gewu-dark');
+  // ===== Phase 2 编辑功能（IDEA 对齐）：设置 / 自动保存 / 多剪贴板 / 包裹 / 书签 / 跳行 =====
+  /** 编辑器偏好（全局，Ctrl+Alt+S 设置面板） */
+  const [editorSettings, setEditorSettingsState] = useState<EditorSettings>(() => loadEditorSettings());
+  const setEditorSettings = (s: EditorSettings) => { setEditorSettingsState(s); saveEditorSettings(s); };
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  /** 多剪贴板历史（IDEA Ctrl+Shift+V，≤100 条） */
+  const [clipHistory, setClipHistory] = useState<string[]>([]);
+  const [clipPickerOpen, setClipPickerOpen] = useState(false);
+  /** Surround With 弹层（Ctrl+Alt+T） */
+  const [surroundOpen, setSurroundOpen] = useState(false);
+  /** 行书签（F11；repoRel:line，按项目持久化） */
+  const [bookmarks, setBookmarks] = useState<Set<string>>(new Set());
+  /** Ctrl+G 跳行浮层 */
+  const [gotoPrompt, setGotoPrompt] = useState<null | { group: 'main' | 'second' }>(null);
+  const [gotoInput, setGotoInput] = useState('');
+  /** 运行时 monaco 命名空间（markers/EditorOption 等 API） */
+  const monacoNsRef = useRef<Monaco | null>(null);
+  /** IDEA 键位钩子：稳定壳（onReady 注册一次）经 ref 转发到每次渲染的最新实现 */
+  const hooksRef = useRef<Partial<IdeaKeybindingHooks>>({});
   // ===== IDEA 式 Debug（P1 Java 断点调试） =====
   const [debugState, setDebugState] = useState<DebugState | null>(null);
   /** 累积的应用控制台文本 */
@@ -361,11 +541,11 @@ export default function DevWorkspacePage() {
     setSelectedProject(p);
     setTree({});
     setExpandedDirs(new Set());
-    setCurrentPath('');
-    setFileContent('');
-    setSavedContent('');
-    setViewMode('preview');
-    setDirty(false);
+    // 切换项目 = 关闭全部 Tab（跨项目 Tab 不保留），并退出分屏
+    setMainTabs([]); setMainActive('');
+    setSecondTabs([]); setSecondActive('');
+    setSplitDir(null); setFocusedGroup('main');
+    setCursor({ line: 0, col: 0 });
     if (p.cloneStatus === 'ready' && p.localPath) {
       loadEntries(p.localPath);
     } else if (p.cloneStatus !== 'cloning') {
@@ -513,7 +693,7 @@ export default function DevWorkspacePage() {
         // 移动后修正引用路径（IDEA Move 语义的字符串级近似）
         await updateReferencesOnRename(clip.path, dst, clip.isDir, base, base);
         treeClipRef.current = null;
-        if (currentPath && (currentPath === clip.path || currentPath.startsWith(clip.path + '/'))) setCurrentPath(dst + currentPath.slice(clip.path.length));
+        renameTabsPath(clip.path, dst);
       }
       refreshTree(); refreshGitStatus();
       toast(clip.mode === 'cut' ? '已移动' : '已复制', 'success');
@@ -530,7 +710,7 @@ export default function DevWorkspacePage() {
     if (!(await confirmDialog({ message: `删除「${t.name}」？${t.isDir ? '目录及其全部内容' : '文件'}将被移除（删除会体现在 Git 变更中）。`, danger: true, confirmText: '删除' }))) return;
     try {
       await deleteFile(rel);
-      if (currentPath && (currentPath === t.path || currentPath.startsWith(t.path + '/'))) { setCurrentPath(''); setFileContent(''); setSavedContent(''); setDirty(false); }
+      closeTabsUnder(t.path);
       refreshTree(); refreshGitStatus();
       toast('已删除', 'success');
     } catch (e) {
@@ -599,8 +779,7 @@ export default function DevWorkspacePage() {
       // 先修正引用（grep 旧值），再移动
       const touched = await updateReferencesOnRename(oldRel, newRel, renameDialog.isDir, oldName, finalName);
       await execCommand(`mv "/workspace/${renameDialog.path}" "/workspace/${newRel}"`, 20);
-      if (currentPath === renameDialog.path) setCurrentPath(newRel);
-      else if (currentPath?.startsWith(renameDialog.path + '/')) setCurrentPath(newRel + currentPath.slice(renameDialog.path.length));
+      renameTabsPath(renameDialog.path, newRel);
       refreshTree(); refreshGitStatus();
       toast(touched > 0 ? `已重命名，并更新 ${touched} 个引用文件` : '已重命名', 'success');
     } catch (e) {
@@ -701,7 +880,7 @@ export default function DevWorkspacePage() {
       if (!expandedDirs.has(parentPath)) toggleDir(parentPath);
       refreshGitStatus();
       toast(`已创建 ${rel}`, 'success');
-      if (!isDir) handleReadFile(abs);
+      if (!isDir) openInEditor(abs);
     } catch (e) {
       toast('创建失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
     }
@@ -722,7 +901,7 @@ export default function DevWorkspacePage() {
     return (
       <div key={nodePath}>
         <button
-          onClick={() => (isDir ? toggleDir(nodePath) : handleReadFile(absPath))}
+          onClick={() => (isDir ? toggleDir(nodePath) : openInEditor(absPath, undefined, { preview: true, group: focusedGroup }))}
           onContextMenu={(e) => openTreeMenu(e, nodePath, isDir)}
           className={`w-full text-left flex items-center gap-1.5 px-2 py-1.5 rounded text-xs transition-all ${
             currentPath === absPath || (isDir && currentPath.startsWith(nodePath + '/'))
@@ -750,43 +929,87 @@ export default function DevWorkspacePage() {
     );
   };
 
-  const handleReadFile = async (path: string, line?: number) => {
-    setCurrentPath(path);
-    setGotoLine(line);
-    setBlameOn(false);
-    setBlameLines([]);
-    setCursor({ line: 0, col: 0 });
-    setContentLoading(true);
-    setViewMode('preview');
-    setDirty(false);
+  // ==================== 多 Tab 编辑器（IDEA 对齐） ====================
+
+  /**
+   * 打开文件到编辑 Tab（IDEA 语义）：
+   * - 已打开 → 激活；预览 Tab 再次打开转正；
+   * - 新打开（默认预览 Tab）→ 复用唯一预览 Tab 位（dirty 旧预览转正保留）；
+   * - code 打开即可编辑，md 默认阅读视图，二进制只读提示；
+   * - line 携带时定位（全项目搜索命中/调试停点）。
+   */
+  const openInEditor = async (path: string, line?: number, opts?: { preview?: boolean; group?: 'main' | 'second'; }) => {
+    if (!path) return;
+    const group = opts?.group || 'main';
+    const wantPreview = !!opts?.preview && group === 'main';
+    const existsIn = group === 'second' ? secondTabs : mainTabs;
+    // 跨组去重：文件已在另一组打开 → 激活那一组（同文件不双开，IDEA 导航跳转到所在组）
+    const otherHit = (group === 'second' ? mainTabs : secondTabs).find(t => t.path === path);
+    if (otherHit) {
+      const other = group === 'second' ? 'main' : 'second';
+      if (otherHit.preview) patchTab(path, { preview: false });
+      if (line && line !== otherHit.gotoLine) patchTab(path, { gotoLine: line });
+      activateIn(other, path);
+      return;
+    }
+    const existed = existsIn.find(t => t.path === path);
+    if (existed) {
+      // 已打开：激活 + 转正（IDEA 语义：预览 Tab 被再次打开/定位即固定）+ 跳行
+      if (existed.preview) patchTab(path, { preview: false });
+      if (line && line !== existed.gotoLine) patchTab(path, { gotoLine: line });
+      activateIn(group, path);
+      return;
+    }
+    // 预览 Tab 复用：新预览替换旧预览位（dirty 旧预览先转正保留）
+    let replacedPreviewKey = '';
+    if (wantPreview) {
+      const oldPreview = mainTabs.find(t => t.preview && !t.pinned && t.path !== path);
+      if (oldPreview) {
+        if (oldPreview.dirty) patchTab(oldPreview.path, { preview: false });
+        else replacedPreviewKey = oldPreview.path;
+      }
+    }
+    const kind: EditorTab['kind'] = isMarkdownPath(path) ? 'md' : 'code';
+    const tab: EditorTab = {
+      path, title: tabTitleOf(path), content: '', savedContent: '',
+      dirty: false, pinned: false, preview: wantPreview, kind,
+      reading: kind === 'md', loading: true, gotoLine: line, eol: '\n',
+    };
+    if (group === 'second') {
+      setSecondTabs(prev => [...prev.filter(t => t.path !== path), tab]);
+      activateIn('second', path);
+    } else {
+      setMainTabs(prev => [...prev.filter(t => t.path !== replacedPreviewKey && t.path !== path), tab]);
+      activateIn('main', path);
+    }
     try {
       const content = await readFile(path);
-      setFileContent(content);
-      setSavedContent(content);
+      const realKind: EditorTab['kind'] = kind === 'code' && isProbablyBinary(content) ? 'binary' : kind;
+      patchTab(path, { content, savedContent: content, loading: false, kind: realKind });
       setRecentFiles(prev => [path, ...prev.filter(p => p !== path)].slice(0, 20));
     } catch (e) {
       toast('读取失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
-      setFileContent('');
-      setSavedContent('');
-    } finally {
-      setContentLoading(false);
+      removeTabIn(group, path);
     }
   };
+  // goNav 前向引用接线（后退/前进经 ref 调用 openInEditor）
+  openInEditorRef.current = openInEditor;
 
   /** 快速检索/搜索命中打开（入参为仓库内相对路径，拼接工作空间前缀） */
   const openRepoFile = (repoRel: string, line?: number) => {
     if (!selectedProject?.localPath) return;
     setQuick(null);
-    handleReadFile(`${selectedProject.localPath}/${repoRel}`, line);
+    openInEditor(`${selectedProject.localPath}/${repoRel}`, line);
   };
 
-  const handleSaveFile = async () => {
-    if (!currentPath || viewMode !== 'edit') return;
+  /** 保存聚焦组激活 Tab（Ctrl+S / 保存按钮；md 阅读态/二进制/加载中忽略） */
+  const saveActiveTab = async () => {
+    const t = activeTab;
+    if (!t || t.kind === 'binary' || t.loading || (t.kind === 'md' && t.reading)) return;
     setSaving(true);
     try {
-      await writeFile(currentPath, fileContent);
-      setSavedContent(fileContent);
-      setDirty(false);
+      await writeFile(t.path, t.content);
+      patchTab(t.path, { savedContent: t.content, dirty: false, preview: false });
       toast('已保存', 'success');
       refreshGitStatus();
     } catch (e) {
@@ -796,16 +1019,541 @@ export default function DevWorkspacePage() {
     }
   };
 
-  /** 退出编辑：有未保存修改先确认，放弃则还原到最近保存内容 */
-  const exitEdit = async () => {
-    if (dirty && !(await confirmDialog({ message: '有未保存的修改，确定放弃并退出编辑？', danger: true, confirmText: '放弃并退出' }))) return;
-    setFileContent(savedContent);
-    setDirty(false);
-    setViewMode('preview');
+  /** 还原激活 Tab 到最近保存内容（原「退出编辑」的 IDEA 化：编辑器内回滚未保存修改） */
+  const rollbackActiveTab = async () => {
+    const t = activeTab;
+    if (!t || !t.dirty) return;
+    if (!(await confirmDialog({ message: `把「${t.title}」还原到最近保存的内容？未保存修改将丢失。`, danger: true, confirmText: '还原' }))) return;
+    patchTab(t.path, { content: t.savedContent, dirty: false });
   };
 
-  // 编辑区快捷键：Ctrl+S 保存（编辑态）；IDEA 式导航——Ctrl+Shift+N/Ctrl+P 文件检索、
-  // Ctrl+E 最近文件、Ctrl+Shift+F 全局搜索（检索面板打开时让位给面板自身的键处理）
+  /** 关闭 Tab（dirty 先确认）；激活项转移由 removeTabIn 修正 */
+  const closeTab = async (group: 'main' | 'second', key: string) => {
+    const arr = group === 'second' ? secondTabs : mainTabs;
+    const t = arr.find(x => x.path === key);
+    if (!t) return;
+    if (t.dirty && !(await confirmDialog({ message: `「${t.title}」有未保存的修改，确定关闭并丢弃？`, danger: true, confirmText: '关闭并丢弃' }))) return;
+    removeTabIn(group, key);
+  };
+
+  /** 关闭其他（保留固定与目标 Tab；未保存修改一次性确认） */
+  const closeOtherTabs = async (group: 'main' | 'second', key: string) => {
+    const arr = group === 'second' ? secondTabs : mainTabs;
+    const removed = arr.filter(t => !t.pinned && t.path !== key);
+    if (removed.length === 0) return;
+    if (removed.some(t => t.dirty) && !(await confirmDialog({ message: `${removed.filter(t => t.dirty).length} 个未保存的标签将被丢弃，继续关闭其他？`, danger: true, confirmText: '继续' }))) return;
+    if (group === 'second') {
+      setSecondTabs(arr.filter(t => t.pinned || t.path === key));
+      setSecondActive(a => (a === key || !arr.find(t => t.path === a && (t.pinned || t.path === key))) ? key : a);
+    } else {
+      setMainTabs(arr.filter(t => t.pinned || t.path === key));
+      setMainActive(key);
+    }
+  };
+
+  /** 关闭全部（固定 Tab 一并关闭；未保存一次性确认） */
+  const closeAllTabs = async (group: 'main' | 'second') => {
+    const arr = group === 'second' ? secondTabs : mainTabs;
+    if (arr.length === 0) return;
+    if (arr.some(t => t.dirty) && !(await confirmDialog({ message: `${arr.filter(t => t.dirty).length} 个未保存的标签将被丢弃，继续关闭全部？`, danger: true, confirmText: '继续' }))) return;
+    if (group === 'second') { setSecondTabs([]); setSecondActive(''); }
+    else { setMainTabs([]); setMainActive(''); }
+  };
+
+  /** 固定/取消固定（双击 Tab 同效） */
+  const togglePinTab = (path: string) => {
+    patchTab(path, t => ({ pinned: !t.pinned }));
+  };
+
+  /** 移到右侧/下方分屏（IDEA Split：Tab 移入副组） */
+  const moveToSecond = (path: string, dir: 'right' | 'down') => {
+    const t = mainTabs.find(x => x.path === path);
+    if (!t) return;
+    removeTabIn('main', path);
+    setSplitDir(dir);
+    setSecondTabs(prev => [...prev.filter(x => x.path !== path), t]);
+    setSecondActive(path);
+    setFocusedGroup('second');
+  };
+
+  /** 副组 Tab 移回主编辑区（空则解除分屏） */
+  const moveBackToMain = (path: string) => {
+    const t = secondTabs.find(x => x.path === path);
+    if (!t) return;
+    const remaining = secondTabs.filter(x => x.path !== path);
+    setSecondTabs(remaining);
+    setSecondActive(remaining[remaining.length - 1]?.path || '');
+    if (remaining.length === 0) setSplitDir(null);
+    setFocusedGroup('main');
+    setMainTabs(prev => (prev.some(x => x.path === path) ? prev : [...prev, t]));
+    setMainActive(path);
+  };
+
+  /** 解除分屏：副组 Tab 全部移回主组（同 path 冲突保留主组版本） */
+  const unsplit = () => {
+    if (!splitDir) return;
+    const move = secondTabs.filter(t => !mainTabs.some(m => m.path === t.path));
+    setMainTabs(prev => [...prev, ...move]);
+    const movedActive = move.some(t => t.path === secondActive) ? secondActive : mainActive;
+    setMainActive(movedActive);
+    setSecondTabs([]); setSecondActive('');
+    setSplitDir(null); setFocusedGroup('main');
+  };
+
+  /** 相邻 Tab 切换（Alt+←/→）；Ctrl+Tab 循环切换同向实现 */
+  const switchTab = (dir: 1 | -1) => {
+    const arr = focusedTabs;
+    if (arr.length < 2 || !focusedActive) return;
+    const idx = arr.findIndex(t => t.path === focusedActive);
+    const next = arr[(idx + dir + arr.length) % arr.length];
+    activateIn(focusedGroup, next.path);
+  };
+
+  /** 记录最近光标位置（IDEA Recent Locations：跨文件光标历史，同文件同行去重，保留 30 条） */
+  const recordLocation = useCallback((path: string, line: number, col: number) => {
+    if (!line) return;
+    const last = lastLocRef.current;
+    if (last.path === path && last.line === line) return;
+    lastLocRef.current = { path, line };
+    const t = mainTabs.find(x => x.path === path) || secondTabs.find(x => x.path === path);
+    const text = t ? (t.content.split('\n')[line - 1] || '').trim().slice(0, 80) : '';
+    setRecentLocations(prev => [{ path, line, col, text }, ...prev.filter(l => !(l.path === path && l.line === line))].slice(0, 30));
+  }, [mainTabs, secondTabs]);
+
+  // ==================== Phase 2 · IDEA 编辑功能 ====================
+
+  /** 指定文件的书签行集合 */
+  const bookmarksOf = (p: string): number[] => {
+    const rel = repoRelOf(p);
+    return rel ? Array.from(bookmarks).filter(k => k.startsWith(rel + ':')).map(k => Number(k.slice(rel.length + 1))) : [];
+  };
+  /** F11 行书签切换（当前光标行，IDEA 语义） */
+  const toggleBookmarkAt = () => {
+    const ed = focusedEditor();
+    const pos = ed?.getPosition();
+    if (!ed || !pos || !currentPath || !repoRelOf(currentPath)) return;
+    const key = `${repoRelOf(currentPath)}:${pos.lineNumber}`;
+    setBookmarks(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
+  // 书签按项目持久化
+  useEffect(() => {
+    if (!selectedProject?.projectId || typeof window === 'undefined') return;
+    try {
+      const raw = window.localStorage.getItem(`dw-bookmarks-${selectedProject.projectId}`);
+      setBookmarks(new Set<string>(raw ? (JSON.parse(raw) as string[]) : []));
+    } catch { setBookmarks(new Set()); }
+  }, [selectedProject?.projectId]);
+  useEffect(() => {
+    if (!selectedProject?.projectId || typeof window === 'undefined') return;
+    try { window.localStorage.setItem(`dw-bookmarks-${selectedProject.projectId}`, JSON.stringify(Array.from(bookmarks))); } catch { /* 忽略 */ }
+  }, [bookmarks, selectedProject?.projectId]);
+
+  /** F2/Shift+F2 错误导航：Monaco markers 循环跳转（TS/JSON/CSS/HTML worker 内置诊断） */
+  const jumpMarker = (dir: 1 | -1) => {
+    const ed = focusedEditor();
+    const mono = monacoNsRef.current;
+    if (!ed || !mono) return;
+    const model = ed.getModel();
+    if (!model) return;
+    const markers: Array<{ severity: number; startLineNumber: number; startColumn: number; message: string }> =
+      (mono.editor.getModelMarkers({ resource: model.uri }) as Array<{ severity: number; startLineNumber: number; startColumn: number; message: string }>)
+        .filter(m => m.severity >= 4) // >= Warning
+        .sort((a, b) => a.startLineNumber - b.startLineNumber);
+    if (!markers.length) { toast('当前文件没有检测到问题（仅 TS/JSON/CSS/HTML 有内置诊断）', 'info'); return; }
+    const cur = ed.getPosition()?.lineNumber ?? 0;
+    const target = dir === 1
+      ? markers.find(m => m.startLineNumber > cur) || markers[0]
+      : [...markers].reverse().find(m => m.startLineNumber < cur) || markers[markers.length - 1];
+    ed.revealLineInCenter(target.startLineNumber);
+    ed.setPosition({ lineNumber: target.startLineNumber, column: target.startColumn });
+    ed.focus();
+    const sev = target.severity >= 8 ? 'error' : 'info'; // 8=Error
+    toast(`行 ${target.startLineNumber}：${target.message.slice(0, 140)}`, sev);
+  };
+
+  /** Ctrl+Alt+L 格式化：Monaco 内置 formatter 优先（TS/JSON/CSS/HTML），无 provider 时由设置面板的保存格式化兜底提示 */
+  const formatActiveEditor = () => {
+    const ed = focusedEditor();
+    if (!ed) return;
+    const action = ed.getAction('editor.action.formatDocument');
+    if (!action) { toast('当前语言暂无内置格式化器', 'info'); return; }
+    void action.run().then(() => toast('已格式化', 'success')).catch(() => toast('格式化失败', 'error'));
+  };
+
+  /** Ctrl+Alt+T 应用包裹（选区通用花括号结构） */
+  const doSurround = (tplKey: string) => {
+    const ed = focusedEditor();
+    const tpl = SURROUND_TEMPLATES.find(t => t.key === tplKey);
+    if (!ed || !tpl) { setSurroundOpen(false); return; }
+    if (!ed.getSelection()?.isEmpty()) applySurround(ed, tpl);
+    else toast('请先选中要包裹的代码', 'info');
+    setSurroundOpen(false);
+  };
+
+  /** Ctrl+Shift+V 历史粘贴到光标/选区 */
+  const pasteFromHistory = (text: string) => {
+    const ed = focusedEditor();
+    if (!ed) return;
+    const sel = ed.getSelection();
+    if (sel) ed.executeEdits('paste-history', [{ range: sel, text, forceMoveMarkers: true }]);
+    ed.focus();
+    setClipPickerOpen(false);
+  };
+  // 剪贴板历史采集：copy/cut 事件统一记录（Monaco 剪贴板动作也会派发 document 事件）
+  useEffect(() => {
+    const onCopyCut = (e: ClipboardEvent) => {
+      const text = e.clipboardData?.getData('text/plain');
+      if (text) setClipHistory(prev => [text, ...prev.filter(x => x !== text)].slice(0, 100));
+    };
+    document.addEventListener('copy', onCopyCut);
+    document.addEventListener('cut', onCopyCut);
+    return () => { document.removeEventListener('copy', onCopyCut); document.removeEventListener('cut', onCopyCut); };
+  }, []);
+
+  /** Ctrl+G 跳行（行或 行:列），作用于发起时的组 */
+  const doGotoLine = () => {
+    const ed = gotoPrompt?.group === 'second' ? secondEditorRef.current : editorRef.current;
+    const m = /^(\d+)(?::(\d+))?$/.exec(gotoInput.trim());
+    if (ed && m) {
+      const line = Math.max(1, Number(m[1]));
+      const col = Math.max(1, Number(m[2] || 1));
+      ed.revealLineInCenter(line);
+      ed.setPosition({ lineNumber: line, column: col });
+      ed.focus();
+    }
+    setGotoPrompt(null);
+  };
+
+  /** 弹层关闭后焦点回归编辑器（IDEA 行为：Escape 关闭弹层后继续键位操作） */
+  const restoreEditorFocus = () => {
+    setTimeout(() => focusedEditor()?.focus(), 60);
+  };
+
+  /** 自动保存（IDEA 默认语义：修改后 0.8s 写盘；保存时格式化可开） */
+  const autoSaveTimersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({});
+  useEffect(() => {
+    if (!editorSettings.autoSave) return;
+    const all = [...mainTabs, ...secondTabs];
+    all.forEach(t => {
+      if (!t.dirty || t.loading || t.kind === 'binary' || (t.kind === 'md' && t.reading)) return;
+      if (autoSaveTimersRef.current[t.path]) return;
+      autoSaveTimersRef.current[t.path] = setTimeout(async () => {
+        delete autoSaveTimersRef.current[t.path];
+        try {
+          let content = t.content;
+          if (editorSettings.formatOnSave) {
+            // 保存时格式化：Monaco 内置 formatter 就绪才生效（无 provider 语言跳过）
+            const ed = editorRef.current;
+            const model = ed?.getModel();
+            const fmt = editorRef.current?.getAction('editor.action.formatDocument');
+            if (ed && model && fmt && model.getValue() === content) {
+              try { await fmt.run(); } catch { /* 格式化失败按原文保存 */ }
+              content = model.getValue();
+            }
+          }
+          await writeFile(t.path, content);
+          patchTab(t.path, tt => (tt.content === content ? { savedContent: content, dirty: false } : {}));
+        } catch { /* 自动保存失败静默，手动 Ctrl+S 可重试 */ }
+      }, 800);
+    });
+    return () => {
+      // 清理已不在 dirty 列表的定时器（保存完成/关闭 Tab）
+      const dirtyPaths = new Set(all.filter(t => t.dirty).map(t => t.path));
+      Object.keys(autoSaveTimersRef.current).forEach(p => {
+        if (!dirtyPaths.has(p)) { clearTimeout(autoSaveTimersRef.current[p]); delete autoSaveTimersRef.current[p]; }
+      });
+    };
+  }, [mainTabs, secondTabs, editorSettings.autoSave, editorSettings.formatOnSave, patchTab]);
+
+  /** IDEA 键位钩子实现（每次渲染更新到 hooksRef；onReady 注册的稳定壳转发到这里） */
+  hooksRef.current = {
+    onGotoLine: () => { setGotoInput(''); setGotoPrompt({ group: focusedGroup }); },
+    onToggleBookmark: toggleBookmarkAt,
+    onSurroundWith: () => setSurroundOpen(true),
+    onFormat: formatActiveEditor,
+    onPasteHistory: () => setClipPickerOpen(true),
+    onJumpToNextError: () => jumpMarker(1),
+    onJumpToPrevError: () => jumpMarker(-1),
+  };
+  /** onReady 稳定壳（闭包只引 hooksRef，函数身份恒定） */
+  const editorHooks: IdeaKeybindingHooks = useMemo(() => ({
+    onGotoLine: () => hooksRef.current.onGotoLine?.(),
+    onToggleBookmark: () => hooksRef.current.onToggleBookmark?.(),
+    onShowBookmarks: () => hooksRef.current.onShowBookmarks?.(),
+    onSurroundWith: () => hooksRef.current.onSurroundWith?.(),
+    onFormat: () => hooksRef.current.onFormat?.(),
+    onFindUsages: () => hooksRef.current.onFindUsages?.(),
+    onGotoDefinition: () => hooksRef.current.onGotoDefinition?.(),
+    onFindAction: () => hooksRef.current.onFindAction?.(),
+    onPasteHistory: () => hooksRef.current.onPasteHistory?.(),
+    onRename: () => hooksRef.current.onRename?.(),
+    onJumpToNextError: () => hooksRef.current.onJumpToNextError?.(),
+    onJumpToPrevError: () => hooksRef.current.onJumpToPrevError?.(),
+    onGotoStructure: () => hooksRef.current.onGotoStructure?.(),
+  }), []);
+
+  // ==================== Phase 3 · 导航与搜索（IDEA 对齐） ====================
+
+  /** 光标处单词（跳转定义/查找用法/重命名共用） */
+  const wordAtCursor = (): string | null => {
+    const ed = focusedEditor();
+    if (!ed || !ed.getPosition()) return null;
+    return ed.getModel()?.getWordAtPosition(ed.getPosition()!)?.word || null;
+  };
+
+  /** 项目内声明检索（Go to Symbol / 跳转定义数据源；grep -E 声明模式，词白名单防注入） */
+  const runSymbolsQuery = useCallback(async (query: string): Promise<Array<{ path: string; line?: number; text?: string; kind?: string }>> => {
+    const lp = selectedProject?.localPath;
+    const w = query.trim().replace(/[^\w$]/g, '');
+    if (!lp || !w) return [];
+    const r = await execCommand(
+      `grep -rnIE "((def|function|func|fn)[[:space:]]+${w}\\b|(class|interface|enum|struct|trait|record)[[:space:]]+${w}\\b|${w}[[:space:]]*\\\\()" --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=target /workspace/${lp} 2>/dev/null | head -60`, 30);
+    return (r.stdout || '').split('\n').filter(Boolean).map(line => {
+      const m = /^\/workspace\/(.+?):(\d+):(.*)$/.exec(line);
+      if (!m) return null;
+      const isCall = m[3].includes(`${w}(`) && !/(def|function|func|fn)\s/.test(m[3]) && !/(class|interface|enum|struct|trait)\s/.test(m[3]);
+      return { path: m[1], line: Number(m[2]), text: m[3], kind: isCall ? '引用' : '声明' };
+    }).filter(Boolean) as Array<{ path: string; line?: number; text?: string; kind?: string }>;
+  }, [selectedProject]);
+
+  /** 项目内词边界用法检索（Find Usages 数据源） */
+  const runUsagesQuery = useCallback(async (query: string): Promise<Array<{ path: string; line?: number; text?: string; kind?: string }>> => {
+    const lp = selectedProject?.localPath;
+    const w = query.trim().replace(/[^\w$]/g, '');
+    if (!lp || !w) return [];
+    const r = await execCommand(
+      `grep -rnIw "${w}" --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=target /workspace/${lp} 2>/dev/null | head -100`, 30);
+    return (r.stdout || '').split('\n').filter(Boolean).map(line => {
+      const m = /^\/workspace\/(.+?):(\d+):(.*)$/.exec(line);
+      return m ? { path: m[1], line: Number(m[2]), text: m[3], kind: '用法' } : null;
+    }).filter(Boolean) as Array<{ path: string; line?: number; text?: string; kind?: string }>;
+  }, [selectedProject]);
+
+  /** Ctrl+B 跳转定义（词法近似）：声明 grep → 单命中直跳 / 多命中弹列表 */
+  const gotoDefinition = async () => {
+    const word = wordAtCursor();
+    if (!word) { toast('光标处无符号', 'info'); return; }
+    setPendingQuery(word);
+    setQuick('symbols');
+  };
+
+  /** Alt+F7 查找用法：词边界 grep → 结果列表 + 当前文件高亮 */
+  const findUsages = async () => {
+    const word = wordAtCursor();
+    if (!word) { toast('光标处无符号', 'info'); return; }
+    setUseHighlightWords([word]);
+    setPendingQuery(word);
+    setQuick('usages');
+  };
+
+  /** Ctrl+Shift+F7 高亮光标词在当前文件的所有使用处（再按清除） */
+  const toggleUsageHighlight = () => {
+    const word = wordAtCursor();
+    if (!word) return;
+    setUseHighlightWords(prev => (prev.length === 1 && prev[0] === word ? [] : [word]));
+  };
+
+  /** Ctrl+F12 结构视图（当前文件正则大纲） */
+  const openStructure = () => setQuick('structure');
+
+  /** Shift+F11 书签列表 */
+  const openBookmarks = () => setQuick('bookmarks');
+
+  /** Shift+F6 重命名符号（词法近似：确认后全项目词边界替换，同步打开中的 Tab） */
+  const startRenameSymbol = () => {
+    const word = wordAtCursor();
+    if (!word) { toast('光标处无符号', 'info'); return; }
+    setRenameInput(word);
+    setRenamePrompt({ word });
+  };
+  const doRenameSymbol = async () => {
+    const rp = renamePrompt;
+    if (!rp || !selectedProject) return;
+    const next = renameInput.trim();
+    setRenamePrompt(null);
+    if (!next || next === rp.word) return;
+    if (!/^[A-Za-z_$][\w$]*$/.test(next)) { toast('符号名仅支持字母/数字/下划线/$', 'error'); return; }
+    const lp = selectedProject.localPath;
+    try {
+      const g = await execCommand(`grep -rIlw "${rp.word}" --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=target /workspace/${lp} 2>/dev/null`, 30);
+      const files = (g.stdout || '').split('\n').map(v => v.trim()).filter(Boolean).slice(0, 60);
+      const re = new RegExp(`\\b${rp.word.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'g');
+      let touched = 0;
+      for (const f of files) {
+        try {
+          const rel = f.replace(/^\/workspace\//, '');
+          const abs = `${lp}/${rel}`;
+          const content = await readFile(abs);
+          const nextContent = content.replace(re, next);
+          if (nextContent !== content) {
+            await writeFile(abs, nextContent);
+            patchTab(abs, { content: nextContent, savedContent: nextContent, dirty: false });
+            touched++;
+          }
+        } catch { /* 单文件失败不阻断 */ }
+      }
+      toast(touched > 0 ? `已重命名「${rp.word}」→「${next}」（${touched} 个文件）` : `未找到「${rp.word}」的使用处`, touched > 0 ? 'success' : 'info');
+      if (touched > 0) { refreshGitStatus(); refreshTree(); }
+    } catch (e) {
+      toast('重命名失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    }
+  };
+
+  /** 当前文件结构大纲（结构视图数据源；激活 Tab 内容变化时重算） */
+  const currentStructure = useMemo(
+    () => (activeTab && !activeTab.loading ? parseOutline(activeTab.content, activeTab.path) : []),
+    [activeTab?.path, activeTab?.content, activeTab?.loading, activeTab]);
+
+  /** TODO 扫描（grep TODO|FIXME|XXX|HACK，IDEA TODO 工具窗） */
+  const refreshTodos = useCallback(async () => {
+    const lp = selectedProject?.localPath;
+    if (!lp) return;
+    try {
+      const r = await execCommand(
+        `grep -rnIE "(TODO|FIXME|XXX|HACK)" --exclude-dir=.git --exclude-dir=node_modules --exclude-dir=target /workspace/${lp} 2>/dev/null | head -100`, 30);
+      const list = (r.stdout || '').split('\n').filter(Boolean).map(line => {
+        const m = /^\/workspace\/(.+?):(\d+):(.*)$/.exec(line);
+        if (!m) return null;
+        const kind = m[3].includes('FIXME') ? 'FIXME' : m[3].includes('XXX') ? 'XXX' : m[3].includes('HACK') ? 'HACK' : 'TODO';
+        return { path: m[1], line: Number(m[2]), text: m[3].trim(), todoKind: kind };
+      }).filter(Boolean) as Array<{ path: string; line: number; text: string; todoKind: string }>;
+      setTodos(list);
+    } catch { /* 沙箱未就绪忽略 */ }
+  }, [selectedProject]);
+
+  /** Find Action 动作注册表（Ctrl+Shift+A / Search Everywhere 数据源） */
+  const quickActions = useMemo<QuickAction[]>(() => [
+    { id: 'search-files', label: '按文件名检索…', hint: 'Ctrl+Shift+N', run: () => setQuick('file') },
+    { id: 'search-text', label: '在项目中搜索文本…', hint: 'Ctrl+Shift+F', run: () => setQuick('search') },
+    { id: 'search-everywhere', label: '全局搜索一切…', hint: 'Double Shift', run: () => setQuick('everywhere') },
+    { id: 'replace-in-files', label: '在项目中替换…', hint: 'Ctrl+Shift+R', run: () => setReplaceOpen(true) },
+    { id: 'structure', label: '文件结构…', hint: 'Ctrl+F12', run: openStructure },
+    { id: 'locations', label: '最近位置…', hint: 'Ctrl+Shift+E', run: () => setQuick('locations') },
+    { id: 'bookmarks', label: '书签列表…', hint: 'Shift+F11', run: openBookmarks },
+    { id: 'format', label: '格式化代码', hint: 'Ctrl+Alt+L', run: formatActiveEditor },
+    { id: 'surround', label: '包裹选中代码…', hint: 'Ctrl+Alt+T', run: () => setSurroundOpen(true) },
+    { id: 'settings', label: '编辑器设置…', hint: 'Ctrl+Alt+S', run: () => setSettingsOpen(true) },
+    { id: 'terminal', label: '显示/隐藏终端', run: () => setTermOpen(v => !v) },
+    { id: 'console', label: '显示/隐藏控制台', run: () => { setConsoleOpen(v => !v); setBottomTab('console'); } },
+    { id: 'problems', label: '问题面板', hint: 'Alt+6', run: () => { setConsoleOpen(true); setBottomTab('problems'); } },
+    { id: 'todo', label: 'TODO 面板', run: () => { setConsoleOpen(true); setBottomTab('todo'); void refreshTodos(); } },
+    { id: 'annotate', label: 'Annotate 行级归属', run: () => void toggleBlame() },
+    { id: 'build', label: '构建项目', run: () => selectedProject && void handleBuild(loadRunConf(selectedProject.projectId)?.buildCmd || DEFAULT_BUILD_CMD) },
+    { id: 'run', label: '运行（按配置）', run: () => void startRun() },
+    { id: 'debug', label: '调试（按配置）', run: () => void startDebug() },
+    { id: 'run-config', label: '运行/调试配置…', run: () => setRunConfOpen(true) },
+    { id: 'split-right', label: '向右分屏（当前文件）', run: () => mainActive && moveToSecond(mainActive, 'right') },
+    { id: 'split-down', label: '向下分屏（当前文件）', run: () => mainActive && moveToSecond(mainActive, 'down') },
+    { id: 'unsplit', label: '取消分屏', run: unsplit },
+    { id: 'theme-gewu', label: '主题：格物暗色', run: () => setEditorTheme('gewu-dark') },
+    { id: 'theme-vs', label: '主题：VS Dark+', run: () => setEditorTheme('vs-dark') },
+    { id: 'theme-hc', label: '主题：高对比暗色', run: () => setEditorTheme('hc-black') },
+    { id: 'theme-light', label: '主题：浅色', run: () => setEditorTheme('vs') },
+    { id: 'refresh-todos', label: '刷新 TODO 扫描', run: () => void refreshTodos() },
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  ], [selectedProject, mainActive, refreshTodos]);
+
+  // 键位钩子补全（Phase 3 项；hooksRef 每渲染更新）
+  hooksRef.current = {
+    ...hooksRef.current,
+    onFindUsages: () => void findUsages(),
+    onGotoDefinition: () => void gotoDefinition(),
+    onFindAction: () => setQuick('actions'),
+    onGotoStructure: openStructure,
+    onShowBookmarks: openBookmarks,
+    onRename: startRenameSymbol,
+  };
+
+  // ==================== Phase 4 · Git 集成与辅助 ====================
+
+  /** 刷新指定文件的 gutter 变更标记（git diff -U0 解析：增=纯+行 / 改=+行且 hunk 含-行 / 删=无对应+的块起点） */
+  const refreshChangeMarks = useCallback(async (tab: EditorTab | null) => {
+    const lp = selectedProject?.localPath;
+    const rel = tab ? repoRelOf(tab.path) : '';
+    if (!tab || !lp || !rel || tab.kind === 'binary' || tab.loading) return;
+    try {
+      const r = await execCommand(`git -C /workspace/${lp} diff -U0 -- "${rel}" 2>/dev/null | head -3000`, 15);
+      const added: number[] = [], modified: number[] = [], removed: number[] = [];
+      let newLine = 0;
+      let hunkDeleted = 0;
+      let hunkAdded = 0;
+      let addedLinesInHunk: number[] = [];
+      (r.stdout || '').split('\n').forEach(l => {
+        const hunk = /^@@ -\d+(?:,(\d+))? \+(\d+)(?:,(\d+))? @@/.exec(l);
+        if (hunk) {
+          // 结算上一 hunk：删行标记在 hunk 新起点（删除块落在文件顶部时取 1）
+          if (hunkDeleted > 0 && hunkAdded === 0) removed.push(Math.max(1, newLine - 1));
+          else if (hunkDeleted > 0) addedLinesInHunk.forEach(n => modified.push(n));
+          else addedLinesInHunk.forEach(n => added.push(n));
+          addedLinesInHunk = [];
+          hunkDeleted = 0;
+          hunkAdded = 0;
+          newLine = Number(hunk[2]);
+          return;
+        }
+        if (!newLine) return;
+        if (l.startsWith('+')) { addedLinesInHunk.push(newLine); hunkAdded++; newLine++; }
+        else if (l.startsWith('-')) hunkDeleted++;
+        else if (l.startsWith(' ') || l === '' ) newLine++;
+      });
+      if (hunkDeleted > 0 && hunkAdded === 0) removed.push(Math.max(1, newLine - 1));
+      else if (hunkDeleted > 0) addedLinesInHunk.forEach(n => modified.push(n));
+      else addedLinesInHunk.forEach(n => added.push(n));
+      setChangeMarksMap(prev => ({ ...prev, [tab.path]: { added, modified, removed } }));
+    } catch { /* 沙箱未就绪忽略 */ }
+  }, [selectedProject]);
+
+  /** 激活 Tab 内容变化（打开/保存/自动保存）后刷新变更标记 */
+  useEffect(() => {
+    const t = activeTab;
+    if (!t) return;
+    void refreshChangeMarks(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab?.path, activeTab?.savedContent]);
+
+  /** 回滚当前文件到 HEAD（IDEA Rollback：git checkout -- 文件，丢弃全部未提交修改并刷新 Tab） */
+  const rollbackFileToHead = async () => {
+    const t = activeTab;
+    const lp = selectedProject?.localPath;
+    const rel = t ? repoRelOf(t.path) : '';
+    if (!t || !lp || !rel) return;
+    if (!(await confirmDialog({ message: `把「${t.title}」回滚到 HEAD 版本？未提交的修改（含未保存）将全部丢弃。`, danger: true, confirmText: '回滚' }))) return;
+    try {
+      const r = await execCommand(`git -C /workspace/${lp} checkout -- "${rel}"`, 15);
+      if ((r.stderr || '').trim()) throw new Error(r.stderr);
+      const content = await readFile(t.path);
+      patchTab(t.path, { content, savedContent: content, dirty: false });
+      toast('已回滚到 HEAD 版本', 'success');
+      refreshGitStatus();
+      void refreshChangeMarks(t);
+    } catch (e) {
+      toast('回滚失败: ' + (e instanceof Error ? e.message : String(e)), 'error');
+    }
+  };
+
+  /** EOL 切换（IDEA 状态栏）：model.getEOL() 返回 '\n'/'\r\n' 字符串（非枚举），按字符串比较翻转 */
+  const toggleEol = () => {
+    const ed = focusedEditor();
+    const mono = monacoNsRef.current;
+    const t = activeTab;
+    if (!ed || !mono || !t) return;
+    const model = ed.getModel();
+    if (!model) return;
+    const toCRLF = model.getEOL() === '\n';
+    model.setEOL(toCRLF ? mono.editor.EndOfLineSequence.CRLF : mono.editor.EndOfLineSequence.LF);
+    const value = model.getValue();
+    patchTab(t.path, { content: value, dirty: value !== t.savedContent });
+    toast(`换行符已切换为 ${toCRLF ? 'CRLF' : 'LF'}`, 'success');
+  };
+  const currentEolLabel = activeTab?.content.includes('\r\n') ? 'CRLF' : 'LF';
+
+  // 编辑区快捷键（IDEA 对齐）：Ctrl+S 保存；Ctrl+F4 关闭 Tab；Ctrl+Tab/Alt+←→ 切换 Tab；
+  // Ctrl+Alt+←/→ 导航后退/前进；Ctrl+Shift+N/Ctrl+P 文件检索、Ctrl+E 最近文件、Ctrl+Shift+F 全局搜索
+  // （检索面板打开时让位给面板自身的键处理）
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       // 调试 F 键（IDEA 对齐）：F9 继续 / F8 步过 / Shift+F8 步出 / F7 步入 / Alt+F9 运行到光标
@@ -826,8 +1574,72 @@ export default function DevWorkspacePage() {
       }
       if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 's') {
         e.preventDefault();
-        if (viewMode === 'edit') handleSaveFile();
+        saveActiveTab();
         return;
+      }
+      // Ctrl+F4 关闭当前 Tab（IDEA）
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && !e.shiftKey && e.key === 'F4') {
+        e.preventDefault();
+        void closeTab(focusedGroup, focusedActive);
+        return;
+      }
+      // Ctrl+Tab / Ctrl+Shift+Tab 循环切换（Tab 序前/后）
+      if (e.ctrlKey && !e.altKey && !e.metaKey && e.key === 'Tab') {
+        e.preventDefault();
+        switchTab(e.shiftKey ? -1 : 1);
+        return;
+      }
+      // Ctrl+Alt+←/→ 导航后退/前进（IDEA）
+      if ((e.ctrlKey || e.metaKey) && e.altKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault();
+        goNav(e.key === 'ArrowLeft' ? -1 : 1);
+        return;
+      }
+      // Alt+←/→ 相邻 Tab 切换
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey && (e.key === 'ArrowLeft' || e.key === 'ArrowRight')) {
+        e.preventDefault();
+        switchTab(e.key === 'ArrowLeft' ? -1 : 1);
+        return;
+      }
+      // Ctrl+Alt+S 编辑器设置（IDEA）
+      if ((e.ctrlKey || e.metaKey) && e.altKey && e.key.toLowerCase() === 's') {
+        e.preventDefault();
+        setSettingsOpen(true);
+        return;
+      }
+      // Ctrl+Shift+R 全项目替换（IDEA Replace in Files）
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key.toLowerCase() === 'r') {
+        e.preventDefault();
+        if (projectReady) setReplaceOpen(true);
+        return;
+      }
+      // Alt+6 问题面板 / Alt+7 TODO（IDEA Problems/TODO 工具窗）
+      if (e.altKey && !e.ctrlKey && !e.metaKey && !e.shiftKey) {
+        if (e.key === '6') { e.preventDefault(); setConsoleOpen(true); setBottomTab('problems'); return; }
+        if (e.key === '7') { e.preventDefault(); setConsoleOpen(true); setBottomTab('todo'); void refreshTodos(); return; }
+      }
+      // Ctrl+Shift+F12 最大化编辑器（隐藏/恢复全部工具窗，IDEA）
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'F12') {
+        e.preventDefault();
+        setMaximized(v => !v);
+        return;
+      }
+      // Ctrl+Shift+F7 高亮使用处（编辑器外兜底；编辑器内走 hooks）
+      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'F7') {
+        e.preventDefault();
+        toggleUsageHighlight();
+        return;
+      }
+      // Double Shift 全局搜索一切（IDEA Search Everywhere）：300ms 内两次 Shift 键
+      const now = Date.now();
+      if (e.key === 'Shift' && !e.ctrlKey && !e.altKey && !e.metaKey && !e.repeat && !quick) {
+        const last = lastShiftAt.current;
+        lastShiftAt.current = now;
+        if (now - last < 300 && projectReady) {
+          e.preventDefault();
+          setQuick('everywhere');
+          return;
+        }
       }
       if (!(e.ctrlKey || e.metaKey) || e.altKey || quick) return;
       if (!selectedProject || selectedProject.cloneStatus !== 'ready') return;
@@ -846,7 +1658,7 @@ export default function DevWorkspacePage() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [viewMode, currentPath, fileContent, saving, quick, selectedProject, debugActive]);
+  }, [quick, selectedProject, selectedProject?.cloneStatus, debugActive, focusedGroup, focusedActive, mainTabs, secondTabs, refreshTodos]);
 
   // 编辑器主题持久化
   useEffect(() => {
@@ -1040,7 +1852,7 @@ export default function DevWorkspacePage() {
   }, []);
 
   const menuAct = (handlerId: string) => {
-    editorRef.current?.trigger('ctx-menu', handlerId, null);
+    focusedEditor()?.trigger('ctx-menu', handlerId, null);
     setCtxMenu(null);
   };
 
@@ -1048,8 +1860,9 @@ export default function DevWorkspacePage() {
   const runMain = async () => {
     setCtxMenu(null);
     if (!mainRunInfo || !selectedProject) return;
-    if (dirty && currentPath) {
-      try { await writeFile(currentPath, fileContent); setSavedContent(fileContent); setDirty(false); refreshGitStatus(); } catch { /* 保存失败按磁盘版本运行 */ }
+    const at = activeTab;
+    if (at && at.dirty && at.kind !== 'binary') {
+      try { await writeFile(at.path, at.content); patchTab(at.path, { savedContent: at.content, dirty: false }); refreshGitStatus(); } catch { /* 保存失败按磁盘版本运行 */ }
     }
     const conf = loadRunConf(selectedProject.projectId);
     const jvm = conf?.type === 'java' ? (conf.jvmOpts || '') : '';
@@ -1065,8 +1878,9 @@ export default function DevWorkspacePage() {
     if (!mainRunInfo || !selectedProject || debugBusy) return;
     setDebugBusy('start');
     try {
-      if (dirty && currentPath) {
-        try { await writeFile(currentPath, fileContent); setSavedContent(fileContent); setDirty(false); refreshGitStatus(); } catch { /* 保存失败按磁盘版本调试 */ }
+      const at = activeTab;
+      if (at && at.dirty && at.kind !== 'binary') {
+        try { await writeFile(at.path, at.content); patchTab(at.path, { savedContent: at.content, dirty: false }); refreshGitStatus(); } catch { /* 保存失败按磁盘版本调试 */ }
       }
       toast('正在准备类路径（编译 + 依赖清单）…', 'info');
       const prep = await execCommand(`cd /workspace/${selectedProject.localPath} && mvn -q compile dependency:build-classpath -Dmdep.outputFile=/workspace/.gewu/cp-${selectedProject.projectId}.txt -Dmdep.includeScope=runtime`, 180);
@@ -1088,6 +1902,24 @@ export default function DevWorkspacePage() {
     const el = consoleBodyRef.current;
     if (el) el.scrollTop = el.scrollHeight;
   }, [runLog, consoleOpen]);
+
+  // 问题面板：Monaco markers 全量聚合（TS/JSON/CSS/HTML worker 内置诊断；激活 Tab 变化时重读）
+  useEffect(() => {
+    const mono = monacoNsRef.current;
+    if (!mono || !activeTab) return;
+    const update = () => {
+      const map: Record<string, Array<{ line: number; sev: number; msg: string }>> = {};
+      (mono.editor.getModelMarkers({}) as Array<{ resource: { path: string }; startLineNumber: number; severity: number; message: string }>).forEach(m => {
+        const key = m.resource.path.replace(/^\/workspace\//, '');
+        (map[key] ||= []).push({ line: m.startLineNumber, sev: m.severity, msg: m.message });
+      });
+      setProblemsMap(map);
+    };
+    update();
+    const d = mono.editor.onDidChangeMarkers(update);
+    return () => d.dispose();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab?.path, activeTab?.loading]);
 
   // ==================== Debug 调试（IDEA 式 P1：Java 断点调试） ====================
 
@@ -1318,16 +2150,29 @@ export default function DevWorkspacePage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [debugActive, debugState?.status, selectedProject?.projectId]);
 
-  /** 当前文件断点行集合与调试当前行（编辑器装饰数据源） */
-  const currentRepoRel = selectedProject?.localPath && currentPath.startsWith(selectedProject.localPath + '/')
-    ? currentPath.slice(selectedProject.localPath.length + 1) : '';
-  const currentBreakpoints = currentRepoRel
-    ? Array.from(bpLines).filter(k => k.startsWith(currentRepoRel + ':')).map(k => Number(k.slice(currentRepoRel.length + 1)))
-    : [];
+  /** 仓库相对路径（多 Tab：按任意文件路径计算，装饰数据源按组各自取） */
+  const repoRelOf = (p: string): string =>
+    selectedProject?.localPath && p.startsWith(selectedProject.localPath + '/') ? p.slice(selectedProject.localPath.length + 1) : '';
+  /** 指定文件的断点行集合（编辑器装饰数据源） */
+  const breakpointsOf = (p: string): number[] => {
+    const rel = repoRelOf(p);
+    return rel ? Array.from(bpLines).filter(k => k.startsWith(rel + ':')).map(k => Number(k.slice(rel.length + 1))) : [];
+  };
   /** 条件断点行（琥珀色 ? 点，取自会话状态） */
-  const currentCondBreakpoints = currentRepoRel && debugState
-    ? debugState.breakpoints.filter(b => b.condition && b.path === currentRepoRel).map(b => b.line)
-    : [];
+  const condBreakpointsOf = (p: string): number[] => {
+    const rel = repoRelOf(p);
+    return rel && debugState ? debugState.breakpoints.filter(b => b.condition && b.path === rel).map(b => b.line) : [];
+  };
+  /** 调试当前执行行（指定文件命中停点时） */
+  const debugCurrentLineOf = (p: string): number | undefined => {
+    const stopped = debugState?.status === 'stopped' && !!debugState.currentFile
+      && (p.endsWith('/' + debugState.currentFile) || p === debugState.currentFile);
+    return stopped ? debugState!.currentLine : undefined;
+  };
+  // 聚焦组激活文件的调试装饰（运行到光标/状态栏引用）
+  const currentRepoRel = repoRelOf(currentPath);
+  const currentBreakpoints = breakpointsOf(currentPath);
+  const currentCondBreakpoints = condBreakpointsOf(currentPath);
   const fileStopped = debugState?.status === 'stopped' && !!debugState.currentFile
     && (currentPath.endsWith('/' + debugState.currentFile) || currentPath === debugState.currentFile);
   const debugCurrentLine = fileStopped ? debugState.currentLine : undefined;
@@ -1430,24 +2275,24 @@ export default function DevWorkspacePage() {
             </button>
           ))}
 
-          {/* 编辑操作组（编辑中：保存/退出；预览：编辑） */}
-          {currentPath && (
+          {/* 编辑操作组（多 Tab：聚焦组激活文件；md 阅读态给「编辑」入口，其余可编辑态给保存/还原） */}
+          {activeTab && (
             <div className="flex items-center gap-1.5">
-              {viewMode === 'edit' && dirty && <span className="text-[10px] text-amber-400">● 未保存</span>}
-              {viewMode === 'edit' ? (
-                <>
-                  <button onClick={handleSaveFile} disabled={saving || !dirty} className="flex items-center gap-1 px-2 py-1.5 text-xs btn-primary text-white rounded-lg disabled:opacity-50">
-                    {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}保存
-                  </button>
-                  <button onClick={exitEdit} className="flex items-center gap-1 px-2 py-1.5 text-xs text-ink-300 hover:text-ink-100 border border-ink-700/60 rounded transition-all" title="退出编辑（未保存修改将还原）">
-                    <Undo2 className="w-3 h-3" />退出
-                  </button>
-                </>
-              ) : (
-                <button onClick={() => setViewMode('edit')} className="flex items-center gap-1 px-2 py-1.5 text-xs text-ink-300 hover:text-ink-100 border border-ink-700/60 rounded transition-all" title="编辑此文件（Ctrl+S 保存）">
-                  <Pencil className="w-3 h-3" />编辑
+              {activeTab.kind === 'md' && (
+                <button
+                  onClick={() => patchTab(activeTab.path, t => ({ reading: !t.reading }))}
+                  className="flex items-center gap-1 px-2 py-1.5 text-xs text-ink-300 hover:text-ink-100 border border-ink-700/60 rounded transition-all"
+                  title={activeTab.reading ? '编辑此 Markdown（Ctrl+S 保存）' : '阅读视图（渲染预览）'}>
+                  {activeTab.reading ? <><Pencil className="w-3 h-3" />编辑</> : <><BookOpen className="w-3 h-3" />阅读</>}
                 </button>
               )}
+              {dirty && <span className="text-[10px] text-amber-400">● 未保存</span>}
+              <button onClick={saveActiveTab} disabled={saving || !dirty || viewMode !== 'edit'} className="flex items-center gap-1 px-2 py-1.5 text-xs btn-primary text-white rounded-lg disabled:opacity-50" title="保存（Ctrl+S）">
+                {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}保存
+              </button>
+              <button onClick={rollbackActiveTab} disabled={!dirty} className="flex items-center gap-1 px-2 py-1.5 text-xs text-ink-300 hover:text-ink-100 border border-ink-700/60 rounded transition-all disabled:opacity-50" title="还原到最近保存内容（丢弃未保存修改）">
+                <Undo2 className="w-3 h-3" />还原
+              </button>
             </div>
           )}
 
@@ -1485,8 +2330,8 @@ export default function DevWorkspacePage() {
       </header>
 
       <div className="flex gap-4 flex-1 min-h-0">
-        {/* 左侧：项目 + 文件树 + 凭证（项目配置同步） */}
-        <div className="w-72 flex-shrink-0 flex flex-col gap-3 min-h-0">
+        {/* 左侧：项目 + 文件树 + 凭证（项目配置同步；最大化编辑器时隐藏，IDEA Ctrl+Shift+F12） */}
+        <div className={`w-72 flex-shrink-0 flex flex-col gap-3 min-h-0 ${maximized ? 'hidden' : ''}`}>
           {/* 注意：左列不可加 overflow-hidden——项目下拉为绝对定位，会被裁剪（用户实报）。
               glass-dark（backdrop-filter）使每个面板都是独立层叠上下文：下拉的 z-20 只在本面板内生效，
               DOM 靠后的文件树/凭证面板按文档序绘制会整层盖住下拉——菜单打开期间须临时提升本面板 z 值。
@@ -1630,65 +2475,139 @@ export default function DevWorkspacePage() {
           </div>
         </div>
 
-        {/* 中间：代码编辑器（IDEA 式：占满视口剩余高度，内容内部滚动；路径与操作按钮已上移顶部导航栏） */}
-        <div className="flex-1 min-w-0 glass-dark rounded-xl p-4 pt-3 flex flex-col overflow-hidden">
-          {contentLoading ? (
-            <div className="flex items-center justify-center py-20"><Loader2 className="w-5 h-5 text-tech-400 animate-spin" /></div>
-          ) : viewMode === 'edit' ? (
-            <div className="flex-1 min-h-0" onContextMenuCapture={onEditorContextMenu}>
-              <MonacoFileEditor
-                value={fileContent}
-                language={monacoLangOf(currentPath)}
-                path={`dw-${currentPath}`}
-                wordWrap="on"
-                theme={editorTheme}
-                onReady={(ed) => { editorRef.current = ed; }}
-                gotoLine={gotoLine}
-                onCursor={(line, col) => setCursor({ line, col })}
-                breakpoints={currentBreakpoints}
-                conditionalBreakpoints={currentCondBreakpoints}
-                onToggleBreakpoint={toggleBreakpoint}
-                currentLine={debugCurrentLine}
-                inlineValue={inlineValue}
-                valueLookup={debugValueLookup}
-                onChange={(v) => { setFileContent(v ?? ''); setDirty(true); }}
+        {/* 中间：代码编辑器（IDEA 式多 Tab + 可选分屏：右/下 2-Group；路径与操作按钮已上移顶部导航栏） */}
+        <div className="flex-1 min-w-0 glass-dark rounded-xl p-4 pt-2 flex flex-col overflow-hidden">
+          <div className={`flex-1 min-h-0 flex gap-2 ${splitDir === 'down' ? 'flex-col' : 'flex-row'}`}>
+            {/* 主编辑组 */}
+            <div className={`flex flex-col min-w-0 min-h-0 flex-1 ${splitDir ? 'border border-tech-500/10 rounded-lg overflow-hidden' : ''}`}
+              onMouseDownCapture={() => setFocusedGroup('main')}>
+              <DevEditorTabs
+                tabs={mainTabs.map(tabMetaOf)}
+                activeKey={mainActive}
+                hasSplit={!!splitDir}
+                onActivate={(p) => activateIn('main', p)}
+                onActivatePreview={(p) => activateIn('main', p)}
+                onClose={(p) => void closeTab('main', p)}
+                onCloseOthers={(p) => void closeOtherTabs('main', p)}
+                onCloseAll={() => void closeAllTabs('main')}
+                onTogglePin={togglePinTab}
+                onOpenNormal={(p) => patchTab(p, { preview: false })}
+                onSplit={moveToSecond}
+                onMoveBack={() => undefined}
               />
+              <div className="flex-1 min-h-0 flex flex-col" onContextMenuCapture={mainActiveTab ? onEditorContextMenu : undefined}>
+                {mainActiveTab?.loading ? (
+                  <div className="flex-1 flex items-center justify-center py-20"><Loader2 className="w-5 h-5 text-tech-400 animate-spin" /></div>
+                ) : mainActiveTab?.kind === 'binary' ? (
+                  <div className="flex-1 flex flex-col items-center justify-center py-20 text-ink-500">
+                    <p className="text-sm">二进制文件不支持预览</p>
+                  </div>
+                ) : mainActiveTab?.kind === 'md' && mainActiveTab.reading ? (
+                  <div className="flex-1 min-h-0">
+                    <MarkdownReader content={mainActiveTab.content} showToc />
+                  </div>
+                ) : mainActiveTab ? (
+                  <div className="flex-1 min-h-0">
+                    <MonacoFileEditor
+                      value={mainActiveTab.content}
+                      language={monacoLangOf(mainActiveTab.path)}
+                      path={`dw-${mainActiveTab.path}`}
+                      wordWrap="on"
+                      theme={editorTheme}
+                      settings={editorSettings}
+                      bookmarks={bookmarksOf(mainActiveTab.path)}
+                      highlightWords={useHighlightWords}
+                      changeMarks={changeMarksMap[mainActiveTab.path]}
+                      onReady={(ed, mono) => { editorRef.current = ed; monacoNsRef.current = mono; registerIdeaKeybindings(ed, mono, editorHooks); (window as unknown as { __dwEditors?: Record<string, unknown> }).__dwEditors = { ...((window as unknown as { __dwEditors?: Record<string, unknown> }).__dwEditors || {}), main: ed }; }}
+                      gotoLine={mainActiveTab.gotoLine}
+                      onCursor={(line, col) => { if (focusedGroup === 'main') { setCursor({ line, col }); recordLocation(mainActiveTab.path, line, col); } }}
+                      breakpoints={breakpointsOf(mainActiveTab.path)}
+                      conditionalBreakpoints={condBreakpointsOf(mainActiveTab.path)}
+                      onToggleBreakpoint={toggleBreakpoint}
+                      currentLine={debugCurrentLineOf(mainActiveTab.path)}
+                      inlineValue={inlineValue}
+                      lineAfter={blameOn && mainActiveTab.path === currentPath ? blameLines : undefined}
+                      valueLookup={debugValueLookup}
+                      onChange={(v) => {
+                        const val = v ?? '';
+                        patchTab(mainActiveTab.path, t => ({ content: val, dirty: val !== t.savedContent, preview: false }));
+                      }}
+                    />
+                  </div>
+                ) : (
+                  <div className="flex-1 flex flex-col items-center justify-center py-20 text-ink-500">
+                    <p className="text-sm">{projectReady ? '从左侧文件树选择文件进行查看或编辑' : '选择项目后自动拉取代码，或点击顶部「拉取代码」'}</p>
+                    {projectReady && <p className="text-xs mt-2 text-ink-600">Ctrl+Shift+N 文件检索 · Ctrl+Shift+F 全局搜索 · Ctrl+E 最近文件 · Double Shift 全局搜索一切</p>}
+                  </div>
+                )}
+              </div>
             </div>
-          ) : isMarkdownPath(currentPath) && fileContent ? (
-            <div className="flex-1 min-h-0">
-              <MarkdownReader content={fileContent} showToc />
-            </div>
-          ) : fileContent && isProbablyBinary(fileContent) ? (
-            <div className="flex-1 flex flex-col items-center justify-center py-20 text-ink-500">
-              <p className="text-sm">二进制文件不支持预览</p>
-            </div>
-          ) : fileContent ? (
-            <div className="flex-1 min-h-0" onContextMenuCapture={onEditorContextMenu}>
-              <MonacoFileEditor
-                value={fileContent}
-                language={monacoLangOf(currentPath)}
-                path={`dw-${currentPath}`}
-                readOnly
-                wordWrap="off"
-                theme={editorTheme}
-                onReady={(ed) => { editorRef.current = ed; }}
-                gotoLine={gotoLine}
-                onCursor={(line, col) => setCursor({ line, col })}
-                breakpoints={currentBreakpoints}
-                conditionalBreakpoints={currentCondBreakpoints}
-                onToggleBreakpoint={toggleBreakpoint}
-                currentLine={debugCurrentLine}
-                inlineValue={inlineValue}
-                lineAfter={blameOn ? blameLines : undefined}
-                valueLookup={debugValueLookup}
-              />
-            </div>
-          ) : (
-            <div className="flex-1 flex flex-col items-center justify-center py-20 text-ink-500">
-              <p className="text-sm">{projectReady ? '从左侧文件树选择文件进行查看或编辑' : '选择项目后自动拉取代码，或点击顶部「拉取代码」'}</p>
-              {projectReady && <p className="text-xs mt-2 text-ink-600">Ctrl+Shift+N 文件检索 · Ctrl+Shift+F 全局搜索 · Ctrl+E 最近文件</p>}
-            </div>
-          )}
+
+            {/* 副编辑组（IDEA 分屏 2-Group） */}
+            {splitDir && (
+              <div className="flex flex-col min-w-0 min-h-0 flex-1 border border-tech-500/10 rounded-lg overflow-hidden"
+                onMouseDownCapture={() => setFocusedGroup('second')}>
+                <DevEditorTabs
+                  tabs={secondTabs.map(tabMetaOf)}
+                  activeKey={secondActive}
+                  isSecondary
+                  hasSplit
+                  onActivate={(p) => activateIn('second', p)}
+                  onActivatePreview={(p) => activateIn('second', p)}
+                  onClose={(p) => void closeTab('second', p)}
+                  onCloseOthers={(p) => void closeOtherTabs('second', p)}
+                  onCloseAll={() => void closeAllTabs('second')}
+                  onTogglePin={togglePinTab}
+                  onOpenNormal={(p) => patchTab(p, { preview: false })}
+                  onSplit={() => undefined}
+                  onMoveBack={moveBackToMain}
+                />
+                <div className="flex-1 min-h-0 flex flex-col" onContextMenuCapture={secondActiveTab ? onEditorContextMenu : undefined}>
+                  {secondActiveTab?.loading ? (
+                    <div className="flex-1 flex items-center justify-center py-20"><Loader2 className="w-5 h-5 text-tech-400 animate-spin" /></div>
+                  ) : secondActiveTab?.kind === 'binary' ? (
+                    <div className="flex-1 flex flex-col items-center justify-center py-20 text-ink-500">
+                      <p className="text-sm">二进制文件不支持预览</p>
+                    </div>
+                  ) : secondActiveTab?.kind === 'md' && secondActiveTab.reading ? (
+                    <div className="flex-1 min-h-0">
+                      <MarkdownReader content={secondActiveTab.content} showToc />
+                    </div>
+                  ) : secondActiveTab ? (
+                    <div className="flex-1 min-h-0">
+                      <MonacoFileEditor
+                        value={secondActiveTab.content}
+                        language={monacoLangOf(secondActiveTab.path)}
+                        path={`dw-${secondActiveTab.path}`}
+                        wordWrap="on"
+                        theme={editorTheme}
+                        settings={editorSettings}
+                        bookmarks={bookmarksOf(secondActiveTab.path)}
+                        highlightWords={useHighlightWords}
+                        changeMarks={changeMarksMap[secondActiveTab.path]}
+                        onReady={(ed, mono) => { secondEditorRef.current = ed; monacoNsRef.current = mono; registerIdeaKeybindings(ed, mono, editorHooks); (window as unknown as { __dwEditors?: Record<string, unknown> }).__dwEditors = { ...((window as unknown as { __dwEditors?: Record<string, unknown> }).__dwEditors || {}), second: ed }; }}
+                        gotoLine={secondActiveTab.gotoLine}
+                        onCursor={(line, col) => { if (focusedGroup === 'second') { setCursor({ line, col }); recordLocation(secondActiveTab.path, line, col); } }}
+                        breakpoints={breakpointsOf(secondActiveTab.path)}
+                        conditionalBreakpoints={condBreakpointsOf(secondActiveTab.path)}
+                        onToggleBreakpoint={toggleBreakpoint}
+                        currentLine={debugCurrentLineOf(secondActiveTab.path)}
+                        valueLookup={debugValueLookup}
+                        onChange={(v) => {
+                          const val = v ?? '';
+                          patchTab(secondActiveTab.path, t => ({ content: val, dirty: val !== t.savedContent, preview: false }));
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="flex-1 flex flex-col items-center justify-center py-20 text-ink-500">
+                      <p className="text-xs">副编辑区（Tab 右键「移到右侧/下方分屏」移入）</p>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
 
           {/* 调试面板（IDEA Debug：工具条 + 变量/调用栈/控制台） */}
           {debugActive && debugState && (
@@ -1706,42 +2625,82 @@ export default function DevWorkspacePage() {
             />
           )}
 
-          {/* 运行控制台（IDEA 式 Run 工具窗）：后台进程日志轮询输出 */}
-          {consoleOpen && (
-            <div className="flex-shrink-0 border-t border-tech-500/10 bg-black/40 rounded-b-xl overflow-hidden" style={{ height: 230 }}>
-              <div className="flex items-center justify-between px-3 py-1.5 border-b border-tech-500/10">
-                <div className="flex items-center gap-2 text-[11px] text-ink-400 min-w-0">
-                  <Terminal className="w-3 h-3 text-tech-400 flex-shrink-0" />
-                  <span className="font-medium flex-shrink-0">控制台</span>
-                  {runProc ? (
-                    <span className="flex items-center gap-1.5 text-tech-400 truncate">
+          {/* 底部工具窗（IDEA 式：控制台/问题/TODO 页签；最大化编辑器时隐藏） */}
+          {consoleOpen && !maximized && (
+            <div className="flex-shrink-0 border-t border-tech-500/10 bg-black/40 rounded-b-xl overflow-hidden flex flex-col" style={{ height: 230 }}>
+              <div className="flex items-center justify-between px-3 py-1 border-b border-tech-500/10">
+                <div className="flex items-center gap-1 text-[11px] min-w-0">
+                  {([
+                    ['console', `控制台${runProc ? '（运行中）' : ''}`],
+                    ['problems', `问题${Object.values(problemsMap).reduce((n, l) => n + l.length, 0) ? `（${Object.values(problemsMap).reduce((n, l) => n + l.length, 0)}）` : ''}`],
+                    ['todo', `TODO${todos.length ? `（${todos.length}）` : ''}`],
+                  ] as Array<['console' | 'problems' | 'todo', string]>).map(([k, label]) => (
+                    <button key={k} onClick={() => { setBottomTab(k); if (k === 'todo') void refreshTodos(); }}
+                      className={`px-2 py-1 rounded-t transition-colors ${bottomTab === k ? 'text-tech-400 border-b border-tech-400' : 'text-ink-500 hover:text-ink-300'}`}>
+                      {label}
+                    </button>
+                  ))}
+                  {bottomTab === 'console' && runProc && (
+                    <span className="flex items-center gap-1.5 text-tech-400 truncate ml-2">
                       <span className="w-1.5 h-1.5 rounded-full bg-green-400 animate-pulse flex-shrink-0" />
-                      运行中 · PID {runProc.pid} · {runProc.cmd}
+                      PID {runProc.pid} · {runProc.cmd}
                     </span>
-                  ) : runExited ? (
-                    <span className="text-ink-500">已退出</span>
-                  ) : null}
+                  )}
                 </div>
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <button onClick={() => setRunLog('')} className="text-[10px] text-ink-500 hover:text-ink-300">清屏</button>
-                  <button onClick={() => setConsoleOpen(false)} className="text-ink-500 hover:text-ink-200" title="隐藏控制台（再次运行时自动打开）">
+                  {bottomTab === 'console' && <button onClick={() => setRunLog('')} className="text-[10px] text-ink-500 hover:text-ink-300">清屏</button>}
+                  <button onClick={() => setConsoleOpen(false)} className="text-ink-500 hover:text-ink-200" title="隐藏工具窗（再次运行时自动打开）">
                     <X className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
-              <div ref={consoleBodyRef} className="h-[calc(100%-32px)] overflow-y-auto scrollbar-thin px-3 py-2 font-mono text-[11px] leading-5 whitespace-pre-wrap break-all text-ink-200">
-                {runLog || '（暂无输出）'}
-              </div>
+              {bottomTab === 'console' && (
+                <div ref={consoleBodyRef} className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-3 py-2 font-mono text-[11px] leading-5 whitespace-pre-wrap break-all text-ink-200">
+                  {runLog || '（暂无输出）'}
+                </div>
+              )}
+              {bottomTab === 'problems' && (
+                <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-3 py-2 text-[11px]">
+                  {Object.entries(problemsMap).length === 0 && <div className="text-ink-500">未检测到问题（仅 TS/JS/JSON/CSS/HTML 有内置诊断；打开文件后自动刷新）</div>}
+                  {Object.entries(problemsMap).map(([f, list]) => (
+                    <div key={f} className="mb-2">
+                      <div className="text-ink-300 mb-0.5 truncate" title={f}>{f.replace(/^\/workspace\//, '')}</div>
+                      {list.map((p, i) => (
+                        <button key={i}
+                          onClick={() => openRepoFile(f.replace(/^\/workspace\//, ''), p.line)}
+                          className="w-full text-left pl-3 py-0.5 font-mono text-ink-400 hover:text-ink-100 hover:bg-tech-500/10 rounded truncate">
+                          <span className={p.sev >= 8 ? 'text-cinnabar-400' : 'text-amber-400'}>{p.sev >= 8 ? '错误' : '警告'}</span>
+                          {' 行 ' + p.line + '：'}{p.msg.slice(0, 140)}
+                        </button>
+                      ))}
+                    </div>
+                  ))}
+                </div>
+              )}
+              {bottomTab === 'todo' && (
+                <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin px-3 py-2 text-[11px]">
+                  {todos.length === 0 && <div className="text-ink-500">未扫描到 TODO/FIXME/XXX/HACK 标记</div>}
+                  {todos.map((t, i) => (
+                    <button key={i}
+                      onClick={() => openRepoFile(t.path, t.line)}
+                      className="w-full text-left py-0.5 font-mono hover:bg-tech-500/10 rounded truncate flex gap-2">
+                      <span className={`flex-shrink-0 font-semibold ${t.todoKind === 'TODO' ? 'text-sky-400' : t.todoKind === 'FIXME' ? 'text-cinnabar-400' : 'text-amber-400'}`}>{t.todoKind}</span>
+                      <span className="text-ink-500 flex-shrink-0">{t.path}:{t.line}</span>
+                      <span className="text-ink-300 truncate">{t.text.slice(0, 120)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
-          {/* 状态栏（IDEA 式）：语言 · 行列 · 编码缩进 · 主题切换 */}
+          {/* 状态栏（IDEA 式）：语言 · 行列 · 编码缩进 · 主题切换（跟随聚焦组激活 Tab） */}
           <div className="flex items-center justify-between px-2 py-1 mt-2 flex-shrink-0 border-t border-tech-500/10 text-[10px] text-ink-500">
             <div className="flex items-center gap-3 min-w-0">
               <span className="truncate">{currentPath ? langLabelOf(currentPath) : '—'}</span>
               {cursor.line > 0 && <span className="flex-shrink-0">行 {cursor.line}，列 {cursor.col}</span>}
               {projectReady && currentPath && (
-                <button onClick={toggleBlame} disabled={contentLoading}
+                <button onClick={toggleBlame} disabled={!activeTab || activeTab.loading}
                   className={`flex-shrink-0 hover:text-tech-400 disabled:opacity-50 ${blameOn ? 'text-tech-400' : ''}`} title="行级归属标注（IDEA Annotate）">
                   Annotate
                 </button>
@@ -1749,7 +2708,15 @@ export default function DevWorkspacePage() {
             </div>
             <div className="flex items-center gap-3 flex-shrink-0">
               <span>UTF-8</span>
-              <span>4 空格缩进</span>
+              {activeTab && activeTab.kind !== 'binary' && (
+                <button onClick={toggleEol} className="hover:text-tech-400 transition-colors" title="切换换行符（LF / CRLF，保存时保留）">
+                  {currentEolLabel}
+                </button>
+              )}
+              <button onClick={() => setSettingsOpen(true)}
+                className="hover:text-tech-400 transition-colors" title="编辑器设置（Ctrl+Alt+S）：字号/缩进/软换行/空白符/自动保存">
+                {editorSettings.tabSize} 空格缩进 · {editorSettings.fontSize}px
+              </button>
               <select
                 value={editorTheme}
                 onChange={(e) => setEditorTheme(e.target.value)}
@@ -1766,16 +2733,111 @@ export default function DevWorkspacePage() {
 
       </div>
 
-      {/* 快速检索/全局搜索面板（IDEA 式 Ctrl+Shift+N / Ctrl+Shift+F / Ctrl+E） */}
+      {/* 快速检索统一弹层（IDEA：文件/搜索/Everywhere/动作/位置/用法/符号/结构/书签） */}
       {quick && projectReady && selectedProject && (
         <DevQuickOpen
           project={selectedProject}
           mode={quick}
+          initialQuery={pendingQuery}
           recentPaths={recentFiles}
-          onClose={() => setQuick(null)}
+          actions={quickActions}
+          locations={recentLocations}
+          bookmarks={Array.from(bookmarks).map(k => {
+            const idx = k.lastIndexOf(':');
+            return { rel: k.slice(0, idx), line: Number(k.slice(idx + 1)) || 0 };
+          })}
+          structure={currentStructure}
+          structurePath={currentPath}
+          queryRunner={quick === 'symbols' || quick === 'usages' || quick === 'everywhere' ? (quick === 'usages' ? runUsagesQuery : runSymbolsQuery) : undefined}
+          onClose={() => { setQuick(null); setPendingQuery(''); restoreEditorFocus(); }}
           onOpenFile={openRepoFile}
         />
       )}
+
+      {/* 全项目替换（IDEA Ctrl+Shift+R：预览 + 勾选替换） */}
+      {replaceOpen && selectedProject && (
+        <DevProjectReplaceDialog
+          open={replaceOpen}
+          project={selectedProject}
+          onClose={() => setReplaceOpen(false)}
+          onDone={() => { refreshGitStatus(); refreshTree(); }}
+        />
+      )}
+
+      {/* 符号重命名（IDEA Shift+F6 词法近似：全项目词边界替换） */}
+      {renamePrompt && (
+        <Modal open onClose={() => setRenamePrompt(null)} zIndex="z-[88]" ariaLabel="重命名符号"
+          panelClassName="glass-dark rounded-xl w-full max-w-sm p-4 border border-tech-500/15 shadow-2xl">
+          <div className="text-sm font-semibold text-ink-50 mb-1">重命名符号「{renamePrompt.word}」</div>
+          <div className="text-[10px] text-ink-500 mb-2">将全项目词边界替换所有出现处（含已打开的编辑器 Tab；词法级近似 IDEA Rename）</div>
+          <input autoFocus value={renameInput} onChange={(e) => setRenameInput(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') void doRenameSymbol(); }}
+            className="w-full px-2.5 py-1.5 text-xs bg-ink-900/60 border border-tech-500/10 rounded-lg text-ink-100 outline-none focus:border-tech-500/40" />
+          <div className="flex justify-end gap-2 mt-4">
+            <button onClick={() => setRenamePrompt(null)} className="px-3 py-1.5 text-xs text-ink-300 hover:text-ink-100 transition-colors">取消</button>
+            <button onClick={doRenameSymbol} className="px-3 py-1.5 text-xs font-medium text-white bg-tech-500 hover:bg-tech-600 rounded-lg transition-colors">重命名</button>
+          </div>
+        </Modal>
+      )}
+
+      {/* Ctrl+G 跳行浮层（IDEA Go to Line:Column） */}
+      {gotoPrompt && (
+        <div className="fixed inset-0 z-[87]" onClick={() => { setGotoPrompt(null); restoreEditorFocus(); }}>
+          <div className="absolute left-1/2 top-16 -translate-x-1/2 dw-lightbar glass-dark rounded-lg border border-tech-500/15 p-3 w-[300px]"
+            onClick={(e) => e.stopPropagation()}>
+            <div className="text-[10px] text-ink-500 mb-2">跳转到行（格式：行号 或 行号:列号）</div>
+            <input autoFocus value={gotoInput}
+              onChange={(e) => setGotoInput(e.target.value)}
+              onKeyDown={(e) => { if (e.key === 'Enter') doGotoLine(); if (e.key === 'Escape') setGotoPrompt(null); }}
+              placeholder="如 42 或 42:8"
+              className="w-full px-2.5 py-1.5 text-xs bg-ink-900/60 border border-tech-500/10 rounded-lg text-ink-100 placeholder:text-ink-600 outline-none focus:border-tech-500/40" />
+          </div>
+        </div>
+      )}
+
+      {/* 多剪贴板粘贴（IDEA Ctrl+Shift+V：历史选择器） */}
+      {clipPickerOpen && (
+        <Modal open onClose={() => { setClipPickerOpen(false); restoreEditorFocus(); }} zIndex="z-[88]" ariaLabel="从历史粘贴"
+          panelClassName="glass-dark rounded-xl w-full max-w-md h-[60vh] p-4 border border-tech-500/15 shadow-2xl flex flex-col">
+          <div className="text-sm font-semibold text-ink-50 mb-2">从历史粘贴</div>
+          <div className="text-[10px] text-ink-500 mb-2">最近 100 条复制/剪切内容（Enter 或点击插入光标处）</div>
+          <div className="flex-1 min-h-0 overflow-y-auto scrollbar-thin space-y-0.5">
+            {clipHistory.length === 0 && <div className="text-center py-8 text-ink-500 text-xs">暂无历史（复制内容后自动记录）</div>}
+            {clipHistory.map((c, i) => (
+              <button key={i} onClick={() => pasteFromHistory(c)}
+                className="w-full text-left px-2 py-1.5 rounded-md text-[11px] font-mono text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all truncate border border-tech-500/5"
+                title={c.slice(0, 500)}>
+                <span className="text-ink-600 mr-1.5">{String(i + 1).padStart(2, '0')}</span>{c.replace(/\n/g, '⏎').slice(0, 120)}
+              </button>
+            ))}
+          </div>
+        </Modal>
+      )}
+
+      {/* Surround With 包裹菜单（IDEA Ctrl+Alt+T：通用花括号结构） */}
+      {surroundOpen && (
+        <Modal open onClose={() => { setSurroundOpen(false); restoreEditorFocus(); }} zIndex="z-[88]" ariaLabel="包裹"
+          panelClassName="glass-dark rounded-xl w-full max-w-xs p-3 border border-tech-500/15 shadow-2xl">
+          <div className="text-sm font-semibold text-ink-50 mb-2">包裹选中代码（Surround With）</div>
+          <div className="space-y-0.5">
+            {SURROUND_TEMPLATES.map(t => (
+              <button key={t.key} onClick={() => doSurround(t.key)}
+                className="w-full text-left px-2.5 py-1.5 rounded-md text-xs text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all font-mono">
+                {t.label}
+              </button>
+            ))}
+          </div>
+          <div className="text-[10px] text-ink-600 mt-2">未选中代码时提示先选择（与 IDEA 一致）</div>
+        </Modal>
+      )}
+
+      {/* 编辑器设置面板（IDEA Ctrl+Alt+S：字号/缩进/换行/空白符/自动保存等） */}
+      <DevEditorSettingsDialog
+        open={settingsOpen}
+        settings={editorSettings}
+        onChange={setEditorSettings}
+        onClose={() => setSettingsOpen(false)}
+      />
 
       {/* 编辑器右键菜单（中文；替代 Monaco 内置英文菜单；支持快捷键，剪/复/粘走 Monaco 剪贴板动作） */}
       {ctxMenu && (
@@ -1798,6 +2860,35 @@ export default function DevWorkspacePage() {
             </button>
             <button onClick={() => menuAct('editor.action.clipboardPasteAction')} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all flex items-center justify-between gap-3">
               <span>粘贴</span><span className="text-[10px] text-ink-600">Ctrl+V</span>
+            </button>
+            <div className="h-px bg-tech-500/10 my-1" />
+            <button onClick={() => { setCtxMenu(null); void gotoDefinition(); }} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all flex items-center justify-between gap-3">
+              <span>跳转定义</span><span className="text-[10px] text-ink-600">Ctrl+B</span>
+            </button>
+            <button onClick={() => { setCtxMenu(null); void findUsages(); }} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all flex items-center justify-between gap-3">
+              <span>查找用法</span><span className="text-[10px] text-ink-600">Alt+F7</span>
+            </button>
+            <button onClick={() => { setCtxMenu(null); openStructure(); }} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all flex items-center justify-between gap-3">
+              <span>文件结构</span><span className="text-[10px] text-ink-600">Ctrl+F12</span>
+            </button>
+            <button onClick={() => { setCtxMenu(null); toggleBookmarkAt(); }} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all flex items-center justify-between gap-3">
+              <span>切换书签</span><span className="text-[10px] text-ink-600">F11</span>
+            </button>
+            <button onClick={() => { setCtxMenu(null); setSurroundOpen(true); }} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all flex items-center justify-between gap-3">
+              <span>包裹选中代码…</span><span className="text-[10px] text-ink-600">Ctrl+Alt+T</span>
+            </button>
+            <button onClick={() => { setCtxMenu(null); formatActiveEditor(); }} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all flex items-center justify-between gap-3">
+              <span>格式化代码</span><span className="text-[10px] text-ink-600">Ctrl+Alt+L</span>
+            </button>
+            <button onClick={() => { setCtxMenu(null); startRenameSymbol(); }} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all flex items-center justify-between gap-3">
+              <span>重命名符号…</span><span className="text-[10px] text-ink-600">Shift+F6</span>
+            </button>
+            <div className="h-px bg-tech-500/10 my-1" />
+            <button onClick={() => { setCtxMenu(null); void rollbackActiveTab(); }} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all flex items-center justify-between gap-3" title="还原到最近保存内容（丢弃未保存修改）">
+              <span>回滚更改</span><span className="text-[10px] text-ink-600">本地</span>
+            </button>
+            <button onClick={() => { setCtxMenu(null); void rollbackFileToHead(); }} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all flex items-center justify-between gap-3" title="git checkout 当前文件到 HEAD 版本（丢弃全部未提交修改）">
+              <span>回滚到 HEAD</span><span className="text-[10px] text-ink-600">Git</span>
             </button>
             <div className="h-px bg-tech-500/10 my-1" />
             <button onClick={() => { setCtxMenu(null); setHistoryOpen(true); }} className="w-full text-left px-3 py-1.5 text-ink-300 hover:text-ink-100 hover:bg-tech-500/10 transition-all" title="查看本文件的最近提交与左右差异对比">

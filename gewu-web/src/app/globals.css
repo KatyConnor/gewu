@@ -384,6 +384,54 @@ div[onclick], [role="button"] {
   opacity: 0.8;
 }
 
+/* ===== 开发工作空间 IDEA 对齐装饰（Phase 2-4） ===== */
+/* 行书签（IDEA F11：gutter 方形书签） */
+.dw-bookmark-glyph::after {
+  content: '';
+  display: block;
+  width: 10px;
+  height: 10px;
+  margin: 3px 0 0 3px;
+  background: #38bdf8;
+  clip-path: polygon(0 0, 100% 0, 100% 100%, 50% 72%, 0 100%);
+  box-shadow: 0 0 5px rgba(56, 189, 248, 0.7);
+}
+/* Gutter 变更标记（IDEA VCS：增=绿条 / 改=蓝条 / 删=红三角） */
+.dw-chg-added {
+  margin-left: 5px;
+  border-left: 2px solid #34d399;
+}
+.dw-chg-modified {
+  margin-left: 5px;
+  border-left: 2px solid #38bdf8;
+}
+.dw-chg-removed::after {
+  content: '';
+  display: block;
+  width: 0;
+  height: 0;
+  margin: 6px 0 0 3px;
+  border-left: 5px solid transparent;
+  border-right: 5px solid transparent;
+  border-top: 7px solid #f87171;
+}
+/* 使用处高亮（IDEA Ctrl+Shift+F7：词法命中闪烁色） */
+.dw-use-highlight {
+  background: rgba(250, 204, 21, 0.22) !important;
+  border: 1px solid rgba(250, 204, 21, 0.45);
+  border-radius: 2px;
+}
+/* 跳行/设置等轻量浮层输入（IDEA 风格：编辑器顶部居中小条） */
+.dw-lightbar {
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.55), 0 0 0 1px rgba(45, 212, 191, 0.18);
+}
+/* 跳转定义悬浮预览卡（IDEA Quick Definition） */
+.dw-def-preview {
+  max-height: 320px;
+  overflow: auto;
+  scrollbar-width: thin;
+}
+
 /* Monaco 组件悬停 tooltip（如查找框 Close (Escape)）贴近面板顶部时下翻覆盖锚点，
    会抢走悬停/点击形成显示-隐藏死循环（用户实报：Ctrl+F 查找框无法关闭）——
    悬停类浮层不拦截指针；浮层内若含链接/按钮仍单独恢复交互 */
@@ -393,4 +441,12 @@ div[onclick], [role="button"] {
 .context-view .workbench-hover-container a,
 .context-view .workbench-hover-container button {
   pointer-events: auto;
+}
+/* blame 行级归属（IDEA Annotate：整行淡蓝背景，hover 显示 sha/作者/日期） */
+.dw-blame-line {
+  background: rgba(56, 189, 248, 0.08) !important;
+}
+/* 调试内联值所在行（淡绿背景提示 + hover 求值） */
+.dw-inline-val-line {
+  background: rgba(52, 211, 153, 0.07) !important;
 }

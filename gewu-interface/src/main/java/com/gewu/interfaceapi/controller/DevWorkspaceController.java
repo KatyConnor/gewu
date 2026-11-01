@@ -84,9 +84,16 @@ public class DevWorkspaceController {
     }
 
     @PutMapping("/files/content")
-    @Operation(summary = "写入文件内容", description = "通过 Docker cp 写入（绕过命令限制）")
+    @Operation(summary = "写入文件内容", description = "通过 Docker cp 写入（绕过命令限制）；contentBase64=内容 base64（推荐，XSS 转义层不影响源码内容）")
     public Result<Void> writeFile(@RequestBody WriteFileRequest request) {
-        devWorkspaceService.writeFile(request.getPath(), request.getContent());
+        // 文件内容 base64 通道：请求体 JSON 字符串值经 XssRequestWrapper 中和 < >（CR-019），
+        // 源码内容必须原样落盘 → 前端以 base64 传输（base64 字符集无注入面，不削弱 XSS 防护）
+        String content = request.getContent();
+        if (request.getContentBase64() != null && !request.getContentBase64().isBlank()) {
+            content = new String(java.util.Base64.getDecoder().decode(request.getContentBase64()),
+                    java.nio.charset.StandardCharsets.UTF_8);
+        }
+        devWorkspaceService.writeFile(request.getPath(), content);
         return Result.success();
     }
 
@@ -405,6 +412,8 @@ public class DevWorkspaceController {
     public static class WriteFileRequest {
         private String path;
         private String content;
+        /** 内容 base64（优先于 content：XSS 转义层不影响源码内容，编辑器保存/自动保存走此字段） */
+        private String contentBase64;
     }
 
     @lombok.Data

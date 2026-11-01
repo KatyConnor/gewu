@@ -4,9 +4,10 @@
 // 编辑工作空间增强（IDEA 对齐）：默认主题可配（含 gewu-dark 定制主题）、
 // 自动补全（词级 + 语言 live 模板）、括号配对着色、Ctrl+滚轮缩放、
 // 光标位置回调与跳行定位（全局搜索命中跳转用）。新 props 全部可选，旧调用点行为不变。
-import { useEffect, useRef } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import Editor, { loader, type Monaco } from '@monaco-editor/react';
 import type { Position, editor as MonacoEditorAPI } from 'monaco-editor';
+import type { EditorSettings } from './editorSettings';
 
 let configured = false;
 function ensureLoader() {
@@ -121,10 +122,14 @@ function ensureEditorExtras(monaco: Monaco) {
   }
 }
 
+// per-model 视图状态缓存（模块级：跨实例共享，同文件在主/副分屏切换也能恢复）
+const viewStateCache = new Map<string, MonacoEditorAPI.ICodeEditorViewState | null>();
+
 export default function MonacoEditor({
   value, language, path, onChange, readOnly = false, wordWrap = 'on',
   theme, minimap = false, gotoLine, onCursor, onReady,
   breakpoints, conditionalBreakpoints, onToggleBreakpoint, currentLine, inlineValue, lineAfter, valueLookup,
+  settings, bookmarks, highlightWords, changeMarks,
 }: {
   value: string;
   language: string;
@@ -140,10 +145,18 @@ export default function MonacoEditor({
   minimap?: boolean;
   /** 打开后定位到指定行并居中（全局搜索命中跳转） */
   gotoLine?: number;
+  /** 编辑器偏好（IDEA Settings 对齐：字号/缩进/软换行/空白符/粘性滚动等，缺省项回落原内置值） */
+  settings?: EditorSettings;
+  /** 行书签集合（IDEA F11：行号槽书签图标 + 右侧蓝标） */
+  bookmarks?: number[];
+  /** 词高亮（IDEA Ctrl+Shift+F7 高亮使用处：当前文件内全部命中词） */
+  highlightWords?: string[];
+  /** Gutter 变更标记（IDEA VCS：增=绿条 / 改=蓝条 / 删=红三角，git diff 驱动） */
+  changeMarks?: { added: number[]; modified: number[]; removed: number[] };
   /** 光标位置变化回调（状态栏 Ln,Col 展示） */
   onCursor?: (line: number, column: number) => void;
-  /** 编辑器实例就绪回调（自定义右键菜单/命令触发等宿主扩展） */
-  onReady?: (editor: MonacoEditorAPI.IStandaloneCodeEditor) => void;
+  /** 编辑器实例就绪回调（自定义右键菜单/命令触发/键位注册等宿主扩展；第二参数为运行时 monaco 命名空间） */
+  onReady?: (editor: MonacoEditorAPI.IStandaloneCodeEditor, monaco: Monaco) => void;
   /** 断点行集合（行号槽数点，IDEA Debug） */
   breakpoints?: number[];
   /** 条件断点行集合（琥珀色点，IDEA Debug） */
@@ -163,6 +176,8 @@ export default function MonacoEditor({
   const editorRef = useRef<MonacoEditorAPI.IStandaloneCodeEditor | null>(null);
   const monacoRef = useRef<Monaco | null>(null);
   const decorationsRef = useRef<MonacoEditorAPI.IEditorDecorationsCollection | null>(null);
+  // 编辑器就绪计数：装饰 effect 依赖它，保证 onMount 后即使 props 未变也立即刷一次装饰
+  const [readyTick, setReadyTick] = useState(0);
   // 最新回调经 ref 透传，避免装饰/鼠标监听反复重绑
   const toggleBpRef = useRef(onToggleBreakpoint);
   toggleBpRef.current = onToggleBreakpoint;
@@ -184,6 +199,43 @@ export default function MonacoEditor({
     const collection = decorationsRef.current;
     if (!monaco || !collection) return;
     const decorations: MonacoEditorAPI.IModelDeltaDecoration[] = [];
+    (bookmarks || []).forEach((l) => {
+      decorations.push({
+        range: new monaco.Range(l, 1, l, 1),
+        options: {
+          linesDecorationsClassName: 'dw-bookmark-glyph',
+          overviewRuler: { color: '#38bdf8', position: monaco.editor.OverviewRulerLane.Left },
+        },
+      });
+    });
+    // Gutter 变更标记（IDEA VCS 集成）
+    (changeMarks?.added || []).forEach((l) => {
+      decorations.push({
+        range: new monaco.Range(l, 1, l, 1),
+        options: {
+          linesDecorationsClassName: 'dw-chg-added',
+          overviewRuler: { color: '#34d399', position: monaco.editor.OverviewRulerLane.Left },
+        },
+      });
+    });
+    (changeMarks?.modified || []).forEach((l) => {
+      decorations.push({
+        range: new monaco.Range(l, 1, l, 1),
+        options: {
+          linesDecorationsClassName: 'dw-chg-modified',
+          overviewRuler: { color: '#38bdf8', position: monaco.editor.OverviewRulerLane.Left },
+        },
+      });
+    });
+    (changeMarks?.removed || []).forEach((l) => {
+      decorations.push({
+        range: new monaco.Range(l, 1, l, 1),
+        options: {
+          linesDecorationsClassName: 'dw-chg-removed',
+          overviewRuler: { color: '#f87171', position: monaco.editor.OverviewRulerLane.Left },
+        },
+      });
+    });
     (breakpoints || []).forEach((l) => {
       decorations.push({
         range: new monaco.Range(l, 1, l, 1),
@@ -213,27 +265,48 @@ export default function MonacoEditor({
         },
       });
     }
+    // 词高亮（IDEA 高亮使用处：文件内全部命中）
+    if (highlightWords?.length) {
+      const model = editorRef.current?.getModel();
+      if (model) {
+        highlightWords.filter(Boolean).forEach((w) => {
+          try {
+            model.findMatches(w, false, false, true, null, false, 500).forEach((m) => {
+              decorations.push({ range: m.range, options: { inlineClassName: 'dw-use-highlight' } });
+            });
+          } catch { /* 单词匹配失败忽略 */ }
+        });
+      }
+    }
     if (inlineValue && inlineValue.line > 0 && inlineValue.text) {
+      // after 注入在自托管构建不渲染（实测），调试内联值改行级背景标注 + hover
       decorations.push({
         range: new monaco.Range(inlineValue.line, 1, inlineValue.line, 1),
         options: {
+          isWholeLine: true,
+          className: 'dw-inline-val-line',
+          hoverMessage: { value: '**调试求值**：' + inlineValue.text },
           after: { content: '    ' + inlineValue.text, inlineClassName: 'dw-inline-val' },
         },
       });
     }
-    collection.set(decorations);
+    // blame 行级归属（IDEA Annotate）：after 注入在自托管构建不渲染（实测），
+    // 改整行淡色背景 + hover 显示 sha/作者/日期（与行号槽装饰同渲染通道，兼容性已验证）
     (lineAfter || []).forEach((la) => {
       if (la.line > 0 && la.text) {
         decorations.push({
           range: new monaco.Range(la.line, 1, la.line, 1),
           options: {
-            after: { content: '   ' + la.text, inlineClassName: 'dw-annotate' },
+            isWholeLine: true,
+            className: 'dw-blame-line',
+            hoverMessage: { value: `**${la.text}**` },
+            overviewRuler: { color: '#38bdf8', position: monaco.editor.OverviewRulerLane.Right },
           },
         });
       }
     });
     collection.set(decorations);
-  }, [breakpoints, conditionalBreakpoints, currentLine, inlineValue, lineAfter, path]);
+  }, [breakpoints, conditionalBreakpoints, currentLine, inlineValue, lineAfter, bookmarks, highlightWords, changeMarks, path, readyTick]);
 
   return (
     <Editor
@@ -249,7 +322,8 @@ export default function MonacoEditor({
         decorationsRef.current = ed.createDecorationsCollection([]);
         ensureEditorExtras(monaco);
         if (theme && theme !== 'vs-dark') monaco.editor.setTheme(theme);
-        onReady?.(ed);
+        onReady?.(ed, monaco);
+        setReadyTick((v) => v + 1);
         if (onCursor) {
           ed.onDidChangeCursorPosition((e) => onCursor(e.position.lineNumber, e.position.column));
         }
@@ -282,19 +356,38 @@ export default function MonacoEditor({
           });
           ed.onDidDispose(() => disposable.dispose());
         }
+        // per-model 视图状态（IDEA 多 Tab 语义：切文件保留滚动/光标/选区）——
+        // 滚动/光标变化时实时快照到当前 model，切 model 事件后恢复目标 model 的快照
+        const saveNow = () => {
+          const m = ed.getModel();
+          if (m) viewStateCache.set(m.uri.toString(), ed.saveViewState());
+        };
+        ed.onDidChangeCursorPosition(saveNow);
+        ed.onDidScrollChange(saveNow);
+        ed.onDidChangeModel(() => {
+          const t = setTimeout(() => {
+            const m = ed.getModel();
+            const st = m ? viewStateCache.get(m.uri.toString()) : undefined;
+            if (st) ed.restoreViewState(st);
+          }, 0);
+          const d = ed.onDidDispose(() => { clearTimeout(t); d.dispose(); });
+        });
       }}
       options={{
-        minimap: { enabled: minimap },
-        fontSize: 12,
+        minimap: { enabled: settings?.minimap ?? minimap },
+        fontSize: settings?.fontSize ?? 12,
+        lineNumbers: settings?.relativeLineNumbers ? 'relative' : 'on',
         lineNumbersMinChars: 3,
+        renderWhitespace: settings?.renderWhitespace ?? 'selection',
+        insertSpaces: settings?.insertSpaces ?? true,
         scrollBeyondLastLine: false,
         automaticLayout: true,
-        wordWrap,
-        tabSize: 4,
+        wordWrap: settings?.wordWrap === undefined ? wordWrap : (settings.wordWrap ? 'on' : 'off'),
+        tabSize: settings?.tabSize ?? 4,
         readOnly,
         domReadOnly: readOnly,
-        // 新版 Monaco 默认开启作用域固定条（stickyScroll），透明底与代码行重叠发花，阅读视图关闭
-        stickyScroll: { enabled: false },
+        // 粘性滚动（IDEA Sticky Lines）：默认关（透明底与代码行重叠发花），设置面板可开
+        stickyScroll: { enabled: settings?.stickyScroll ?? false },
         // ===== IDEA 对齐编辑能力（S 编辑区升级） =====
         // 自动编码提示：词级 + 语言 live 模板 + 触发字符（字符串内提示路径/补全）
         quickSuggestions: { other: true, comments: false, strings: true },
@@ -303,8 +396,8 @@ export default function MonacoEditor({
         tabCompletion: 'on',
         snippetSuggestions: 'top',
         // 括号配对着色与缩进参考线
-        bracketPairColorization: { enabled: true },
-        guides: { bracketPairs: 'active', indentation: true },
+        bracketPairColorization: { enabled: settings?.bracketPairs ?? true },
+        guides: { bracketPairs: (settings?.bracketPairs ?? true) ? 'active' : false, indentation: true },
         // 交互手感：Ctrl+滚轮缩放（IDEA 同款）、平滑滚动/光标动画、粘贴自动格式化
         mouseWheelZoom: true,
         smoothScrolling: true,

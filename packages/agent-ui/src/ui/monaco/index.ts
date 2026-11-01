@@ -3,3 +3,5 @@ export { default as MonacoEditor } from './MonacoEditor';
 export * from './MonacoEditor';
 export { default as MonacoDiff } from './MonacoDiff';
 export * from './MonacoDiff';
+export * from './editorSettings';
+export * from './ideaKeybindings';

@@ -93,8 +93,21 @@ export async function readFile(path: string): Promise<string> {
   });
 }
 
+/**
+ * 写文件：接口层 XSS 过滤（XssRequestWrapper CR-019）会转义 JSON 字符串值中的 < >，
+ * 源码内容必须原样落盘 → 内容以 base64 字段传输（base64 字符集无注入面，不削弱防护），
+ * 后端 Controller 解码后经 sandboxClient.writeFile 直写（部署实测：JSON 直传会被转义污染磁盘文件）。
+ */
 export async function writeFile(path: string, content: string): Promise<void> {
-  await unwrap<void>(request.put<ApiResponse<void>>('/v1/dev-workspaces/files/content', { path, content }));
+  const bytes = new TextEncoder().encode(content);
+  const chunkParts: string[] = [];
+  for (let i = 0; i < bytes.length; i += 8192) {
+    let seg = '';
+    const end = Math.min(i + 8192, bytes.length);
+    for (let j = i; j < end; j++) seg += String.fromCharCode(bytes[j]);
+    chunkParts.push(seg);
+  }
+  await unwrap<void>(request.put<ApiResponse<void>>('/v1/dev-workspaces/files/content', { path, contentBase64: btoa(chunkParts.join('')) }));
 }
 
 export async function uploadFile(path: string, file: File): Promise<void> {

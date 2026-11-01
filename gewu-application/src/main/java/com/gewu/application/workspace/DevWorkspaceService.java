@@ -527,7 +527,14 @@ public class DevWorkspaceService {
     /** 单文件工作区差异（vs HEAD；未跟踪文件为空，由前端回落展示全文） */
     public String gitFileDiff(String projectId, String path) {
         com.gewu.domain.project.Project project = requireGitProject(projectId);
-        return gitExec(project, "diff HEAD -- " + shellQuote(sanitizeWorkspaceRel(path)), 30);
+        return gitExec(project, "diff HEAD -- " + shellQuote(repoRelPath(project, path)), 30);
+    }
+
+    /** 仓库相对路径归一：前端可能传工作空间路径（projects/{id}/repo/x），git -C 仓库内需剥离前缀 */
+    private String repoRelPath(com.gewu.domain.project.Project project, String path) {
+        String rel = sanitizeWorkspaceRel(path);
+        String prefix = sanitizeWorkspaceRel(project.getRepoLocalPath()) + "/";
+        return rel.startsWith(prefix) ? rel.substring(prefix.length()) : rel;
     }
 
     /** 提交（IDEA 提交对话框语义：勾选文件 add 后 commit；无勾选则提交已暂存内容） */
@@ -799,7 +806,7 @@ public class DevWorkspaceService {
     /** 行级归属（git blame --line-porcelain，每行完整头块便于解析） */
     public List<BlameLineDTO> blame(String projectId, String path) {
         com.gewu.domain.project.Project project = requireGitProject(projectId);
-        String out = gitExec(project, "blame --line-porcelain -- " + shellQuote(sanitizeWorkspaceRel(path)), 30);
+        String out = gitExec(project, "blame --line-porcelain -- " + shellQuote(repoRelPath(project, path)), 30);
         List<BlameLineDTO> list = new ArrayList<>();
         String sha = null, author = null, summary = null;
         Long time = null;

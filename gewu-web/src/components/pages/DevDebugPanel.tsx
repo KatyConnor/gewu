@@ -83,20 +83,6 @@ export default function DevDebugPanel({ state, consoleText, busy, onAction, onRu
               {state.currentClass}.{state.currentMethod} · {state.currentFile}:{state.currentLine}
             </span>
           )}
-          {stopped && state.currentThread && (
-            <span className="text-[11px] font-mono text-ink-400 flex-shrink-0">线程 {state.currentThread}</span>
-          )}
-          {stopped && (state.threads?.length || 0) > 1 && (
-            <select
-              value={state.currentThread || state.threads.find(t => t.current)?.id || ''}
-              onChange={(e) => onThread(e.target.value)}
-              className="bg-ink-900/60 border border-tech-500/15 rounded text-[11px] text-ink-200 outline-none cursor-pointer max-w-40"
-              title="切换调试上下文线程（IDEA Threads 视图）">
-              {state.threads.map(t => (
-                <option key={t.id} value={t.id}>{t.name}{t.current ? '（当前）' : ''}</option>
-              ))}
-            </select>
-          )}
         </div>
         <div className="flex items-center gap-1.5 flex-shrink-0">
           {btn('继续', <Play className="w-3 h-3" />, () => onAction('cont'), 'F9', !stopped, 'cont')}
