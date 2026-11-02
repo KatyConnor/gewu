@@ -1124,14 +1124,30 @@ public class DevWorkspaceService {
         return ws.getDevSandboxId();
     }
 
-    /** 确保沙箱正在运行，返回 sandboxId */
+    /** 探活通过缓存（30s 免重复探活：常规文件操作高频路径不额外付 exec 开销） */
+    private final java.util.concurrent.ConcurrentHashMap<String, Long> lastProbeOkAt = new java.util.concurrent.ConcurrentHashMap<>();
+    private static final long PROBE_TTL_MS = 30_000;
+
+    /**
+     * 确保沙箱正在运行，返回 sandboxId。
+     * 部署实测缺陷修复：DB 状态滞后于容器实际状态（宿主机重启容器 Exited 而 DB 仍 running，
+     * restart policy=no 不自启）时，仅查 DB 会放行 stale id → 后续 exec 409 not running。
+     * 现补容器实际探活（复用 probeSandboxAlive；30s 节流），探活失败即走 startSandbox
+     * 幂等恢复（docker start，Volume 数据保留，DB 状态同步修正）。
+     */
     private String ensureRunningSandbox() {
         String sandboxId = getDevSandboxId();
         SandboxDTO sandbox = sandboxClient.getSandbox(sandboxId);
-        if (!"running".equals(sandbox.getStatus())) {
-            log.info("开发沙箱未运行，自动启动: sandboxId={}", sandboxId);
+        boolean dbRunning = "running".equals(sandbox.getStatus());
+        boolean alive = dbRunning
+                && (System.currentTimeMillis() - lastProbeOkAt.getOrDefault(sandboxId, 0L) < PROBE_TTL_MS
+                    || probeSandboxAlive(sandboxId));
+        if (!alive) {
+            log.info("开发沙箱未运行或探活失败（DB 状态滞后于容器），自动恢复: sandboxId={}, dbStatus={}",
+                    sandboxId, sandbox.getStatus());
             sandboxClient.startSandbox(sandboxId);
         }
+        lastProbeOkAt.put(sandboxId, System.currentTimeMillis());
         return sandboxId;
     }
 
@@ -1145,6 +1161,14 @@ public class DevWorkspaceService {
         if (ws.getDevSandboxId() == null) {
             ensureDevSandboxForUser(ws.getUserId());
         }
-        return ensureRunningSandbox();
+        try {
+            return ensureRunningSandbox();
+        } catch (Exception e) {
+            // 容器被外部 docker rm 等不可恢复场景：转 ensureDevSandboxForUser 走其内部
+            // catch → 新建逻辑重新绑定（S9 F4 自愈闭环），Volume 数据保留
+            log.info("开发沙箱恢复失败，转为重建: sandboxId={}, err={}", ws.getDevSandboxId(), e.getMessage());
+            SandboxDTO reborn = ensureDevSandboxForUser(ws.getUserId());
+            return reborn.getSandboxId();
+        }
     }
 }
