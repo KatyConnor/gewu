@@ -109,7 +109,9 @@ import java.util.concurrent.TimeUnit;
  * <p>装配 LLM 客户端注册中心、工具执行器、消息构建器、ReAct 执行器、Agent 引擎门面，
  * 以及全部 SPI 的 NoOp 默认实现。使用方按需实现 SPI 接口注册为 Spring Bean 即可覆盖默认行为。
  *
- * @since 1.0.0
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-08-14
  */
 @Configuration
 @EnableConfigurationProperties(AgentEngineProperties.class)
@@ -515,7 +517,12 @@ public class AgentEngineAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public HitlGateway hitlGateway() {
+    public HitlGateway hitlGateway(AgentEngineProperties props) {
+        // AE-P0-4 fail-closed：未提供真实审批网关时拒绝审批请求而非自动批准
+        //（29 号安全红线；与 NoOpSandboxExecutor 的 fail-closed 语义对齐），旧行为可配置关闭
+        if (props.getHitl().isFailClosed()) {
+            return new com.gewu.agent.engine.hitl.FailClosedHitlGateway();
+        }
         return new NoOpHitlGateway();
     }
 

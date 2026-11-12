@@ -43,6 +43,10 @@ import static org.mockito.Mockito.when;
 
 /**
  * {@link ToolExecutor} 五段管线测试：安全链 -> 权限 -> 执行分派 -> 截断 -> 审计。
+ *
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-08-22
  */
 @ExtendWith(MockitoExtension.class)
 @DisplayName("工具执行器")
@@ -313,5 +317,41 @@ class ToolExecutorTest {
 
         verify(sandboxExecutor, never()).executeCode(any(), anyString(), anyString(), anyInt());
         verify(auditService, never()).recordToolExecution(any(), any(), anyString(), anyBoolean(), anyLong());
+    }
+
+    @Test
+    @DisplayName("AE-P0-4：危险 SQL（delete/drop/truncate）默认 fail-closed 拒绝执行且审计失败")
+    void highRiskSqlRejectedByDefault() {
+        ToolResult result = executor(new ToolRegistry(List.of(echoTool)))
+                .execute("echo", "{\"sql\":\"DELETE FROM users WHERE id=1\"}", context(), null);
+
+        assertThat(result.isSuccess()).isFalse();
+        assertThat(result.getError()).contains("危险 SQL 操作需人工审批");
+        // 工具未被执行（fail-closed 即终态）
+        assertThat(result.getOutput()).isNull();
+        verify(auditService).recordToolExecution(eq("u1"), eq("a1"), eq("echo"), eq(false), anyLong());
+    }
+
+    @Test
+    @DisplayName("AE-P0-4：危险 SQL 开关关闭时保持旧行为（放行执行）")
+    void highRiskSqlAllowedWhenFailClosedDisabled() {
+        ToolExecutor relaxed = new ToolExecutor(new ToolRegistry(List.of(echoTool)),
+                new SecurityChain(List.of(new SchemaValidator(objectMapper))),
+                permissionService, auditService, sandboxExecutor, mcpServerManager,
+                objectMapper, 10240, 5, 30, false);
+        ToolResult result = relaxed.execute("echo", "{\"sql\":\"DELETE FROM users\"}", context(), null);
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getOutput()).contains("echo:");
+    }
+
+    @Test
+    @DisplayName("AE-P0-4：普通参数（含 delete 字样但非 SQL 语法）不受危险 SQL 检查影响")
+    void normalArgumentsUnaffectedBySqlGuard() {
+        ToolResult result = executor(new ToolRegistry(List.of(echoTool)))
+                .execute("echo", "{\"note\":\"用户删除了 delete_file 的快捷方式\"}", context(), null);
+
+        assertThat(result.isSuccess()).isTrue();
+        assertThat(result.getOutput()).contains("echo:");
     }
 }

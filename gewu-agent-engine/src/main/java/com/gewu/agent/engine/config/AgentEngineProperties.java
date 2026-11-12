@@ -9,7 +9,9 @@ import java.time.Duration;
  * Agent 引擎配置属性。
  * <p>前缀 {@code agent.engine}，使用方可通过 application.yml 覆盖默认值。
  *
- * @since 1.0.0
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-08-20
  */
 @Data
 @ConfigurationProperties(prefix = "agent.engine")
@@ -26,6 +28,9 @@ public class AgentEngineProperties {
 
     /** 预算控制配置 */
     private Budget budget = new Budget();
+
+    /** HITL 审批 fail-closed 配置（AE-P0-4） */
+    private Hitl hitl = new Hitl();
 
     /** Agent 生命周期管理配置 */
     private Lifecycle lifecycle = new Lifecycle();
@@ -119,6 +124,14 @@ public class AgentEngineProperties {
         private int maxOutputSize = 10 * 1024;
         /** 默认工具执行超时（秒） */
         private int defaultTimeoutSeconds = 30;
+    }
+
+    @Data
+    public static class Hitl {
+        /** fail-closed（AE-P0-4）：未装配真实审批网关（仅默认 NoOp）时，审批请求按拒绝处理而非自动批准（29 号红线） */
+        private boolean failClosed = true;
+        /** 危险 SQL 关键字（delete/drop/truncate）工具调用强制走审批拒绝路径（AE-P0-4，默认开） */
+        private boolean highRiskSqlFailClosed = true;
     }
 
     @Data

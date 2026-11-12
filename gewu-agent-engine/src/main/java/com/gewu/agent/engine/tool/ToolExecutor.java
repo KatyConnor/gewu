@@ -31,7 +31,9 @@ import java.time.Duration;
  *   <li>{@link AuditService} 审计记录</li>
  * </ol>
  *
- * @since 1.0.0
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-08-20
  */
 @Slf4j
 public class ToolExecutor {
@@ -39,6 +41,12 @@ public class ToolExecutor {
     private static final HttpClient HTTP_CLIENT = HttpClient.newBuilder()
             .followRedirects(HttpClient.Redirect.NEVER)
             .build();
+
+    /** 危险 SQL 关键字（AE-P0-4）：delete from / drop table|database|index / truncate table（大小写不敏感） */
+    private static final java.util.regex.Pattern HIGH_RISK_SQL_PATTERN =
+            java.util.regex.Pattern.compile(
+                    "\\b(delete\\s+from|drop\\s+(table|database|index)|truncate\\s+table)\\b",
+                    java.util.regex.Pattern.CASE_INSENSITIVE);
 
     private final ToolRegistry registry;
     private final SecurityChain securityChain;
@@ -50,12 +58,24 @@ public class ToolExecutor {
     private final int maxOutputSize;
     private final int maxRedirects;
     private final int defaultTimeoutSeconds;
+    /** 危险 SQL fail-closed 开关（AE-P0-4，默认 true；29 号红线：delete/drop/truncate 强制审批拒绝） */
+    private final boolean highRiskSqlFailClosed;
 
     public ToolExecutor(ToolRegistry registry, SecurityChain securityChain,
                         PermissionService permissionService, AuditService auditService,
                         SandboxExecutor sandboxExecutor, McpServerManager mcpServerManager,
                         ObjectMapper objectMapper,
                         int maxOutputSize, int maxRedirects, int defaultTimeoutSeconds) {
+        this(registry, securityChain, permissionService, auditService, sandboxExecutor,
+                mcpServerManager, objectMapper, maxOutputSize, maxRedirects, defaultTimeoutSeconds, true);
+    }
+
+    public ToolExecutor(ToolRegistry registry, SecurityChain securityChain,
+                        PermissionService permissionService, AuditService auditService,
+                        SandboxExecutor sandboxExecutor, McpServerManager mcpServerManager,
+                        ObjectMapper objectMapper,
+                        int maxOutputSize, int maxRedirects, int defaultTimeoutSeconds,
+                        boolean highRiskSqlFailClosed) {
         this.registry = registry;
         this.securityChain = securityChain;
         this.permissionService = permissionService;
@@ -66,6 +86,7 @@ public class ToolExecutor {
         this.maxOutputSize = maxOutputSize;
         this.maxRedirects = maxRedirects;
         this.defaultTimeoutSeconds = defaultTimeoutSeconds;
+        this.highRiskSqlFailClosed = highRiskSqlFailClosed;
     }
 
     /**
@@ -90,6 +111,14 @@ public class ToolExecutor {
         }
         if (permission.isRequireApproval()) {
             return failAndAudit(startTime, toolName, context, "需要用户确认: " + permission.getReason());
+        }
+
+        // 2b. 危险 SQL 强制审批（AE-P0-4）：delete/drop/truncate 命中即拒绝放行（29 号红线"数据删除强制审批"；
+        // fail-closed 关闭时跳过——旧行为）。工具路径审批语义为拒绝（见 requireApproval 分支），故此处即终态
+        if (highRiskSqlFailClosed && arguments != null
+                && HIGH_RISK_SQL_PATTERN.matcher(arguments).find()) {
+            return failAndAudit(startTime, toolName, context,
+                    "危险 SQL 操作需人工审批（fail-closed 拒绝执行）");
         }
 
         // 3. 执行
