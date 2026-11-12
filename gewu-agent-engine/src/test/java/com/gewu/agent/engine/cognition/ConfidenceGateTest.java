@@ -8,6 +8,10 @@ import static org.assertj.core.api.Assertions.within;
 
 /**
  * {@link ConfidenceGate} 加权置信评估与四级决策测试。
+ *
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-08-22
  */
 @DisplayName("置信度门控")
 class ConfidenceGateTest {
@@ -63,5 +67,29 @@ class ConfidenceGateTest {
         var retryContext = gate.evaluate(0.1);
         assertThat(retryContext.getAction()).isEqualTo(GateDecision.Action.RETRY_CHANGE_CONTEXT);
         assertThat(retryContext.getScore()).isCloseTo(0.54, within(0.001));
+    }
+
+    @Test
+    @DisplayName("AE-P0-3：未知维度中性 0.5 时 ESCALATE_HITL 可达（下限 0.4c+0.3，critic<0.25）")
+    void escalateReachableWithUnknownNeutralDimensions() {
+        // AutonomousExecutor.verifyGoal 现行调用形态：critic=验证器真实分，其余维度未知=0.5
+        // 旧简化重载 critic=0.2 时 score=0.58（RETRY_CHANGE_CONTEXT，升级人工死分支）
+        var decision = gate.evaluate(0.2, 0.5, 0.5, 0.5);
+        assertThat(decision.getAction()).isEqualTo(GateDecision.Action.ESCALATE_HITL);
+        assertThat(decision.getScore()).isCloseTo(0.4 * 0.2 + 0.3, within(0.001));
+    }
+
+    @Test
+    @DisplayName("AE-P0-3：未知维度中性 0.5 的分支分布（ADOPT 不可达=接线前保守语义，无真实证据不自动采纳）")
+    void branchDistributionWithNeutralUnknowns() {
+        // score = 0.4c + 0.3，c∈[0,1] → score∈[0.3,0.7]
+        assertThat(gate.evaluate(0.9, 0.5, 0.5, 0.5).getAction())
+                .isEqualTo(GateDecision.Action.RETRY_CHANGE_MODEL);   // 0.66
+        assertThat(gate.evaluate(0.8, 0.5, 0.5, 0.5).getAction())
+                .isEqualTo(GateDecision.Action.RETRY_CHANGE_MODEL);   // 0.62
+        assertThat(gate.evaluate(0.4, 0.5, 0.5, 0.5).getAction())
+                .isEqualTo(GateDecision.Action.RETRY_CHANGE_CONTEXT); // 0.46
+        assertThat(gate.evaluate(0.1, 0.5, 0.5, 0.5).getAction())
+                .isEqualTo(GateDecision.Action.ESCALATE_HITL);        // 0.34
     }
 }

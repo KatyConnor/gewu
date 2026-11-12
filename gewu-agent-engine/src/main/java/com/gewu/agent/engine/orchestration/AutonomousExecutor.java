@@ -35,7 +35,9 @@ import java.util.UUID;
  * </ol>
  * 验收校验与 reflexion 由使用方通过 SPI 提供，未提供时回退为单次执行即成功。
  *
- * @since 1.0.0
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-08-14
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -51,6 +53,9 @@ public class AutonomousExecutor {
     private final AntiRunawayGuard antiRunawayGuard;
     private final AgentLifecycleManager lifecycleManager;
     private final com.gewu.agent.engine.spi.TraceService traceService;
+
+    /** 未知维度的中性评分（0.5）：无真实统计源时表达"未知"而非 1.0 虚高（AE-P0-3，D-6 接线后替换为真实统计） */
+    private static final double UNKNOWN_DIMENSION_SCORE = 0.5;
 
     /**
      * 自主目标驱动执行。
@@ -199,8 +204,13 @@ public class AutonomousExecutor {
                     output, goal.getAcceptances() != null ? goal.getAcceptances() : List.of(goal.getDescription()),
                     reasoningKernel);
 
-            // 置信度门控
-            GateDecision gate = confidenceGate.evaluate(verification.getScore());
+            // 置信度门控（AE-P0-3）：全参替换简化重载——旧简化版固定 toolSuccess=1.0/contract=1.0，
+            // 下限 0.4c+0.5 使 ESCALATE_HITL(<0.4) 为死分支（43 号 §三.1）。critic 用验证器真实分；
+            // 工具成功率/历史相似度/契约通过率当前无数据源（BudgetContext 不含工具统计、
+            // MemoryRouter/ArtifactValidator 未接入此处），以中性 0.5 表达"未知"：下限降至 0.4c+0.3，
+            // critic<0.25 即升级人工；AE-P1-1（D-6 接线）时应替换为真实统计
+            GateDecision gate = confidenceGate.evaluate(
+                    verification.getScore(), UNKNOWN_DIMENSION_SCORE, UNKNOWN_DIMENSION_SCORE, UNKNOWN_DIMENSION_SCORE);
             log.debug("verifyGoal: verificationLayer={}, score={}, gateAction={}",
                     verification.getLayer(), verification.getScore(), gate.getAction());
 

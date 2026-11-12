@@ -13,7 +13,9 @@ import lombok.extern.slf4j.Slf4j;
  * </ul>
  * <p>设计原则：按需触发（任务失败后/复杂任务完成后/置信分持续低位时），非并行监控，成本可控。
  *
- * @since 1.0.0
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-08-14
  */
 @Slf4j
 public class ConfidenceGate {
@@ -65,7 +67,12 @@ public class ConfidenceGate {
 
     /**
      * 简化评估 - 仅基于 Critic 评分。
+     *
+     * @deprecated 固定项（toolSuccess=1.0/contract=1.0）使下限为 0.4c+0.5，
+     * ESCALATE_HITL(&lt;0.4) 恒不可达（43 号 §三.1 数学缺陷）。调用方应改用全参重载，
+     * 维度未知时传中性 0.5（见 AutonomousExecutor.verifyGoal 的 AE-P0-3 改造）。
      */
+    @Deprecated
     public GateDecision evaluate(double criticScore) {
         return evaluate(criticScore, 1.0, 0.5, 1.0);
     }
