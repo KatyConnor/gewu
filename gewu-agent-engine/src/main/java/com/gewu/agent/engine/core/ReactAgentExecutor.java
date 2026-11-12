@@ -52,7 +52,9 @@ import java.util.concurrent.CompletableFuture;
  * <p>核心循环：LLM 推理 -> 若请求工具则并行执行 -> 将结果回灌 -> 继续推理，直到 LLM 不再请求工具或达到轮次上限。
  * 支持同步与流式（{@link Flux}<{@link AgentEvent}>）两种模式，流式模式实时推送思考 / 内容 / 工具事件。
  *
- * @since 1.0.0
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-08-14
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -160,6 +162,42 @@ public class ReactAgentExecutor implements AgentExecutor {
             "系统提示：你已连续多次以完全相同的参数调用同一工具且任务未推进。"
                     + "请停止重复调用，改用其他方法获取信息，或基于已有信息直接给出最终回答。";
 
+    // ==================== System2 灰度分派（AE-P1-1/D-6） ====================
+
+    /** System2 运行时（PLAN_EXECUTE；null=未装配，恒走 REACT 主循环） */
+    private volatile com.gewu.agent.engine.orchestration.runtime.PlanExecuteRuntime system2Runtime;
+    /** 灰度开关（默认 false：agent.engine.cognition.system2-runtime=PLAN_EXECUTE 时由装配层开启） */
+    private volatile boolean system2Enabled = false;
+
+    /**
+     * 装配层注入 System2 运行时与灰度开关（AE-P1-1）。
+     * <p>开启后 execute/executeStream 在前置决策链完成后按配置分派 PLAN_EXECUTE 运行时；
+     * 步内 ReAct 复用本执行器（agent-as-plan-step），事件协议与主循环一致。
+     */
+    public void setSystem2Runtime(com.gewu.agent.engine.orchestration.runtime.PlanExecuteRuntime runtime,
+                                  boolean enabled) {
+        this.system2Runtime = runtime;
+        this.system2Enabled = enabled;
+    }
+
+    /** 同步路径的 PLAN_EXECUTE 结果聚合（事件流 → legacy LlmResponse；usage 缺失由上层账本按字符估算兜底） */
+    private LlmResponse aggregatePlanExecuteSync(AgentTask task) {
+        StringBuilder content = new StringBuilder();
+        java.util.concurrent.atomic.AtomicReference<String> finish =
+                new java.util.concurrent.atomic.AtomicReference<>("stop");
+        system2Runtime.execute(task)
+                .doOnNext(event -> {
+                    if (AgentEvent.CONTENT.equals(event.getType()) && event.getContent() != null) {
+                        content.append(event.getContent());
+                    }
+                    if (AgentEvent.ERROR.equals(event.getType())) {
+                        finish.set("error");
+                    }
+                })
+                .blockLast();
+        return LlmResponse.builder().content(content.toString()).finishReason(finish.get()).build();
+    }
+
     // ==================== 同步执行 ====================
 
     @Override
@@ -175,6 +213,14 @@ public class ReactAgentExecutor implements AgentExecutor {
         log.info("同步对话: agentId={}, provider={}, model={}, intentType={}, complexity={}, system={}",
                 agentId, plan.provider, plan.model, plan.intent.getIntentType(),
                 plan.complexity.getLevel(), plan.complexity.getSystemChoice().getSystem());
+
+        // AE-P1-1（D-6 灰度）：System2 任务分派 PLAN_EXECUTE 运行时（默认 REACT 单循环；
+        // 分派点=前置决策链产出后，复评达标按 43 号预承诺规则灰度开启）
+        if (system2Enabled && system2Runtime != null) {
+            log.info("System2 运行时分派: PLAN_EXECUTE (agentId={}, complexity={})",
+                    agentId, plan.complexity.getLevel());
+            return aggregatePlanExecuteSync(task);
+        }
 
         LlmClient client = llmClientRegistry.getClient(plan.provider);
         List<Message> messages = buildMessages(agent, task);
@@ -390,6 +436,13 @@ public class ReactAgentExecutor implements AgentExecutor {
         log.info("流式对话: agentId={}, provider={}, model={}, intentType={}, complexity={}, system={}",
                 agentId, plan.provider, plan.model, plan.intent.getIntentType(),
                 plan.complexity.getLevel(), plan.complexity.getSystemChoice().getSystem());
+
+        // AE-P1-1（D-6 灰度）：System2 任务分派 PLAN_EXECUTE 运行时（事件协议与主循环一致）
+        if (system2Enabled && system2Runtime != null) {
+            log.info("System2 运行时分派: PLAN_EXECUTE (agentId={}, complexity={})",
+                    agentId, plan.complexity.getLevel());
+            return system2Runtime.execute(task);
+        }
 
         LlmClient client = llmClientRegistry.getClient(plan.provider);
         List<Message> messages = buildMessages(agent, task);

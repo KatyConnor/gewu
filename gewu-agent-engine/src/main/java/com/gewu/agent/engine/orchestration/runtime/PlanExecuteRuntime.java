@@ -8,6 +8,7 @@ import com.gewu.agent.engine.orchestration.model.AutonomousGoal;
 import com.gewu.agent.engine.orchestration.model.ExecutionGraph;
 import com.gewu.agent.engine.orchestration.model.GraphEdge;
 import com.gewu.agent.engine.orchestration.model.GraphNode;
+import com.gewu.agent.engine.orchestration.model.NodeType;
 import com.gewu.agent.engine.orchestration.model.OrchestrationContext;
 import com.gewu.agent.engine.orchestration.model.PlanGraph;
 import lombok.extern.slf4j.Slf4j;
@@ -32,7 +33,9 @@ import java.util.UUID;
  * </ol>
  * 适用于边界清晰、步骤明确但需要先拆解的复杂任务。
  *
- * @since 1.0.0
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-08-20
  */
 @Slf4j
 public class PlanExecuteRuntime implements AgentRuntime {
@@ -65,15 +68,26 @@ public class PlanExecuteRuntime implements AgentRuntime {
             // 2. 映射：计划图 -> 执行图（技术层）
             ExecutionGraph executionGraph = ExecutionGraph.fromPlanGraph(plan, null);
             List<GraphNode> ordered = topologicalOrder(executionGraph);
+            // AE-P1-1 适配②：过滤波次映射产生的结构节点（PARALLEL/MERGE）——
+            // v1 串行语义：拓扑序执行仅保留 AGENT 步骤，扇出/汇聚结构语义在串行层无承载，
+            // 旧实现把它们当普通步骤重复跑 Agent（产生空产出步骤）
+            int structural = (int) ordered.stream()
+                    .filter(n -> n.getType() == NodeType.PARALLEL || n.getType() == NodeType.MERGE)
+                    .count();
+            ordered.removeIf(n -> n.getType() == NodeType.PARALLEL || n.getType() == NodeType.MERGE);
+            if (structural > 0) {
+                log.info("PlanExecute 结构节点过滤（v1 串行语义声明）: filtered={}", structural);
+            }
             Map<String, String> descriptions = stepDescriptions(plan);
 
             log.info("PlanExecute 规划完成: planId={}, steps={}, agentId={}",
                     plan.getPlanId(), ordered.size(), task.getAgentId());
 
-            // 3. 逐步骤执行：前置产出注入后续上下文
+            // 3. 逐步骤执行：前置产出注入后续上下文（失败 fail-fast：步骤失败即终止后续步骤）
             StringBuilder carriedContext = new StringBuilder();
+            java.util.concurrent.atomic.AtomicBoolean failed = new java.util.concurrent.atomic.AtomicBoolean(false);
             Flux<AgentEvent> body = Flux.fromIterable(ordered)
-                    .concatMap(node -> executeStep(task, node, descriptions, carriedContext));
+                    .concatMap(node -> executeStep(task, node, descriptions, carriedContext, failed));
 
             return Flux.concat(
                     Flux.just(
@@ -96,9 +110,19 @@ public class PlanExecuteRuntime implements AgentRuntime {
         });
     }
 
-    /** 执行单个步骤：产出事件透传（补 nodeId），内容累积注入后续上下文 */
+    /**
+     * 执行单个步骤：产出事件透传（补 nodeId 与 metadata/plan/planTitle/finishReason——AE-P1-1 适配①，
+     * 旧实现丢弃 metadata 使 ask_user、plan_*、budget_* 等带元数据事件到宿主即失效、HITL 回灌会断），
+     * 内容累积注入后续上下文。
+     * <p>失败语义（AE-P1-1 适配③，对齐编排轨 fail-fast）：执行器把异常转为 ERROR 事件而非 Flux error，
+     * 命中即标记 failed 并终止后续步骤（失败步骤产出不注入）。
+     */
     private Flux<AgentEvent> executeStep(AgentTask task, GraphNode node,
-                                         Map<String, String> descriptions, StringBuilder carriedContext) {
+                                         Map<String, String> descriptions, StringBuilder carriedContext,
+                                         java.util.concurrent.atomic.AtomicBoolean failed) {
+        if (failed.get()) {
+            return Flux.empty(); // 前序步骤失败，fail-fast 跳过（失败事件已由失败步骤发出）
+        }
         String description = descriptions.getOrDefault(node.getNodeId(), task.getMessage());
         String message = carriedContext.length() == 0 ? description
                 : description + "\n\n## 前置步骤产出\n" + carriedContext;
@@ -108,6 +132,12 @@ public class PlanExecuteRuntime implements AgentRuntime {
                 .sessionId(task.getSessionId())
                 .userId(task.getUserId())
                 .message(message)
+                // AE-P1-1 适配③：模型/模式字段透传（旧实现丢失 provider/model/mode，步内退化为默认模型）
+                .modelProvider(task.getModelProvider())
+                .modelName(task.getModelName())
+                .agentMode(task.getAgentMode())
+                .thinkingStyle(task.getThinkingStyle())
+                .modelRouteEnabled(task.getModelRouteEnabled())
                 // 入口调度指令继承父任务（设计文档 56 §12.6）
                 .entryDirectives(task.getEntryDirectives())
                 .entryDirectivesSource(task.getEntryDirectivesSource())
@@ -125,18 +155,29 @@ public class PlanExecuteRuntime implements AgentRuntime {
                                 accumulated.append(event.getContent());
                             }
                         })
-                        .map(event -> AgentEvent.builder()
-                                .type(event.getType())
-                                .content(event.getContent())
-                                .reasoning(event.getReasoning())
-                                .toolCall(event.getToolCall())
-                                .toolResult(event.getToolResult())
-                                .errorMessage(event.getErrorMessage())
-                                .nodeId(node.getNodeId())
-                                .role(node.getRoleCode())
-                                .build()))
+                        .map(event -> {
+                            if (AgentEvent.ERROR.equals(event.getType())) {
+                                // 失败传播对齐（AE-P1-1 适配③）：标记失败，后续步骤跳过
+                                failed.set(true);
+                            }
+                            return AgentEvent.builder()
+                                    .type(event.getType())
+                                    .content(event.getContent())
+                                    .reasoning(event.getReasoning())
+                                    .toolCall(event.getToolCall())
+                                    .toolResult(event.getToolResult())
+                                    .errorMessage(event.getErrorMessage())
+                                    .finishReason(event.getFinishReason())
+                                    .plan(event.getPlan())
+                                    .planTitle(event.getPlanTitle())
+                                    .metadata(event.getMetadata())
+                                    .nodeId(node.getNodeId())
+                                    .role(node.getRoleCode())
+                                    .build();
+                        }))
                 .doOnComplete(() -> {
-                    if (accumulated.length() > 0 && carriedContext.length() < MAX_CARRIED_CONTEXT * 4) {
+                    if (accumulated.length() > 0 && !failed.get()
+                            && carriedContext.length() < MAX_CARRIED_CONTEXT * 4) {
                         if (carriedContext.length() > 0) {
                             carriedContext.append("\n\n---\n\n");
                         }

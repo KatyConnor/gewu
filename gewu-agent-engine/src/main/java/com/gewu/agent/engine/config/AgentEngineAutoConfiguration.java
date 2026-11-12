@@ -357,6 +357,9 @@ public class AgentEngineAutoConfiguration {
                         .maxPromptChars(s.getMaxPromptChars())
                         .maxOutputChars(s.getMaxOutputChars())
                         .build())
+                // AE-P1-1：System2 任务灰度分派开关（默认 REACT）
+                .system2RuntimePlanExecute(
+                        "PLAN_EXECUTE".equalsIgnoreCase(props.getCognition().getSystem2Runtime()))
                 .build();
     }
 
@@ -377,12 +380,22 @@ public class AgentEngineAutoConfiguration {
                                        com.gewu.agent.engine.spi.ContextCompactor contextCompactor,
                                        com.gewu.agent.engine.spi.ModelContextProvider modelContextProvider,
                                        com.gewu.agent.engine.hitl.UserInteractionGateway userInteractionGateway,
-                                       com.gewu.agent.engine.hitl.TurnSteeringQueue turnSteeringQueue) {
-        return new ReactAgentExecutor(llmClientRegistry, toolExecutor, messageBuilder,
+                                       com.gewu.agent.engine.hitl.TurnSteeringQueue turnSteeringQueue,
+                                       org.springframework.beans.factory.ObjectProvider<com.gewu.agent.engine.orchestration.GoalPlanner> goalPlannerProvider) {
+        ReactAgentExecutor executor = new ReactAgentExecutor(llmClientRegistry, toolExecutor, messageBuilder,
                 sessionContextService, persistenceService, config, objectMapper, memoryRouter, memoryStore,
                 budgetController, perceptionEngine, complexityRouter, traceService, metricService, responseCache,
                 promptInjectionDetector, outputSanitizer, modelSelector, fileWorkspaceSpi,
                 contextCompactor, modelContextProvider, userInteractionGateway, turnSteeringQueue);
+        // AE-P1-1：System2 任务灰度分派（agent.engine.cognition.system2-runtime=PLAN_EXECUTE 开启，
+        // 默认 REACT 保持既有单循环；复评达标后按 43 号预承诺规则灰度；步内 ReAct 复用同一执行器）
+        if (config.isSystem2RuntimePlanExecute()) {
+            executor.setSystem2Runtime(
+                    new com.gewu.agent.engine.orchestration.runtime.PlanExecuteRuntime(
+                            executor, goalPlannerProvider.getIfAvailable()),
+                    true);
+        }
+        return executor;
     }
 
     /** 会话执行中转向队列（用户插话）：引擎内按 sessionId 分桶，接口层 offer、轮次边界 drain */

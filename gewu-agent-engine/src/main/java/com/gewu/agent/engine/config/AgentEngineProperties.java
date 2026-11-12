@@ -38,6 +38,9 @@ public class AgentEngineProperties {
     /** 目标规划器配置（GoalPlanner SPI 的 LLM 实现） */
     private Planner planner = new Planner();
 
+    /** 认知接线配置（AE-P1-1） */
+    private Cognition cognition = new Cognition();
+
     @Data
     public static class Engine {
         /** 单次执行最大工具调用轮次（防失控） */
@@ -176,6 +179,12 @@ public class AgentEngineProperties {
         private String model;
         /** 单次分解的最大步骤数 */
         private int maxSteps = 8;
+    }
+
+    @Data
+    public static class Cognition {
+        /** System2 任务运行时（AE-P1-1/D-6 灰度）：REACT（默认单循环）| PLAN_EXECUTE（复评达标后灰度开启） */
+        private String system2Runtime = "REACT";
     }
 
     @Data

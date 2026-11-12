@@ -10,13 +10,19 @@ import java.util.concurrent.ExecutorService;
 /**
  * Agent 执行引擎配置。
  *
- * @since 1.0.0
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-08-20
  */
 @Data
 @Builder
 @NoArgsConstructor
 @AllArgsConstructor
 public class AgentEngineConfig {
+
+    /** AE-P1-1：System2 任务灰度分派 PLAN_EXECUTE 运行时（默认 false=REACT 单循环，复评达标后开启） */
+    @Builder.Default
+    private boolean system2RuntimePlanExecute = false;
 
     /** 单次执行最大工具调用轮次 */
     private int maxToolRounds;
