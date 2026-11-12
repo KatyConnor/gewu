@@ -23,7 +23,9 @@ import java.util.Map;
  * 执行经 {@link ToolExecutor} 五段安全管线（Schema/注入/权限/截断/审计），
  * 工具配置为 null 时按代码工具（{@code ToolRegistry} 注册）解析。
  *
- * @since 1.0.0
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-08-25
  */
 @Slf4j
 @RequiredArgsConstructor
@@ -45,7 +47,9 @@ public class GraphNodeExecutor {
         String toolName = String.valueOf(config.get("toolName"));
         String argumentsTemplate = config.get("arguments") != null
                 ? String.valueOf(config.get("arguments")) : "{}";
-        String arguments = renderTemplate(argumentsTemplate, ctx);
+        // AE-P1-6（49 号 F-10）：TOOL 参数改结构化 JSON 渲染——字符串值内的 ${var} 经序列化器转义，
+        // 上游变量含引号/换行不再碎裂参数；非 JSON 模板回退纯文本渲染（旧行为）
+        String arguments = VariableTemplates.renderJsonArguments(argumentsTemplate, ctx);
 
         ToolContext toolContext = ToolContext.builder()
                 .userId(ctx.getUserId())
