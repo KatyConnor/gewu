@@ -1,0 +1,15 @@
+# VR 验证单 — AE-衍生-1 MERGE 终结图 NPE 静默悬挂清偿
+trace_ref: "AETC s-20261113-073347（阶段2批次B实施批次）"
+issue: "AE-衍生-1（AE-P0-1 实施期间发现）"
+root_cause_ref: "FIX-20261112-merge-terminal-RC"
+fp_ref: "FIX-20261112-merge-terminal-FP"
+status: verified          # 修复方自验证；独立准出待角色06/UTSS
+
+gate1_static_consistency: "diff 对 FP 比对：PipelineModeHandler.continueTo null 判空前置 + 新增 PipelineMergeTerminalTest——全部在 FP 清单内，无计划外文件"
+gate2_dynamic_red_to_green:
+  red_baseline: "修复前 PipelineMergeTerminalTest 两用例均悬挂超时（10.04s/21.85s block 超时——onErrorDropped 静默吞 NPE，流不终结），与 RC 的 H1/H2 假设完全吻合"
+  green_evidence: "修复后 2/2 通过：根图 MERGE 终结→单一 SUCCESS；PLAN 单波次（子图 MERGE 终结）→整图 SUCCESS 且 s1/s2 完成——AE-P0-1 红基线期间的原始悬挂场景不再悬挂"
+gate3_regression_set: "引擎模块全量 302/302（含 AE-P0-1 非终结 MERGE 路径 3 用例不受影响）+ JaCoCo 棘轮待随批次验证"
+
+residual_issues: []
+lessons: "①'判空在 nodeById 之前'与'判空在之后但引用空串'——防御顺序差异即悬挂与收尾之别；②Reactor 完成回调内的异常被 onErrorDropped 静默丢弃是编排遍历的系统性风险面，本次仅修直接缺陷，全面兜底（遍历回调统一捕获上报）登记为后续硬化项"

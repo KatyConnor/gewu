@@ -1,0 +1,21 @@
+# FP 方案单 — AE-衍生-1 MERGE 终结图 NPE 静默悬挂清偿
+trace_ref: "AETC s-20261113-073347（阶段2批次B，用户指示继续即开工批准）"
+issue: "AE-衍生-1（AE-P0-1 实施期间发现，RC 已 triaged）"
+risk_level: S2
+root_cause_ref: "FIX-20261112-merge-terminal-RC"
+test_defect_approval: false
+changes:
+  - file: "gewu-agent-engine/src/main/java/com/gewu/agent/engine/orchestration/mode/PipelineModeHandler.java"
+    symbol: "continueTo"
+    intent: "null nodeId 判空前置：MERGE 等无出边终节点语义 → pathEnded 正常收尾（修复前 nodeById(null) NPE 且被 LambdaSubscriber onErrorDropped 静默吞掉→编排流悬挂）"
+  - file: "gewu-agent-engine/src/test/java/com/gewu/agent/engine/orchestration/mode/PipelineMergeTerminalTest.java（新增）"
+    symbol: "mergeTerminalGraphCompletes / planSingleWaveCompletes（红基线：修复前悬挂超时）"
+    intent: "①根图 MERGE 终结：单一 SUCCESS 收尾 ②PLAN 单波次计划（子图 MERGE 终结，AE-P0-1 红基线期间的原始悬挂场景）正常完成"
+budget: {files: 2, lines: 60, funcs: 1, deps: 0}
+verification:
+  red_baseline: "PipelineMergeTerminalTest 两用例修复前运行：collectList().block(10s) 超时（onErrorDropped 静默吞 NPE，流不终结）——悬挂即红"
+  regression_set: "orchestration/mode 全部测试（含 AE-P0-1 的 PipelineSubWalkTerminalTest 2 用例，非终结 MERGE 路径不受影响）+ 引擎全量"
+  rescan: "不适用"
+rollback: "git revert 单 commit；或 checkpoint cp-ae-phase1 restore（紧急）"
+approvals:
+  - "GATE 2026-11-12（AE-PLAN 阶段1/2 批准延续）+ 衍生单清偿属阶段1 VR 遗留项清偿义务"

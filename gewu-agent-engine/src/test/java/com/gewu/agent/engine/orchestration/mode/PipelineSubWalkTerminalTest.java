@@ -190,4 +190,39 @@ class PipelineSubWalkTerminalTest {
         assertThat(cp.get().graph().getGraphId()).isEqualTo("root-g");
         assertThat(cp.get().resumeFromNodeId()).isEqualTo("plan-1");
     }
+
+    @Test
+    @DisplayName("AE-P1-7 补齐：子图内取消——根 Walk 统一 CANCELLED 收尾并注销（cancelHere 委托守卫回归）")
+    void cancelInsideSubWalkCancelsRootAndUnregisters() {
+        OrchestrationContext ctx = context();
+        when(goalPlanner.plan(any(), any())).thenReturn(PlanGraph.builder()
+                .planId("p1").goal("两步并行").createdBy("t")
+                .steps(List.of(
+                        PlanGraph.PlanStep.builder().stepId("s1").description("第一步").dependencies(List.of()).build(),
+                        PlanGraph.PlanStep.builder().stepId("s2").description("第二步").dependencies(List.of()).build()))
+                .build());
+        AtomicBoolean cancelArmed = new AtomicBoolean(false);
+        when(executor.executeStream(any())).thenAnswer(inv -> {
+            if (cancelArmed.compareAndSet(false, true)) {
+                // 首个子图节点（s1）执行期间请求取消：下一个 visit（s2）处生效
+                control.requestCancel(EXEC_ID);
+            }
+            return Flux.just(AgentEvent.builder().type("content").content("产出").build());
+        });
+
+        List<AgentEvent> events = run(handler(), rootGraph(), ctx);
+
+        // 单一 CANCELLED 终态（委托守卫防重复收尾）+ 取消事件透出
+        assertThat(events)
+                .filteredOn(e -> AgentEvent.EXECUTION_CANCELLED.equals(e.getType()))
+                .hasSize(1);
+        assertThat(events)
+                .filteredOn(e -> AgentEvent.GRAPH_COMPLETE.equals(e.getType()))
+                .hasSize(1)
+                .first()
+                .extracting(e -> e.getMetadata().get("status"))
+                .isEqualTo("CANCELLED");
+        // 注销：取消后注册表清除（检查点不存在）
+        assertThat(control.hasCheckpoint(EXEC_ID)).isFalse();
+    }
 }

@@ -2,7 +2,7 @@
 issue: "AE-衍生-1（AE-P0-1 实施期间发现，RPT-002 未覆盖）"
 severity: Sev2            # 严重：生产可达（设计器可建 MERGE 终结图），静默悬挂+孤儿执行
 priority: P2              # 中：SUBGRAPH/PLAN 深度使用前应修，当前主链路不受影响
-status: triaged
+status: verified          # 2026-11-13 清偿：continueTo null 判空前置（FP/VR 见同名文件），红→绿实证
 trace_ref: "AETC s-20261112-233317（实施批次，发现于 PipelineSubWalkTerminalTest 红基线运行）"
 defect_type: 功能         # ODC：空引用（终节点出边缺失场景未守卫）+ 异常静默丢弃
 hypotheses:

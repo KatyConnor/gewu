@@ -869,6 +869,13 @@ public class PipelineModeHandler implements ModeHandler {
     }
 
     private void continueTo(Walk walk, String nodeId, String output) {
+        if (nodeId == null) {
+            // AE-衍生-1：MERGE 等无出边节点=图终节点语义 → 路径结束正常收尾。
+            // 修复前 nodeById(null) NPE 且在 LambdaSubscriber 完成回调中被 onErrorDropped
+            // 静默吞掉——编排流既不 complete 也不 error，执行悬挂、账本停留 RUNNING
+            pathEnded(walk, output);
+            return;
+        }
         GraphNode next = nodeById(walk, nodeId);
         if (next == null) {
             log.warn("出边指向不存在的节点: {}", nodeId);
