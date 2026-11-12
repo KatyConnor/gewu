@@ -56,6 +56,17 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import com.gewu.application.session.SessionFileWorkspaceService;
 
+/**
+ * 接口层 AI 对话 Controller（/api/v1/ai）。
+ *
+ * <p>提供同步聊天、SSE 流式聊天、消息重发（regenerate）与可用模型列表查询；
+ * 对话执行走 AgentExecutionEngine 与 Wenshi 推理引擎（含 Legacy 通道兜底），
+ * 会话与消息结果经 SessionMapper/SessionMessageMapper 持久化。
+ *
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-07-09
+ */
 @Slf4j
 @RestController
 @RequestMapping("/api/v1/ai")
@@ -73,6 +84,10 @@ public class AiChatController {
 
     @Autowired(required = false)
     private WenshiReasoningEngine wenshiReasoningEngine;
+
+    /** AE-P2-7：路由回退计数（Prometheus 暴露）；未装配 actuator 时降级为仅日志 */
+    @Autowired(required = false)
+    private io.micrometer.core.instrument.MeterRegistry meterRegistry;
 
     public AiChatController(AgentExecutionEngine agentExecutionEngine,
                             SessionContextService sessionContextService,
@@ -112,11 +127,24 @@ public class AiChatController {
                 ? request.getEngineOverride() : chatRouting;
         log.info("同步对话: agentId={}, sessionId={}, routing={}", request.getAgentId(), request.getSessionId(), engine);
 
+        if ("wenshi".equals(engine) && wenshiReasoningEngine == null) {
+            // AE-P2-7：路由请求 wenshi 但引擎未装配——回退不再静默（评测数据失真防线）
+            recordRoutingFallback(engine, "wenshiReasoningEngine 未装配");
+        }
+
         if ("wenshi".equals(engine) && wenshiReasoningEngine != null) {
             return Result.success(chatViaWenshi(request));
         }
 
         return Result.success(chatViaLegacy(request));
+    }
+
+    /** AE-P2-7：路由回退可观测——WARN 日志 + Micrometer 计数（engine.routing.fallback.total，tag=requested） */
+    private void recordRoutingFallback(String requestedEngine, String reason) {
+        log.warn("引擎路由回退 legacy: requested={}, reason={}", requestedEngine, reason);
+        if (meterRegistry != null) {
+            meterRegistry.counter("engine.routing.fallback.total", "requested", requestedEngine).increment();
+        }
     }
 
     /**
@@ -148,6 +176,10 @@ public class AiChatController {
                 ? request.getEngineOverride() : streamRouting;
 
         Flux<ChatStreamEvent> baseFlux;
+        if ("wenshi".equals(engine) && wenshiReasoningEngine == null) {
+            // AE-P2-7：路由请求 wenshi 但引擎未装配——回退不再静默（评测数据失真防线）
+            recordRoutingFallback(engine, "wenshiReasoningEngine 未装配");
+        }
         if ("wenshi".equals(engine) && wenshiReasoningEngine != null) {
             baseFlux = chatStreamViaWenshi(request);
             // Wenshi 路径执行账本（S7 补盲区：此前不经 AgentExecutionEngine 无记录）
