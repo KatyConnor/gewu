@@ -42,7 +42,9 @@ import java.util.concurrent.atomic.AtomicReference;
  * 支持协作式暂停/取消（{@link ExecutionControl} 信号在节点间检查）与断点续跑
  * （上下文变量 {@code __resumeFromNode} 指定恢复起始节点）。
  *
- * @since 1.0.0
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-08-20
  */
 @Slf4j
 public class PipelineModeHandler implements ModeHandler {
@@ -136,6 +138,13 @@ public class PipelineModeHandler implements ModeHandler {
         final AtomicReference<String> finalOutput = new AtomicReference<>("");
         /** PLAN 子图遍历：全部路径结束后回调宿主（父 Walk 继续 PLAN 节点后继）；null=正常收尾 */
         Runnable completionCallback;
+        /** 父 Walk 引用（根 Walk 为 null）：子 Walk 异常终态委托父链，禁触共享 sink/executionId（AE-P0-1/L1） */
+        Walk parentWalk;
+        /** 本 Walk 在父图中对应的 PLAN/SUBGRAPH 节点（parentWalk 非 null 时必有值） */
+        GraphNode parentNode;
+        /** 活动子 Walk 登记：向上委托时向下标记整树终止，防子树在已终结的流上继续执行 */
+        final java.util.concurrent.CopyOnWriteArrayList<Walk> children =
+                new java.util.concurrent.CopyOnWriteArrayList<>();
         /** PLAN 节点嵌套深度（子图继承父深度+1，达到上限拒绝再嵌） */
         int planDepth;
         /** SUBGRAPH 嵌套深度（WFO-04，子图继承父深度+1，达到上限拒绝再嵌） */
@@ -302,6 +311,9 @@ public class PipelineModeHandler implements ModeHandler {
         subCtx.setVariables(subVars);
         subCtx.putVariable("input", goalText);
         Walk subWalk = new Walk(subGraph, subCtx, walk.sink);
+        subWalk.parentWalk = walk;
+        subWalk.parentNode = node;
+        walk.children.add(subWalk);
         subWalk.subgraphDepth = walk.subgraphDepth + 1;
         subWalk.completionCallback = () -> {
             // 子图收尾：最终产出写回 SUBGRAPH 节点变量并沿父图出边继续
@@ -619,6 +631,9 @@ public class PipelineModeHandler implements ModeHandler {
                 .variables(walk.ctx.getVariables())
                 .build();
         Walk subWalk = new Walk(subGraph, walk.ctx, walk.sink);
+        subWalk.parentWalk = walk;
+        subWalk.parentNode = node;
+        walk.children.add(subWalk);
         subWalk.planDepth = walk.planDepth + 1;
         subWalk.completionCallback = () -> {
             // 子图收尾：最终产出写回 PLAN 节点变量并沿父图出边继续
@@ -981,6 +996,10 @@ public class PipelineModeHandler implements ModeHandler {
 
     /** 暂停生效：保存检查点并以 PAUSED 状态优雅收尾（保留注册表条目供 resume） */
     private void pauseHere(Walk walk, GraphNode nextNode) {
+        if (walk.parentWalk != null) {
+            pauseSubWalk(walk);
+            return;
+        }
         walk.terminal = true;
         walk.paused = true;
         walk.activePaths.decrementAndGet();
@@ -1000,8 +1019,46 @@ public class PipelineModeHandler implements ModeHandler {
                         "variables", walk.ctx.snapshotVariables()));
     }
 
+    /**
+     * 子 Walk 内暂停（AE-P0-1/L1，49 号 F-03/F-08）：子 Walk 无断点语义——与 SUBGRAPH 文档约定一致
+     * （断点续跑从 PLAN/SUBGRAPH 节点恢复时子图整体重跑），检查点保存父链状态：
+     * 图=根图、上下文=根上下文、恢复节点=最顶层子 Walk 对应的 PLAN/SUBGRAPH 节点；
+     * 整树标记终止，sink 由根 Walk 统一以 PAUSED 收尾，不 unregister（保留恢复条目）。
+     * 旧实现把子图检查点写入共享 executionId，resume 将在父图上按子图节点寻址（必然落空）。
+     */
+    private void pauseSubWalk(Walk walk) {
+        Walk topChild = walk;
+        while (topChild.parentWalk != null && topChild.parentWalk.parentWalk != null) {
+            topChild = topChild.parentWalk;
+        }
+        Walk root = topChild.parentWalk;
+        String resumeNodeId = topChild.parentNode.getNodeId();
+        markTreeTerminal(root);
+        root.paused = true;
+        if (executionControl != null) {
+            executionControl.saveCheckpoint(root.ctx.getExecutionId(),
+                    new ExecutionControl.Checkpoint(root.graph, root.ctx, resumeNodeId));
+            // 信号已消费：检查点即为暂停态的唯一事实源，避免恢复后残留 PAUSE 信号
+            executionControl.clearSignal(root.ctx.getExecutionId());
+        }
+        log.info("子 Walk 暂停上抛根图: executionId={}, resumeFromNode={}",
+                root.ctx.getExecutionId(), resumeNodeId);
+        root.sink.next(AgentEvent.builder()
+                .type(AgentEvent.EXECUTION_PAUSED)
+                .nodeId(resumeNodeId)
+                .metadata(Map.of("resumeFromNode", resumeNodeId))
+                .build());
+        completeGraph(root.sink, root.ctx, "PAUSED",
+                Map.of("resumeFromNode", resumeNodeId,
+                        "variables", root.ctx.snapshotVariables()));
+    }
+
     /** 取消生效：优雅收尾并注销 */
     private void cancelHere(Walk walk) {
+        if (walk.parentWalk != null) {
+            cancelSubWalk(walk);
+            return;
+        }
         walk.terminal = true;
         walk.activePaths.decrementAndGet();
         walk.sink.next(AgentEvent.builder()
@@ -1016,14 +1073,58 @@ public class PipelineModeHandler implements ModeHandler {
         }
     }
 
+    /** 子 Walk 内取消（AE-P0-1/L1）：整树终止，由根 Walk 统一 CANCELLED 收尾并注销（旧实现终结共享流并清掉父链注册） */
+    private void cancelSubWalk(Walk walk) {
+        Walk root = walk;
+        while (root.parentWalk != null) {
+            root = root.parentWalk;
+        }
+        markTreeTerminal(root);
+        root.sink.next(AgentEvent.builder()
+                .type(AgentEvent.EXECUTION_CANCELLED)
+                .metadata(Map.of("stateVersion", root.ctx.getStateVersion()))
+                .build());
+        completeGraph(root.sink, root.ctx, "CANCELLED",
+                Map.of("stateVersion", root.ctx.getStateVersion(),
+                        "stateKeys", root.ctx.snapshotVariables().keySet().size()));
+        if (executionControl != null) {
+            executionControl.unregister(root.ctx.getExecutionId());
+        }
+    }
+
     private void failGraph(Walk walk, String reason) {
         if (walk.terminal) {
+            return;
+        }
+        if (walk.parentWalk != null) {
+            failSubWalk(walk, reason);
             return;
         }
         walk.terminal = true;
         completeGraph(walk.sink, walk.ctx, "FAILED", Map.of("reason", reason));
         if (executionControl != null) {
             executionControl.unregister(walk.ctx.getExecutionId());
+        }
+    }
+
+    /**
+     * 子 Walk 失败上抛（AE-P0-1/L1，49 号 F-03）：子图整体失败转为父图 PLAN/SUBGRAPH 节点失败，
+     * 由父图失败语义（fail-fast / continueOnFailure）接管；嵌套子图经 handleNodeFailure→failGraph 逐层上抛。
+     * 禁止子 Walk 触碰共享终态资源——旧实现 sink.complete() 会杀死父图事件流、
+     * unregister 会清掉父链注册与检查点，导致父图状态机失真。
+     */
+    private void failSubWalk(Walk walk, String reason) {
+        walk.terminal = true;
+        markTreeTerminal(walk);
+        log.warn("子图失败上抛父图: childNodeId={}, reason={}", walk.parentNode.getNodeId(), reason);
+        handleNodeFailure(walk.parentWalk, walk.parentNode, "子图失败: " + reason);
+    }
+
+    /** 向下递归标记整棵遍历树终止（协作式：在途回调经 walk.terminal 短路） */
+    private void markTreeTerminal(Walk walk) {
+        walk.terminal = true;
+        for (Walk child : walk.children) {
+            markTreeTerminal(child);
         }
     }
 
