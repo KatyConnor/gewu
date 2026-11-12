@@ -5,6 +5,7 @@ import com.gewu.application.orchestration.OrchestrationCatalogService;
 import com.gewu.application.orchestration.OrchestrationService;
 import com.gewu.common.context.UserContext;
 import com.gewu.common.result.Result;
+import com.gewu.common.result.ResultCode;
 import com.gewu.domain.orchestration.OrchestrationExecutionEntity;
 import com.gewu.domain.orchestration.OrchestrationGraphEntity;
 import io.swagger.v3.oas.annotations.Operation;
@@ -22,6 +23,10 @@ import java.util.List;
 
 /**
  * 编排引擎 API - 管理编排图定义、执行实例、自主目标。
+ *
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-08-14
  */
 @Slf4j
 @RestController
@@ -36,6 +41,14 @@ public class OrchestrationController {
     /** Webhook 总开关（WFC-03）：默认关闭，开启前须完成安全评审（48 号 R5） */
     @org.springframework.beans.factory.annotation.Value("${agent.engine.webhook.enabled:false}")
     private boolean webhookEnabled;
+
+    /** Webhook 频控（AE-P0-2）：per-token 每分钟触发上限，≤0 关闭频控 */
+    @org.springframework.beans.factory.annotation.Value("${gewu.orchestration.webhook.rate-limit-per-minute:10}")
+    private int webhookRateLimitPerMinute;
+
+    /** Webhook 频控窗口（AE-P0-2）：SM3(token) → [windowStartMillis, count]；>1000 键惰性清理防无界增长 */
+    private final java.util.concurrent.ConcurrentMap<String, long[]> webhookRateWindows =
+            new java.util.concurrent.ConcurrentHashMap<>();
 
     // ==================== 编排图 CRUD ====================
 
@@ -240,10 +253,11 @@ public class OrchestrationController {
     /**
      * Webhook 匿名触发端点（WFC-03）：token 即凭证。
      * <p>总开关 agent.engine.webhook.enabled（默认关）；token 未命中/已停用/图不可执行
-     * 统一 404（不暴露存在性）；命中同步执行（triggerType=WEBHOOK）。
+     * 统一 404（不暴露存在性）；命中异步执行（AE-P0-2：PENDING 即返 202，后台 worker 执行，
+     * 进度经执行历史 API 查询）；per-token 频控（AE-P0-2：默认 10 次/分钟，超限 429）。
      */
     @PostMapping(value = "/webhooks/{token}", produces = MediaType.APPLICATION_JSON_VALUE)
-    @Operation(summary = "Webhook 触发编排图（匿名）", description = "body 原样作为执行输入；错误 token 返回 404")
+    @Operation(summary = "Webhook 触发编排图（匿名）", description = "body 原样作为执行输入；错误 token 404；超频 429；受理即返 202 异步执行")
     public org.springframework.http.ResponseEntity<Result<java.util.Map<String, String>>> triggerByWebhook(
             @PathVariable String token,
             @RequestBody(required = false) String body) {
@@ -252,10 +266,19 @@ public class OrchestrationController {
         }
         // body 上限 64KB（评审 F-04）：匿名端点无鉴权，超大 body 直接拒绝（404 语义不暴露校验规则）
         if (body != null && body.length() > 64 * 1024) {
-            log.warn("Webhook 请求体超限拒绝: tokenPrefix={}, length={}", token, body.length());
+            log.warn("Webhook 请求体超限拒绝: tokenPrefix={}, length={}",
+                    token.substring(0, Math.min(6, token.length())), body.length());
             return org.springframework.http.ResponseEntity.notFound().build();
         }
-        OrchestrationExecutionEntity execution = orchestrationService.triggerByWebhook(token, body);
+        // per-token 频控（AE-P0-2）：匿名端点防反复触发整图 LLM 消耗
+        if (webhookRateLimited(token)) {
+            log.warn("Webhook 触发频率超限拒绝: tokenPrefix={}",
+                    token.substring(0, Math.min(6, token.length())));
+            return org.springframework.http.ResponseEntity.status(
+                            org.springframework.http.HttpStatus.TOO_MANY_REQUESTS)
+                    .body(Result.fail(ResultCode.RATE_LIMITED));
+        }
+        OrchestrationExecutionEntity execution = orchestrationService.triggerByWebhookAsync(token, body);
         if (execution == null) {
             return org.springframework.http.ResponseEntity.notFound().build();
         }
@@ -264,6 +287,26 @@ public class OrchestrationController {
         accepted.put("executionId", execution.getId());
         accepted.put("status", execution.getStatus());
         return org.springframework.http.ResponseEntity.accepted().body(Result.success(accepted));
+    }
+
+    /** per-token 固定窗口频控（AE-P0-2）：返回 true=超限拒绝；键为 SM3 哈希避免明文 token 进内存 */
+    private boolean webhookRateLimited(String token) {
+        if (webhookRateLimitPerMinute <= 0) {
+            return false;
+        }
+        String key = com.gewu.common.crypto.SM3Util.hashHex(token);
+        long now = System.currentTimeMillis();
+        long[] window = webhookRateWindows.compute(key, (k, w) -> {
+            if (w == null || now - w[0] >= 60_000L) {
+                return new long[]{now, 1};
+            }
+            w[1] += 1;
+            return w;
+        });
+        if (webhookRateWindows.size() > 1_000) {
+            webhookRateWindows.entrySet().removeIf(e -> now - e.getValue()[0] >= 60_000L);
+        }
+        return window[1] > webhookRateLimitPerMinute;
     }
 
     // ==================== 自主目标 ====================

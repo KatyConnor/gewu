@@ -44,7 +44,9 @@ import java.util.Map;
  * <p>桥接 {@link OrchestrationEngine}（内存执行）与数据库持久化，
  * 提供编排图的 CRUD、同步/流式执行、暂停/恢复/取消、审批管理能力。
  *
- * @since 1.0.0
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-08-14
  */
 @Slf4j
 @Service
@@ -352,6 +354,13 @@ public class OrchestrationService {
     public OrchestrationExecutionEntity executeGraphInternal(String graphId, String userId,
                                                               String sessionId, String input,
                                                               String triggerType) {
+        return runPreparedExecution(prepareExecution(graphId, userId, sessionId, input, triggerType));
+    }
+
+    /** 执行准备段（AE-P0-2 拆分，行为保持）：图加载/上下文构建/执行记录落库（RUNNING） */
+    private PreparedExecution prepareExecution(String graphId, String userId,
+                                                String sessionId, String input,
+                                                String triggerType) {
         OrchestrationGraphEntity graphEntity = graphMapper.selectById(graphId);
         if (graphEntity == null) {
             throw new IllegalArgumentException("编排图不存在: " + graphId);
@@ -374,14 +383,21 @@ public class OrchestrationService {
         execEntity.setStartedAt(Instant.now().toEpochMilli());
         executionMapper.updateById(execEntity);
         liveContexts.put(executionId, ctx);
+        return new PreparedExecution(execEntity, graph, ctx, graphId);
+    }
 
+    /** 执行运行段（AE-P0-2 拆分，行为保持）：OTel 根 Span + 四环执行 + 结果/失败回写 */
+    private OrchestrationExecutionEntity runPreparedExecution(PreparedExecution prepared) {
+        OrchestrationExecutionEntity execEntity = prepared.entity();
+        String executionId = execEntity.getId();
         try {
             // OTel 追踪：编排执行全生命周期根 Span（其下挂四环/LLM/工具子 Span）
-            io.micrometer.tracing.Span rootSpan = orchestrationTracer.startSpan(executionId, graphId, "orchestration_execute");
+            io.micrometer.tracing.Span rootSpan = orchestrationTracer.startSpan(
+                    executionId, prepared.graphId(), "orchestration_execute");
             OrchestrationResult result;
             try {
                 // 四环协同：运算环同步执行，评估/治理/审计环由管线异步触发
-                result = fourPhasePipeline.executeGraph(graph, ctx);
+                result = fourPhasePipeline.executeGraph(prepared.graph(), prepared.ctx());
                 orchestrationTracer.endSpan(rootSpan);
             } catch (RuntimeException e) {
                 orchestrationTracer.endSpanWithError(rootSpan, e);
@@ -402,6 +418,13 @@ public class OrchestrationService {
         }
 
         return execEntity;
+    }
+
+    /** 准备/运行两段间的执行载体（AE-P0-2 拆分） */
+    private record PreparedExecution(OrchestrationExecutionEntity entity,
+                                     OrchestrationGraph graph,
+                                     OrchestrationContext ctx,
+                                     String graphId) {
     }
 
     /**
@@ -795,6 +818,17 @@ public class OrchestrationService {
      * @return 执行记录；token 未命中/已停用/图不可执行返回 null（端点统一 404，不暴露存在性）
      */
     public OrchestrationExecutionEntity triggerByWebhook(String token, String input) {
+        com.gewu.domain.orchestration.OrchestrationWebhookEntity webhook = resolveExecutableWebhook(token);
+        if (webhook == null) {
+            return null;
+        }
+        log.info("Webhook 触发编排图: graphId={}, webhookId={}", webhook.getGraphId(), webhook.getId());
+        return executeGraphInternal(webhook.getGraphId(), "webhook", null,
+                input != null ? input : "", "WEBHOOK");
+    }
+
+    /** Webhook 触发校验（AE-P0-2 提取，同步/异步两路径共用）：未命中/停用/图不可执行返回 null（端点统一 404） */
+    private com.gewu.domain.orchestration.OrchestrationWebhookEntity resolveExecutableWebhook(String token) {
         if (token == null || token.isBlank()) {
             return null;
         }
@@ -810,9 +844,49 @@ public class OrchestrationService {
         if (graph == null || !"active".equals(graph.getStatus())) {
             return null;
         }
-        log.info("Webhook 触发编排图: graphId={}, webhookId={}", webhook.getGraphId(), webhook.getId());
-        return executeGraphInternal(webhook.getGraphId(), "webhook", null,
+        return webhook;
+    }
+
+    /** Webhook 异步执行专用池（AE-P0-2）：有界 + CallerRuns（池满降级为提交线程同步执行，背压安全） */
+    private static final java.util.concurrent.ExecutorService WEBHOOK_WORK_EXECUTOR =
+            new java.util.concurrent.ThreadPoolExecutor(1, 4, 60L, java.util.concurrent.TimeUnit.SECONDS,
+                    new java.util.concurrent.LinkedBlockingQueue<>(64),
+                    r -> {
+                        Thread t = new Thread(r, "orch-webhook-worker");
+                        t.setDaemon(true);
+                        return t;
+                    },
+                    new java.util.concurrent.ThreadPoolExecutor.CallerRunsPolicy());
+
+    /**
+     * Webhook 异步触发（AE-P0-2，49 号 F-04 余项）：同步段完成 token/图校验并落执行记录，
+     * 状态置 PENDING 即返回（匿名端点不再同步阻塞 HTTP 线程至整图执行完毕），
+     * 后台 worker 置 RUNNING 后执行并回写终态；执行进度经执行历史 API 查询。
+     *
+     * @return 执行记录（PENDING）；token 未命中/已停用/图不可执行返回 null（端点统一 404）
+     */
+    public OrchestrationExecutionEntity triggerByWebhookAsync(String token, String input) {
+        com.gewu.domain.orchestration.OrchestrationWebhookEntity webhook = resolveExecutableWebhook(token);
+        if (webhook == null) {
+            return null;
+        }
+        log.info("Webhook 异步触发编排图: graphId={}, webhookId={}", webhook.getGraphId(), webhook.getId());
+        PreparedExecution prepared = prepareExecution(webhook.getGraphId(), "webhook", null,
                 input != null ? input : "", "WEBHOOK");
+        // PENDING 先落库即返回（受理与执行解耦；worker 饱和时 CallerRuns 退化为同步，不影响受理语义）
+        prepared.entity().setStatus("PENDING");
+        executionMapper.updateById(prepared.entity());
+        WEBHOOK_WORK_EXECUTOR.execute(() -> {
+            try {
+                prepared.entity().setStatus("RUNNING");
+                executionMapper.updateById(prepared.entity());
+                runPreparedExecution(prepared);
+            } catch (Exception e) {
+                log.warn("Webhook 异步执行异常收尾: executionId={}, cause={}",
+                        prepared.entity().getId(), e.getMessage());
+            }
+        });
+        return prepared.entity();
     }
 
     /** 生成 Webhook token：SecureRandom 24 字节 Base64URL（无填充，约 32 字符） */

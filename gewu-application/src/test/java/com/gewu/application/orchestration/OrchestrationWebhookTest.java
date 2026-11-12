@@ -28,6 +28,10 @@ import static org.mockito.Mockito.when;
 /**
  * Webhook 触发测试（WFC-03）：
  * token 生成/哈希落库、错误与停用 token 的 404 语义（null）、命中后 triggerType=WEBHOOK 执行。
+ *
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-09-26
  */
 @ExtendWith(MockitoExtension.class)
 class OrchestrationWebhookTest {
@@ -152,5 +156,40 @@ class OrchestrationWebhookTest {
 
         assertEquals(SM3Util.hashHex(credential.token()), existing.getTokenHash());
         verify(webhookMapper).updateById(existing);
+    }
+
+    @Test
+    @DisplayName("AE-P0-2：triggerByWebhookAsync 受理即返 PENDING，后台 worker 完成执行并回写终态")
+    void asyncTriggerReturnsPendingAndCompletesInBackground() throws Exception {
+        OrchestrationWebhookEntity webhook = new OrchestrationWebhookEntity();
+        webhook.setId("w-1");
+        webhook.setGraphId("g-1");
+        webhook.setTokenHash(SM3Util.hashHex("secret"));
+        webhook.setEnabled(1);
+        when(webhookMapper.selectList(any())).thenReturn(List.of(webhook));
+        when(graphMapper.selectById("g-1")).thenReturn(activeGraph());
+        when(fourPhasePipeline.executeGraph(any(), any()))
+                .thenReturn(OrchestrationResult.success("e-1", "ok"));
+
+        var execution = service.triggerByWebhookAsync("secret", "{\"payload\":1}");
+
+        // 受理即返：PENDING（非 RUNNING/终态），HTTP 线程不等整图执行（49 号 F-04 余项修复判据）
+        assertNotNull(execution);
+        assertEquals("PENDING", execution.getStatus());
+        assertEquals("WEBHOOK", execution.getTriggerType());
+        assertEquals("webhook", execution.getUserId());
+        // 后台 worker 完成：有界轮询至终态（2s），四环执行结果回写 SUCCEEDED
+        long deadline = System.currentTimeMillis() + 2000;
+        while (!"SUCCEEDED".equals(execution.getStatus()) && System.currentTimeMillis() < deadline) {
+            Thread.sleep(20);
+        }
+        assertEquals("SUCCEEDED", execution.getStatus());
+    }
+
+    @Test
+    @DisplayName("AE-P0-2：异步触发错误 token 同样返回 null（404 语义与同步路径一致）")
+    void asyncTriggerUnknownTokenReturnsNull() {
+        when(webhookMapper.selectList(any())).thenReturn(List.of());
+        assertNull(service.triggerByWebhookAsync("wrong-token", "{}"));
     }
 }
