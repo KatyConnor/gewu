@@ -1,0 +1,36 @@
+# FP 方案单 — AE-P0-1 子 Walk 异常收尾父链委托
+trace_ref: "AETC s-20261112-233317（GATE approved 2026-11-12）"
+issue: "AE-P0-1（RPT-002 F-02 / 49号 F-03+F-08 转单）"
+risk_level: S2
+root_cause_ref: "FIX-20261112-subwalk-guard-RC"
+test_defect_approval: false
+changes:
+  - file: "gewu-agent-engine/src/main/java/com/gewu/agent/engine/orchestration/mode/PipelineModeHandler.java"
+    symbol: "Walk（+parentWalk/parentNode/children 字段）"
+    intent: "子 Walk 登记父链与树结构，支撑向上委托与向下终止标记"
+  - file: "gewu-agent-engine/src/main/java/com/gewu/agent/engine/orchestration/mode/PipelineModeHandler.java"
+    symbol: "executePlanNode / executeSubgraphNode"
+    intent: "创建 subWalk 时登记 parentWalk/parentNode 并加入父 children（happy-path 委托语义不变）"
+  - file: "gewu-agent-engine/src/main/java/com/gewu/agent/engine/orchestration/mode/PipelineModeHandler.java"
+    symbol: "failGraph"
+    intent: "子 Walk 失败上抛：标记子树终止后转 handleNodeFailure(父Walk, PLAN/SUBGRAPH节点)，继承父图 fail-fast/continueOnFailure 语义；sink.complete/unregister 仅根 Walk 可达"
+  - file: "gewu-agent-engine/src/main/java/com/gewu/agent/engine/orchestration/mode/PipelineModeHandler.java"
+    symbol: "pauseHere / pauseSubWalk（新增）"
+    intent: "子 Walk 内暂停→检查点保存父链状态（根图+根ctx+最顶层祖先 PLAN/SUBGRAPH 节点），整树终止，根 Walk 统一 PAUSED 收尾且不 unregister（保留恢复条目）——对齐 SUBGRAPH 既有文档语义'子图整体重跑'"
+  - file: "gewu-agent-engine/src/main/java/com/gewu/agent/engine/orchestration/mode/PipelineModeHandler.java"
+    symbol: "cancelHere / cancelSubWalk（新增）"
+    intent: "子 Walk 内取消→整树终止，根 Walk 统一 CANCELLED 收尾并 unregister"
+  - file: "gewu-agent-engine/src/main/java/com/gewu/agent/engine/orchestration/mode/PipelineModeHandler.java"
+    symbol: "isSubWalk / markTreeTerminal / rootOf（新增 helper）"
+    intent: "子 Walk 判定、协作式向下终止标记、根 Walk 定位"
+  - file: "gewu-agent-engine/src/test/java/com/gewu/agent/engine/orchestration/mode/PipelineSubWalkTerminalTest.java"
+    symbol: "subWalkFailFastDelegatesToParentFailureSemantics / pauseInsideSubWalkSavesParentChainCheckpoint"
+    intent: "红基线回归：①子图 fail-fast 上抛后父图 continueOnFailure 语义被尊重（父节点 ERROR+下游跳过事件+单一 FAILED 收尾）②子图内暂停→检查点 graph==根图 且 resumeFromNode==PLAN 节点"
+budget: {files: 2, lines: 150, funcs: 8, deps: 0}
+verification:
+  red_baseline: "PipelineSubWalkTerminalTest 两用例在修复前运行失败（用例②断言 checkpoint.graph().getGraphId()==根图ID，旧代码为子图 ID；用例①断言父节点 plan-1 的 ERROR 事件存在，旧代码无）"
+  regression_set: "orchestration/mode 全部既有测试 + LlmGoalPlannerAndWaveMappingTest + 引擎全量 mvn test（JaCoCo 棘轮 ≥0.70）"
+  rescan: "不适用（非安全扫描类）"
+rollback: "git revert 单 commit（变更集中单文件+新测试）；或 bash .standards/audit/tools/checkpoint.sh restore cp-ae-phase1（影响面=整个工作区，仅紧急回退用）"
+approvals:
+  - "GATE approved 2026-11-12：用户批准按 AE-PLAN-2026-11 执行（AETC s-20261112-233318 GATE_RESULT）"

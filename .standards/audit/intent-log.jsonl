@@ -10,3 +10,8 @@
 {"ts": "2026-10-24T21:36:51", "record_type": "text", "text": "登录接口报错修一下", "verdict": "UNIQUE", "top": ["AEGIS"], "cands": ["AEGIS", "SDLC"]}
 {"ts": "2026-10-24T21:36:51", "record_type": "text", "text": "登录接口报错修一下", "verdict": "UNIQUE", "top": ["AEGIS"], "cands": ["AEGIS", "SDLC"]}
 {"ts": "2026-10-24T21:36:52", "record_type": "text", "text": "部署脚本更新一下", "verdict": "UNIQUE", "top": ["OPS"], "cands": ["OPS"]}
+{"ts": "2026-11-02T23:55:59", "text": "桌面端同步web端开发空间全部能力：移植DevWorkspacePage组件群到gewu-desktop并扩展gewu-desktop-runtime本地RES", "type": "A", "object": "B", "artifact": "C", "verdict": "UNIQUE", "top": ["UI"], "cands": ["UI"]}
+{"ts": "2026-11-02T23:56:20", "record_type": "refine", "spec": "SDLC", "text": "桌面端同步web端开发空间全部能力：移植DevWorkspacePage组件群到gewu-desktop并扩展gewu-desktop-runtime本地RES", "object": "桌面端前端组件群与内嵌引擎Java后端", "env": "本地开发 gewu-desktop 与 gewu-desktop-runtime 仓库内", "done": "mvn打包通过+typecheck+build:ui+Electron冒烟全过", "artifact": "改后代码+冒烟结论", "verdict": "READY", "missing": [], "rendered": "功能特性请求（SDLC）｜对象：桌面端前端组件群与内嵌引擎Java后端｜环境：本地开发 gewu-desktop 与 gewu-desktop-runtime 仓库内｜完成标准：mvn打包通过+typecheck+build:ui+Electron冒烟全过｜期望产物：改后代码+冒烟结论"}
+{"ts": "2026-11-03T04:02:10", "record_type": "text", "text": "给新增 Java 类补充 @author/@version/@since 注释并添加完整类注释", "verdict": "LOW", "top": [], "cands": []}
+{"ts": "2026-11-03T04:15:05", "text": "21 个新 Java 文件类 Javadoc 三标签规范化+补全释义", "type": "开发", "object": "代码", "artifact": "改后代码", "verdict": "TOP3", "top": ["SDLC", "META", "UCSS"], "cands": ["SDLC", "META", "UCSS"]}
+{"ts": "2026-11-10T23:06:58", "record_type": "text", "text": "全面深度分析项目中agent智能体引擎设计思路和技术设计原理，源码分析，形成完整的agent引擎设计分析报告，用于后续agent引擎设计升级参考", "verdict": "UNIQUE", "top": ["LPU"], "cands": ["LPU", "THEMIS"]}

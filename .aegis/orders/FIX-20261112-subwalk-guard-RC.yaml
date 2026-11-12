@@ -1,0 +1,23 @@
+# RC 根因单 — AE-P0-1 子 Walk 异常收尾缺父链守卫（评审 F-02 / 49号 L1 转单）
+issue: "AE-P0-1（RPT-002 F-02 / 49号 F-03+F-08 转单）"
+severity: Sev2            # 重大：父图事件流被杀/检查点被覆写，PLAN 节点路径生产可达
+priority: P1              # 高：阶段 1 首单
+status: in_progress
+trace_ref: "AETC s-20261112-233317（GATE approved）/ 根因定位批次 s-20261112-234203 后续"
+defect_type: 功能         # ODC：异常路径守卫缺失（failGraph/pauseHere/cancelHere 未区分子 Walk）
+hypotheses:
+  - "H1: 子 Walk failGraph 直接 complete 共享 sink 并 unregister 共享 executionId——亲读验证属实（PipelineModeHandler.java:1021-1041，PLAN :623 / SUBGRAPH :306 共享 sink、:293 共享 executionId）"
+  - "H2: 子 Walk pauseHere 把子图检查点写入共享 executionId，覆写父链检查点——亲读验证属实（:985-1003，Checkpoint(walk.graph=子图,...)）"
+  - "H3: 子 Walk cancelHere 同理终结共享流并注销——亲读验证属实（:1006-1019）"
+  - "H4: PLAN 节点路径无特性开关门控（开关仅守卫 SUBGRAPH）——亲读验证属实（:245 case PLAN 直派 executePlanNode；开关判定仅 :60-62/:260-263）"
+symptom: "PLAN/SUBGRAPH 子图内节点失败（fail-fast）、暂停或取消时，父图事件流被 sink.complete() 终结、executionId 被 unregister、暂停检查点被子图覆写——父图状态机与前端流双双失真"
+chain:
+  - "为何暴露：子 Walk 与父 Walk 共享同一 sink 与 executionId，而异常收尾三路（failGraph/pauseHere/cancelHere）无子 Walk 判定"
+  - "为何如此实现：O1-O3 的 L1 修复只落了 happy-path 的 completionCallback 委托（:308/:625/:877-881），异常三路未覆盖"
+  - "为何未被拦截：49 号评审将 L1 受控性锚定在'PLAN 现网为完成即收尾路径'，未识别 PLAN 无开关生产可达；SUBGRAPH 开关默认关掩盖了暴露面"
+root_cause: "子 Walk 异常收尾直接调用根 Walk 专属终态操作（completeGraph→sink.complete / executionControl.unregister / saveCheckpoint(子图)），缺 'isSubWalk→委托父链' 守卫层"
+evidence: "PipelineModeHandler.java 亲读全文（:245/:293/:306/:571/:575/:591/:623/:625/:877-881/:975/:985-1003/:1006-1019/:1021-1041）；红基线=新增回归测试 PipelineSubWalkTerminalTest 两用例（修复前红：①检查点断言 graph==根图 失败 ②父图 continueOnFailure 语义未被尊重）"
+impact_scope:
+  - "gewu-agent-engine/src/main/java/com/gewu/agent/engine/orchestration/mode/PipelineModeHandler.java"
+  - "gewu-agent-engine/src/test/java/com/gewu/agent/engine/orchestration/mode/PipelineSubWalkTerminalTest.java（新增）"
+confidence: high

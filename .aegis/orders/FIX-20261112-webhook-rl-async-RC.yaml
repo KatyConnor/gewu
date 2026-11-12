@@ -1,0 +1,24 @@
+# RC 根因单 — AE-P0-2 Webhook 匿名端点同步阻塞 + 无频控（49号 F-04 余项 / L2 转单）
+issue: "AE-P0-2（49号 F-04 余项 / 49号 L2 转单，RPT-002 引用）"
+severity: Sev2            # 严重：匿名端点可被反复触发整图 LLM 消耗 + HTTP 线程长占
+priority: P1
+status: in_progress
+trace_ref: "AETC s-20261112-233317（GATE approved）/ 定位批次 s-20261112-234203 后续"
+defect_type: 功能         # ODC：缺失频控与异步执行能力（49 号 F-04 的"部分修复"余项）
+hypotheses:
+  - "H1: triggerByWebhook 直接调 executeGraphInternal 在 HTTP 线程同步执行整图——亲读验证属实（OrchestrationService.java:795-819 → :354-403，fourPhasePipeline.executeGraph 阻塞调用）"
+  - "H2: 端点无 per-token 频控，重复触发即重复整图 LLM 消耗——亲读验证属实（OrchestrationController.java:248-269 仅 64KB body 上限，无限流）"
+  - "H3: 64KB body 上限已落（49 号本轮修复项）——亲读验证属实（OrchestrationController.java:257-259）"
+symptom: "webhook.enabled 开启后：单次触发占用 HTTP worker 至整图执行完毕（LLM 节点可达分钟级）；同 token 反复触发无频次上限"
+chain:
+  - "为何暴露：匿名端点把异步语义写成同步（202 返回时执行已终结）"
+  - "为何如此实现：WFC-03 首版以最小实现落地，49 号评审判 P1 并列遗留（限流+异步化），开启前置未清偿"
+  - "为何未被拦截：特性开关默认关掩盖暴露面；无频控类回归测试"
+root_cause: "triggerByWebhook→executeGraphInternal 为同步阻塞全链且端点无频控——匿名攻击面下缺少'快速受理+后台执行+频次上限'三件套"
+evidence: "OrchestrationController.java:248-269 亲读 + OrchestrationService.java:354-403/:795-819 亲读；红基线=新增测试（①频控超限拒绝 ②triggerByWebhookAsync 立即返回 PENDING 且后台完成）修复前红"
+impact_scope:
+  - "gewu-application/src/main/java/com/gewu/application/orchestration/OrchestrationService.java"
+  - "gewu-interface/src/main/java/com/gewu/interfaceapi/controller/OrchestrationController.java"
+  - "gewu-application/src/test/java/com/gewu/application/orchestration/OrchestrationWebhookTest.java"
+  - "gewu-interface/src/test/java/com/gewu/interfaceapi/controller/OrchestrationWebhookRateLimitTest.java（新增）"
+confidence: high

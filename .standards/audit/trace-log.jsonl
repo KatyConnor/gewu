@@ -13,3 +13,9 @@
 {"event": "route", "method": "--text", "input": "部署脚本更新一下", "verdict": "UNIQUE", "spec": "OPS", "top": ["OPS"], "ts": "2026-10-24T21:36:52", "source": "manual-test"}
 {"event": "entry_read", "spec": "OPS", "via": "--text", "note": "判定-读取同链（--read-entry·V1.9.36）", "ts": "2026-10-24T21:36:52"}
 {"event": "install_selftest", "version": "V1.9.36", "note": "装后自测·装痕显式分家（与 route 真实流量区分）", "ts": "2026-10-24T21:36:56"}
+{"event": "route", "method": "--intent", "input": "桌面端同步web端开发空间全部能力：移植DevWorkspacePage组件群到gewu-desktop并扩展gewu-desktop-runtime本地RES", "verdict": "UNIQUE", "spec": "UI", "top": ["UI"], "ts": "2026-11-02T23:55:59", "source": "manual-test"}
+{"event": "route", "method": "--refine", "spec": "SDLC", "verdict": "READY", "missing": "", "ts": "2026-11-02T23:56:20", "source": "manual-test"}
+{"event": "route", "method": "--text", "input": "给新增 Java 类补充 @author/@version/@since 注释并添加完整类注释", "verdict": "LOW", "spec": "", "top": [], "ts": "2026-11-03T04:02:10", "source": "manual-test"}
+{"event": "route", "method": "--intent", "input": "21 个新 Java 文件类 Javadoc 三标签规范化+补全释义", "verdict": "TOP3", "spec": "SDLC", "top": ["SDLC", "META", "UCSS"], "ts": "2026-11-03T04:15:05", "source": "manual-test"}
+{"event": "route", "method": "--text", "input": "全面深度分析项目中agent智能体引擎设计思路和技术设计原理，源码分析，形成完整的agent引擎设计分析报告，用于后续agent引擎设计升级参考", "verdict": "UNIQUE", "spec": "LPU", "top": ["LPU"], "ts": "2026-11-10T23:06:58", "source": "manual-test"}
+{"event": "entry_read", "spec": "LPU", "via": "--text", "note": "判定-读取同链（--read-entry·V1.9.36）", "ts": "2026-11-10T23:06:58"}

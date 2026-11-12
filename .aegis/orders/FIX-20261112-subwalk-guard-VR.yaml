@@ -1,0 +1,17 @@
+# VR 验证单 — AE-P0-1 子 Walk 异常收尾父链委托
+trace_ref: "AETC s-20261112-233317（实施批次）"
+issue: "AE-P0-1（RPT-002 F-02 / 49号 F-03+F-08 转单）"
+root_cause_ref: "FIX-20261112-subwalk-guard-RC"
+fp_ref: "FIX-20261112-subwalk-guard-FP"
+status: verified          # fixed≠verified≠closed：本单为修复方自验证，独立准出待角色06/UTSS
+
+gate1_static_consistency: "diff 对 FP 比对：PipelineModeHandler.java（Walk 字段/executePlanNode/executeSubgraphNode 登记/failGraph 委托/pauseHere+pauseSubWalk/cancelHere+cancelSubWalk/markTreeTerminal）+ 新增 PipelineSubWalkTerminalTest——全部落在 FP changes 清单内，无计划外文件"
+gate2_dynamic_red_to_green:
+  red_baseline: "PipelineSubWalkTerminalTest 两用例修复前运行失败（①失败原因停子节点级' razón=sFail 执行失败'、无 plan-1 ERROR 上抛 ②检查点 resumeFromNode=子图内节点 s2、graph=子图 UUID）"
+  green_evidence: "mvn -pl gewu-agent-engine test：Tests run: 2, Failures: 0（PipelineSubWalkTerminalTest）；模块全量 Tests run: 280, Failures: 0, Errors: 0, BUILD SUCCESS"
+gate3_regression_set: "引擎模块全量 280/280（含 orchestration mode 既有 5 个测试文件、LlmGoalPlannerAndWaveMappingTest、ExecutionControlCheckpointStoreTest）"
+
+residual_issues:
+  - "衍生缺陷（已另立单 FIX-20261112-merge-terminal-RC）：MERGE 为图终节点时 arriveMerge→continueTo(null)→nodeById(null) NPE，异常在 LambdaSubscriber 完成回调中被 onErrorDropped 静默丢弃→编排流悬挂。本单测试图通过加串行层规避，缺陷本体待修"
+  - "披露（L8，未修——超出 FP 范围）：根 Walk fail-fast 终止时，兄弟子 Walk（并行分支中已派生的子图遍历）不会收到终止标记，将继续执行至事件被已终结 sink 丢弃——旧行为即如此，本修复未扩大也未缩小该暴露面；建议随衍生单一并评估（登记于实施报告风险节）"
+lessons: "①Reactor 三参 subscribe 的 onComplete 消费者抛异常会被 LambdaSubscriber 路由为 onErrorDropped（静默丢弃）——编排遍历的同步递归段必须自行捕获终态；②红基线先行设计测试时，测试图拓扑本身可能踩中其他潜在缺陷（本次即暴露 MERGE 终结图 NPE），属评审红利应登记而非绕过"

@@ -1,0 +1,15 @@
+# VR 验证单 — AE-P0-2 Webhook 频控 + 异步化
+trace_ref: "AETC s-20261112-233317（实施批次）"
+issue: "AE-P0-2（49号 F-04 余项 / L2 转单）"
+root_cause_ref: "FIX-20261112-webhook-rl-async-RC"
+fp_ref: "FIX-20261112-webhook-rl-async-FP"
+status: verified          # fixed≠verified≠closed：修复方自验证，独立准出待角色06/UTSS
+
+gate1_static_consistency: "diff 对 FP 比对：OrchestrationService（prepareExecution/runPreparedExecution 拆分 + resolveExecutableWebhook 提取 + WEBHOOK_WORK_EXECUTOR + triggerByWebhookAsync）、OrchestrationController（频控字段/方法 + 端点改造 + ResultCode 导入）、OrchestrationWebhookTest（+2 用例）、OrchestrationWebhookRateLimitTest（新增 3 用例）——全部在 FP 清单内；一处超出 FP 声明的正向修复：端点 64KB 分支原 log.warn 实参传完整 token（与'tokenPrefix='语义相悖），已顺手改为 6 字符前缀（L3-SEC-017 日志脱敏，收紧性修复，在报告中披露）"
+gate2_dynamic_red_to_green:
+  red_baseline: "①OrchestrationWebhookRateLimitTest 实现前编译失败（webhookRateLimited/字段不存在）②asyncTriggerReturnsPending... 实现前编译失败（方法不存在）——随实现转绿"
+  green_evidence: "mvn test：OrchestrationWebhookRateLimitTest 3/3；OrchestrationWebhookTest 8/8（含同步路径既有 5 用例行为保持）；两模块 BUILD SUCCESS"
+gate3_regression_set: "application 模块 OrchestrationWebhook* 全族 + interface 模块编译（OrchestrationController/AiChatController 改动）+ 全量 verify 后台验证（进行中）"
+
+residual_issues: []
+lessons: "①executeGraphInternal 拆分（准备/运行两段）是实现'先受理后执行'的最小正确路径——避免双实体创建或契约变更；②OrchestrationResult.success 的终态字符串是 SUCCEEDED 而非 SUCCESS（与 agent_execution 账本的 completed 语义不同源），断言时需对齐实体映射层"

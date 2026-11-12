@@ -1,0 +1,30 @@
+# FP 方案单 — AE-P0-2 Webhook 频控 + 异步化
+trace_ref: "AETC s-20261112-233317（GATE approved 2026-11-12）"
+issue: "AE-P0-2（49号 F-04 余项 / L2 转单）"
+risk_level: S2
+root_cause_ref: "FIX-20261112-webhook-rl-async-RC"
+test_defect_approval: false
+changes:
+  - file: "gewu-application/src/main/java/com/gewu/application/orchestration/OrchestrationService.java"
+    symbol: "executeGraphInternal → prepareExecution + runPreparedExecution（行为保持拆分）"
+    intent: "执行准备段（建记录/上下文/落库）与运行段（OTel+四环+结果回写）分离，支撑先受理后执行"
+  - file: "gewu-application/src/main/java/com/gewu/application/orchestration/OrchestrationService.java"
+    symbol: "triggerByWebhookAsync（新增）+ WEBHOOK_WORK_EXECUTOR（新增有界池）"
+    intent: "校验→PENDING 落库即返回→后台 worker（1-4 线程/队列 64/CallerRuns 饱和降级同步，背压安全）接管 RUNNING→执行→终态回写"
+  - file: "gewu-interface/src/main/java/com/gewu/interfaceapi/controller/OrchestrationController.java"
+    symbol: "triggerByWebhook 端点 + webhookRateLimited（新增）+ webhookRateWindows（新增）"
+    intent: "per-token SM3 键固定窗口频控（gewu.orchestration.webhook.rate-limit-per-minute 默认 10，≤0 关闭；超限 ResultCode.RATE_LIMITED 429；窗口表 >1000 惰性清理防无界增长）；执行改调 triggerByWebhookAsync；javadoc 更新"
+  - file: "gewu-application/src/test/java/com/gewu/application/orchestration/OrchestrationWebhookTest.java"
+    symbol: "asyncTriggerReturnsPendingAndCompletesInBackground（新增）"
+    intent: "红基线②：异步方法立即返回 PENDING、后台完成 RUNNING→SUCCESS（Mockito timeout 轮询）"
+  - file: "gewu-interface/src/test/java/com/gewu/interfaceapi/controller/OrchestrationWebhookRateLimitTest.java（新增）"
+    symbol: "rateLimitRejectsAfterThreshold / disabledSwitchReturns404 / rateLimitZeroDisables"
+    intent: "红基线①：第 limit+1 次触发 429（ResultCode.RATE_LIMITED）；开关关=404；配置 0=不限"
+budget: {files: 4, lines: 150, funcs: 8, deps: 0}
+verification:
+  red_baseline: "①OrchestrationWebhookRateLimitTest 频控用例修复前编译失败（端点无频控方法）②asyncTrigger... 用例修复前编译失败（方法不存在）——两用例随实现转绿"
+  regression_set: "OrchestrationWebhookTest 全部既有用例（5 个，含同步路径 triggerByWebhook 行为保持）+ OrchestrationScheduleRunnerTest（同文件族）+ gewu-application 全量 + gewu-interface 编译"
+  rescan: "不适用"
+rollback: "git revert 单 commit（服务拆分为行为保持重构，revert 无数据迁移影响）；或 checkpoint cp-ae-phase1 restore（紧急）"
+approvals:
+  - "GATE approved 2026-11-12：用户批准按 AE-PLAN-2026-11 执行（AETC s-20261112-233318）"

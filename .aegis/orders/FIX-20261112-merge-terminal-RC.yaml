@@ -1,0 +1,21 @@
+# RC 根因单（待实施·衍生单）— MERGE 终结图 NPE 静默悬挂
+issue: "AE-衍生-1（AE-P0-1 实施期间发现，RPT-002 未覆盖）"
+severity: Sev2            # 严重：生产可达（设计器可建 MERGE 终结图），静默悬挂+孤儿执行
+priority: P2              # 中：SUBGRAPH/PLAN 深度使用前应修，当前主链路不受影响
+status: triaged
+trace_ref: "AETC s-20261112-233317（实施批次，发现于 PipelineSubWalkTerminalTest 红基线运行）"
+defect_type: 功能         # ODC：空引用（终节点出边缺失场景未守卫）+ 异常静默丢弃
+hypotheses:
+  - "H1（已验证）：MERGE 为图终节点时 arriveMerge:822 continueTo(firstOutgoing=null)→nodeById(null):1048 NPE——红基线运行实测堆栈证实"
+  - "H2（已验证）：该 NPE 发生于 LambdaSubscriber.onComplete 消费者内，被路由为 onErrorDropped 静默丢弃（Operators 日志'Operator called default onErrorDropped'）——编排流既不 complete 也不 error→collectList 悬挂/前端流不终结"
+symptom: "以 MERGE 节点结尾的编排图（单波次计划子图/设计器直建图）执行到汇聚节点时 NPE，流悬挂、执行记录停留 RUNNING"
+chain:
+  - "为何暴露：MERGE 收尾时 firstOutgoing 返回 null，continueTo 未判空先调 nodeById"
+  - "为何如此实现：既有测试图均为'波次后继有节点'拓扑，终节点路径未被覆盖"
+  - "为何未被拦截：节点完成回调的异常被 Reactor onErrorDropped 吞掉，无失败事件/无账本回写/无告警"
+root_cause: "continueTo 对 null nodeId 的判空位于 nodeById 之后（:858-861 判空逻辑正确但 :859 调用点先 NPE）+ 完成回调异常无兜底上报"
+evidence: "红基线运行堆栈（PipelineModeHandler.java:1048/1049/859/822/852/428 + Operators onErrorDropped 日志）"
+impact_scope:
+  - "gewu-agent-engine/src/main/java/com/gewu/agent/engine/orchestration/mode/PipelineModeHandler.java（continueTo/arriveMerge 判空顺序）"
+  - "建议一并评估：遍历回调异常兜底上报（onErrorDropped 静默丢弃面）"
+confidence: high
