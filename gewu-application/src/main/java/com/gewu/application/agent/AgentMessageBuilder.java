@@ -11,6 +11,7 @@ import com.gewu.infrastructure.llm.Message;
 import com.gewu.infrastructure.mapper.AgentSkillMapper;
 import com.gewu.infrastructure.mapper.SkillMapper;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -28,6 +29,10 @@ import java.util.stream.Collectors;
  *   <li>根据 agentMode 设置 temperature 参数</li>
  *   <li>解析 LLM 供应商和模型</li>
  * </ul>
+ *
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-08-12
  */
 @Component
 @RequiredArgsConstructor
@@ -39,6 +44,10 @@ public class AgentMessageBuilder {
     private final ModelConfigService modelConfigService;
     private final AgentSkillMapper agentSkillMapper;
     private final SkillMapper skillMapper;
+
+    /** AE-P2-5：直连对话（无 Agent 且无模式/思维指令）的默认 system 提示词；空=保持旧行为不发送 system */
+    @Value("${gewu.agent.default-system-prompt:}")
+    private String defaultSystemPrompt;
 
     /**
      * 根据 model ID 解析 LLM 提供商和模型名称。
@@ -112,6 +121,12 @@ public class AgentMessageBuilder {
         if (thinkingDirective != null) {
             if (systemPromptBuilder.length() > 0) systemPromptBuilder.append("\n\n");
             systemPromptBuilder.append(thinkingDirective);
+        }
+
+        if (systemPromptBuilder.length() == 0 && defaultSystemPrompt != null && !defaultSystemPrompt.isBlank()) {
+            // AE-P2-5：直连对话（无 Agent 且无模式/思维指令）兜底——注入可配默认 system 提示词；
+            // 配置为空时保持旧行为（不发送 system 消息），行为变更由配置显式开启
+            systemPromptBuilder.append(defaultSystemPrompt.trim());
         }
 
         if (systemPromptBuilder.length() > 0) {

@@ -192,6 +192,10 @@ gewu:
   # 机器编号（-1 表示自动通过 hostname 计算，容器部署时通过环境变量 MACHINE_ID 注入）
   machine-id: ${MACHINE_ID:-1}
 
+  # 直连对话（不选 Agent）默认 system 提示词兜底（AE-P2-5）：空=保持旧行为（不发送 system 消息）
+  # agent:
+  #   default-system-prompt: "你是格物平台的 AI 助手，回答保持准确克制，不确定时如实说明。"
+
   # Wenshi 知识增强配置
   wenshi:
     enabled: true
