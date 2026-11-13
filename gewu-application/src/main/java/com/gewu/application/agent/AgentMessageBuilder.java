@@ -1,15 +1,10 @@
 package com.gewu.application.agent;
 
-import com.baomidou.mybatisplus.core.conditions.query.LambdaQueryWrapper;
 import com.gewu.application.agent.dto.AgentExecutionRequest;
 import com.gewu.application.ai.ModelConfigService;
 import com.gewu.application.session.SessionContextService;
 import com.gewu.domain.agent.Agent;
-import com.gewu.domain.agent.AgentSkill;
-import com.gewu.domain.skill.Skill;
 import com.gewu.infrastructure.llm.Message;
-import com.gewu.infrastructure.mapper.AgentSkillMapper;
-import com.gewu.infrastructure.mapper.SkillMapper;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
@@ -17,7 +12,6 @@ import org.springframework.stereotype.Component;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
-import java.util.stream.Collectors;
 
 /**
  * Agent 消息构建器 — 负责构建 LLM 请求的消息列表，包括 system prompt、历史上下文和用户消息.
@@ -42,8 +36,7 @@ public class AgentMessageBuilder {
 
     private final SessionContextService sessionContextService;
     private final ModelConfigService modelConfigService;
-    private final AgentSkillMapper agentSkillMapper;
-    private final SkillMapper skillMapper;
+    private final AgentSkillSectionContributor skillSectionContributor;
 
     /** AE-P2-5：直连对话（无 Agent 且无模式/思维指令）的默认 system 提示词；空=保持旧行为不发送 system */
     @Value("${gewu.agent.default-system-prompt:}")
@@ -84,28 +77,13 @@ public class AgentMessageBuilder {
             systemPromptBuilder.append(agent.getSystemPrompt());
         }
 
-        // 注入已挂载技能的 content（能力指令），赋予智能体领域能力
+        // 注入已挂载技能的 content（AE-P2-3 收口：委托 AgentSkillSectionContributor 单一实现点，
+        // 引擎 SPI 与本路径共用同一查询拼装，输出与旧实现逐字节一致）
         if (agent != null && agent.getId() != null) {
-            List<AgentSkill> agentSkills = agentSkillMapper.selectList(
-                    new LambdaQueryWrapper<AgentSkill>()
-                            .eq(AgentSkill::getAgentId, agent.getId())
-                            .orderByAsc(AgentSkill::getSortOrder));
-            if (!agentSkills.isEmpty()) {
-                List<String> skillIds = agentSkills.stream().map(AgentSkill::getSkillId).toList();
-                Map<String, Skill> skillMap = skillMapper.selectBatchIds(skillIds).stream()
-                        .collect(Collectors.toMap(Skill::getId, s -> s));
-                StringBuilder skillSection = new StringBuilder();
-                for (AgentSkill as : agentSkills) {
-                    Skill skill = skillMap.get(as.getSkillId());
-                    if (skill != null && skill.getContent() != null && !skill.getContent().isBlank()) {
-                        skillSection.append("\n\n## 技能：").append(skill.getSkillName())
-                                .append("\n").append(skill.getContent());
-                    }
-                }
-                if (skillSection.length() > 0) {
-                    if (systemPromptBuilder.length() > 0) systemPromptBuilder.append("\n\n# 已挂载技能");
-                    systemPromptBuilder.append(skillSection);
-                }
+            String skillSection = skillSectionContributor.renderForAgentId(agent.getId());
+            if (skillSection != null) {
+                if (systemPromptBuilder.length() > 0) systemPromptBuilder.append("\n\n");
+                systemPromptBuilder.append(skillSection);
             }
         }
 

@@ -276,8 +276,14 @@ public class AgentEngineAutoConfiguration {
 
     @Bean
     @ConditionalOnMissingBean
-    public MessageBuilder messageBuilder(SystemPromptComposer composer) {
-        return new DefaultMessageBuilder(composer);
+    public MessageBuilder messageBuilder(SystemPromptComposer composer,
+            org.springframework.beans.factory.ObjectProvider<com.gewu.agent.engine.message.PromptSectionContributor> contributors) {
+        // AE-P2-3 收口：段贡献者统一注入 DefaultMessageBuilder（宿主技能段等经 SPI 注册）
+        return new DefaultMessageBuilder(composer,
+                contributors.orderedStream()
+                        .sorted(java.util.Comparator.comparingInt(
+                                com.gewu.agent.engine.message.PromptSectionContributor::order))
+                        .toList());
     }
 
     // ==================== 核心引擎 ====================
