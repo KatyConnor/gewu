@@ -160,20 +160,9 @@ public class PlanExecuteRuntime implements AgentRuntime {
                                 // 失败传播对齐（AE-P1-1 适配③）：标记失败，后续步骤跳过
                                 failed.set(true);
                             }
-                            return AgentEvent.builder()
-                                    .type(event.getType())
-                                    .content(event.getContent())
-                                    .reasoning(event.getReasoning())
-                                    .toolCall(event.getToolCall())
-                                    .toolResult(event.getToolResult())
-                                    .errorMessage(event.getErrorMessage())
-                                    .finishReason(event.getFinishReason())
-                                    .plan(event.getPlan())
-                                    .planTitle(event.getPlanTitle())
-                                    .metadata(event.getMetadata())
-                                    .nodeId(node.getNodeId())
-                                    .role(node.getRoleCode())
-                                    .build();
+                            // AE-P2-1 二期：统一事件映射器（收编手工全字段拷贝）
+                            return com.gewu.agent.engine.core.event.AgentEvents.copyWith(
+                                    event, node.getNodeId(), node.getRoleCode());
                         }))
                 .doOnComplete(() -> {
                     if (accumulated.length() > 0 && !failed.get()

@@ -405,16 +405,10 @@ public class PipelineModeHandler implements ModeHandler {
                         handleNodeFailure(walk, node, event.getErrorMessage());
                         return;
                     }
-                    walk.sink.next(AgentEvent.builder()
-                            .type(event.getType())
-                            .content(event.getContent())
-                            .reasoning(event.getReasoning())
-                            .toolCall(event.getToolCall())
-                            .toolResult(event.getToolResult())
-                            .errorMessage(event.getErrorMessage())
-                            .nodeId(node.getNodeId())
-                            .role(node.getRoleCode())
-                            .build());
+                    // AE-P2-1 二期：统一事件映射器全字段透传（旧实现丢 metadata——
+                    // ask_user/plan_*/budget_* 等带元数据事件到宿主即失效）
+                    walk.sink.next(com.gewu.agent.engine.core.event.AgentEvents.copyWith(
+                            event, node.getNodeId(), node.getRoleCode()));
                     if (AgentEvent.CONTENT.equals(event.getType()) && event.getContent() != null) {
                         accumulated.append(event.getContent());
                     }
