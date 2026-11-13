@@ -10,6 +10,7 @@ import com.gewu.agent.engine.cognition.ComplexityRouter;
 import com.gewu.agent.engine.hitl.UserInteractionGateway;
 import com.gewu.agent.engine.cognition.PerceptionEngine;
 import com.gewu.agent.engine.core.event.AgentEvent;
+import static com.gewu.agent.engine.core.BuiltinToolCatalog.*;
 import com.gewu.agent.engine.llm.LlmClient;
 import com.gewu.agent.engine.llm.LlmClientRegistry;
 import com.gewu.agent.engine.llm.model.LlmChunk;
@@ -97,46 +98,8 @@ public class ReactAgentExecutor implements AgentExecutor {
     private static final int MAX_TOKENS_HARD_CAP = 65536;
 
     // ==================== 内置工具定义（S9：plan_task / 文件工具） ====================
-
-    /** 内置任务计划工具名（S9 F5）：本地执行，不走 ToolExecutor 外部链路 */
-    private static final String PLAN_TOOL_NAME = "plan_task";
-    private static final String PLAN_TOOL_DESCRIPTION =
-            "创建或更新当前任务的任务清单。开始多步骤工作前调用一次以制定计划；"
-                    + "完成某步骤或计划变化时再次调用以更新整体状态（全量覆盖语义）。"
-                    + "提交方案/计划时：以 markdown 参数提供完整计划正文（引擎保存到工作空间 plan/ 目录供用户查看），"
-                    + "随后必须调用 ask_user 等待用户批准，批准后方可开始实施。";
-    private static final String PLAN_TOOL_SCHEMA = """
-            {"type":"object","properties":{"title":{"type":"string","description":"任务清单标题"},"steps":{"type":"array","description":"任务步骤列表（全量提交，以本次调用为准整体覆盖）","items":{"type":"object","properties":{"id":{"type":"string","description":"步骤唯一标识"},"text":{"type":"string","description":"步骤内容"},"status":{"type":"string","enum":["pending","in_progress","done"],"description":"步骤状态"}},"required":["id","text","status"]}},"markdown":{"type":"string","description":"完整计划正文（Markdown）。提交方案/计划时提供，引擎将保存到工作空间 plan/ 目录供用户查看完整计划"}},"required":["steps"]}
-            """;
-
-    /** 内置用户问答工具（HITL）：向用户提问并挂起等待回答，回答作为工具结果回灌续跑 */
-    private static final String ASK_TOOL_NAME = "ask_user";
-    private static final String ASK_TOOL_DESCRIPTION =
-            "向用户提问以获取决策确认（执行会挂起，等待用户在界面上选择或输入回答后继续）。"
-                    + "适用：方案/计划需要用户批准、存在歧义需要用户决策、缺少关键信息。"
-                    + "提交方案/计划（plan_task）后必须调用本工具等待用户批准，批准后方可开始实施。"
-                    + "options 提供 1-4 个候选项可降低用户输入成本，用户也可自行输入回答。";
-    private static final String ASK_TOOL_SCHEMA = """
-            {"type":"object","properties":{"question":{"type":"string","description":"要向用户确认的问题（简洁明确）"},"options":{"type":"array","items":{"type":"string"},"maxItems":4,"description":"候选项（用户可选中或自行输入回答）"}},"required":["question"]}
-            """;
-
-    /** 内置文件工具（S9 F3）：经 FileWorkspaceSpi 在会话工作空间执行 */
-    private static final String READ_FILE_TOOL = "read_file";
-    private static final String WRITE_FILE_TOOL = "write_file";
-    private static final String EDIT_FILE_TOOL = "edit_file";
-    private static final String LIST_DIR_TOOL = "list_dir";
-    private static final String READ_FILE_SCHEMA = """
-            {"type":"object","properties":{"path":{"type":"string","description":"文件相对路径，相对当前工作空间根目录（如 src/main.go、docs/plan.md）。不要以 / 开头，不要加 workspace/ 前缀"}},"required":["path"]}
-            """;
-    private static final String WRITE_FILE_SCHEMA = """
-            {"type":"object","properties":{"path":{"type":"string","description":"文件相对路径，相对当前工作空间根目录。不要以 / 开头，不要加 workspace/ 前缀"},"content":{"type":"string","description":"完整文件内容（整体覆盖）"}},"required":["path","content"]}
-            """;
-    private static final String EDIT_FILE_SCHEMA = """
-            {"type":"object","properties":{"path":{"type":"string","description":"文件相对路径，相对当前工作空间根目录。不要以 / 开头，不要加 workspace/ 前缀"},"old_text":{"type":"string","description":"要替换的原文（需唯一匹配）"},"new_text":{"type":"string","description":"替换后的新文本"}},"required":["path","old_text","new_text"]}
-            """;
-    private static final String LIST_DIR_SCHEMA = """
-            {"type":"object","properties":{"path":{"type":"string","description":"目录相对路径，相对当前工作空间根目录。可省略（默认列出根目录）。不要以 / 开头，不要加 workspace/ 前缀"}},"required":[]}
-            """;
+    // AE-P2-1 内核拆分第一期：定义与 Schema 集中至 BuiltinToolCatalog（静态导入，调用点零变更）；
+    // 剩余切片（执行逻辑外移/事件映射器/预算钩子）见实施计划 AE-P2-1
 
     /** 内置子代理派生工具：模型动态派生多个独立 ReAct 会话并行执行，聚合结果回灌主循环 */
     private static final String SPAWN_TOOL_NAME = "spawn_subagents";

@@ -1,5 +1,7 @@
 # 格物 Agent 引擎 — 核心引擎
 
+> **⚠ 现状校正（AE-P2-4 · 2026-11-13，实施计划 AE-PLAN-2026-11）**：本篇撰写时的"极简 ReAct 循环"叙述已滞后于实现——`ReactAgentExecutor` 现为 **2200+ 行的生产内核**：前置认知决策链（planExecution）、四维预算熔断、五层安全管线、内置五件套（plan_task/文件四件套/ask_user/spawn_subagents）、上下文压缩、语义缓存、截断自愈、死循环检测均内嵌于单类，另含 System2 灰度分派（AE-P1-1）。**升级设计以 `docs/analysis/agent-engine-design-analysis-2026-11.md` §3.2 与代码为事实基线**；本篇保留为"框架抽离时的设计基线"参考，AE-P2-1 拆分切片（BuiltinToolCatalog 等）随实施推进更新。
+>
 > 本篇详解 `core` 包：`AgentEngine` 门面、`AgentExecutor` 接口、`ReactAgentExecutor` 的 ReAct 循环（同步/流式/工具并行/递归轮次）、`AgentTask`、`AgentEvent` 事件协议、`AgentEngineConfig` 配置项。
 > 包：`com.gewu.agent.engine.core`（事件在 `core.event`）。
 
