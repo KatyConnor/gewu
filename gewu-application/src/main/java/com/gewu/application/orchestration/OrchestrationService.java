@@ -18,6 +18,8 @@ import com.gewu.common.result.BusinessException;
 import com.gewu.common.result.ResultCode;
 import com.gewu.common.ulid.Ulid;
 import com.gewu.domain.orchestration.ApprovalRequestEntity;
+import com.gewu.domain.orchestration.enums.OrchestrationExecutionStatus;
+import com.gewu.domain.orchestration.enums.OrchestrationGraphStatus;
 import com.gewu.domain.orchestration.OrchestrationExecutionEntity;
 import com.gewu.domain.orchestration.OrchestrationGraphEntity;
 import com.gewu.domain.orchestration.OrchestrationGraphVersionEntity;
@@ -113,7 +115,7 @@ public class OrchestrationService {
         entity.setGraphType(graphType != null ? graphType : "AD_HOC");
         entity.setOrchestrationMode(normalizedMode);
         entity.setVersion("1");
-        entity.setStatus("draft");
+        entity.setStatus(OrchestrationGraphStatus.DRAFT.getCode());
         entity.setCreatedBy(userId);
         entity.setUpdatedBy(userId);
         graphMapper.insert(entity);
@@ -143,7 +145,7 @@ public class OrchestrationService {
     public OrchestrationGraphEntity updateGraph(String graphId, String name, String graphDefinitionJson,
                                                  String graphType, String mode, String userId) {
         OrchestrationGraphEntity entity = requireGraphOwner(graphId, userId);
-        if (!"draft".equals(entity.getStatus())) {
+        if (!OrchestrationGraphStatus.DRAFT.getCode().equals(entity.getStatus())) {
             throw BusinessException.of(ResultCode.PARAM_INVALID,
                     "仅草稿状态的编排图可编辑，当前状态: " + entity.getStatus());
         }
@@ -214,7 +216,7 @@ public class OrchestrationService {
         snapshot.setUpdatedBy(userId);
         versionMapper.insert(snapshot);
 
-        entity.setStatus("active");
+        entity.setStatus(OrchestrationGraphStatus.ACTIVE.getCode());
         entity.setVersion(String.valueOf(nextVersion));
         entity.setUpdatedBy(userId);
         graphMapper.updateById(entity);
@@ -230,11 +232,11 @@ public class OrchestrationService {
         if (entity == null) {
             throw new IllegalArgumentException("编排图不存在: " + graphId);
         }
-        if (!"active".equals(entity.getStatus())) {
+        if (!OrchestrationGraphStatus.ACTIVE.getCode().equals(entity.getStatus())) {
             throw BusinessException.of(ResultCode.PARAM_INVALID,
                     "仅已激活状态的编排图可下架，当前状态: " + entity.getStatus());
         }
-        entity.setStatus("draft");
+        entity.setStatus(OrchestrationGraphStatus.DRAFT.getCode());
         entity.setUpdatedBy(userId);
         graphMapper.updateById(entity);
         log.info("下架编排图: id={}", graphId);
@@ -258,7 +260,7 @@ public class OrchestrationService {
         if (entity == null) {
             throw new IllegalArgumentException("编排图不存在: " + graphId);
         }
-        if (!"draft".equals(entity.getStatus())) {
+        if (!OrchestrationGraphStatus.DRAFT.getCode().equals(entity.getStatus())) {
             throw BusinessException.of(ResultCode.PARAM_INVALID,
                     "仅草稿状态可回滚版本，请先下架编排图。当前状态: " + entity.getStatus());
         }
@@ -326,7 +328,7 @@ public class OrchestrationService {
     public OrchestrationExecutionEntity executeGraphForAgentTool(String graphId, String userId,
                                                                   String sessionId, String input) {
         OrchestrationGraphEntity graphEntity = requireGraphOwner(graphId, userId);
-        if (!"active".equals(graphEntity.getStatus())) {
+        if (!OrchestrationGraphStatus.ACTIVE.getCode().equals(graphEntity.getStatus())) {
             throw new IllegalArgumentException("编排图不存在或未激活，无法通过 Agent 工具运行: " + graphId);
         }
         return executeGraphInternal(graphId, userId, sessionId, input, "AGENT_TOOL");
@@ -340,7 +342,7 @@ public class OrchestrationService {
     public OrchestrationExecutionEntity executeGraphForWorkflow(String graphId, String workflowInstanceId,
                                                                 String input) {
         OrchestrationGraphEntity graphEntity = graphMapper.selectById(graphId);
-        if (graphEntity == null || !"active".equals(graphEntity.getStatus())) {
+        if (graphEntity == null || !OrchestrationGraphStatus.ACTIVE.getCode().equals(graphEntity.getStatus())) {
             throw new IllegalArgumentException("编排图不存在或未激活，无法由工作流调用: " + graphId);
         }
         return executeGraphInternal(graphId, "workflow", workflowInstanceId, input, "WORKFLOW_CALL");
@@ -379,7 +381,7 @@ public class OrchestrationService {
         // 创建执行记录
         OrchestrationExecutionEntity execEntity = createExecutionEntity(executionId, graphId, userId, sessionId,
                 graphEntity, def.versionId(), triggerType);
-        execEntity.setStatus("RUNNING");
+        execEntity.setStatus(OrchestrationExecutionStatus.RUNNING.name());
         execEntity.setStartedAt(Instant.now().toEpochMilli());
         executionMapper.updateById(execEntity);
         liveContexts.put(executionId, ctx);
@@ -407,7 +409,7 @@ public class OrchestrationService {
             executionMapper.updateById(execEntity);
             log.info("编排执行完成: executionId={}, status={}", executionId, result.getStatus());
         } catch (Exception e) {
-            execEntity.setStatus("FAILED");
+            execEntity.setStatus(OrchestrationExecutionStatus.FAILED.name());
             execEntity.setErrorMessage(e.getMessage());
             execEntity.setCompletedAt(Instant.now().toEpochMilli());
             executionMapper.updateById(execEntity);
@@ -449,7 +451,7 @@ public class OrchestrationService {
         // 创建执行记录
         OrchestrationExecutionEntity execEntity = createExecutionEntity(executionId, graphId, userId, sessionId,
                 graphEntity, def.versionId(), "MANUAL");
-        execEntity.setStatus("RUNNING");
+        execEntity.setStatus(OrchestrationExecutionStatus.RUNNING.name());
         execEntity.setStartedAt(Instant.now().toEpochMilli());
         executionMapper.updateById(execEntity);
         liveContexts.put(executionId, ctx);
@@ -478,9 +480,10 @@ public class OrchestrationService {
                     // 终态全量映射（评审 F-01）：引擎以 graph_complete(status) 优雅收尾，
                     // PAUSED/CANCELLED 不得被覆写为 SUCCEEDED（否则续跑入口消失、检查点成孤儿）
                     String engineStatus = graphStatus.get();
-                    boolean finished = "SUCCEEDED".equals(engineStatus) || "FAILED".equals(engineStatus);
+                    boolean finished = OrchestrationExecutionStatus.SUCCEEDED.name().equals(engineStatus)
+                            || OrchestrationExecutionStatus.FAILED.name().equals(engineStatus);
                     execEntity.setStatus(mapEngineStatus(engineStatus));
-                    if ("FAILED".equals(engineStatus)) {
+                    if (OrchestrationExecutionStatus.FAILED.name().equals(engineStatus)) {
                         execEntity.setErrorMessage(graphReason.get());
                     }
                     execEntity.setCompletedAt(Instant.now().toEpochMilli());
@@ -489,7 +492,7 @@ public class OrchestrationService {
                     // 四环协同：仅业务终态触发评估/治理/审计环（PAUSED/CANCELLED 尚未产生最终产出）
                     if (finished) {
                         fourPhasePipeline.postProcess(
-                                "FAILED".equals(engineStatus)
+                                OrchestrationExecutionStatus.FAILED.name().equals(engineStatus)
                                         ? OrchestrationResult.failure(executionId,
                                                 graphReason.get() != null ? graphReason.get() : "编排执行失败")
                                         : OrchestrationResult.success(executionId,
@@ -499,7 +502,7 @@ public class OrchestrationService {
                     log.info("编排流式执行完成: executionId={}, status={}", executionId, execEntity.getStatus());
                 })
                 .doOnError(e -> {
-                    execEntity.setStatus("FAILED");
+                    execEntity.setStatus(OrchestrationExecutionStatus.FAILED.name());
                     execEntity.setErrorMessage(e.getMessage());
                     execEntity.setCompletedAt(Instant.now().toEpochMilli());
                     executionMapper.updateById(execEntity);
@@ -512,7 +515,7 @@ public class OrchestrationService {
                 })
                 .doOnCancel(() -> {
                     execEntity.setVariables(buildCancelSnapshot(ctx, execEntity));
-                    execEntity.setStatus("CANCELLED");
+                    execEntity.setStatus(OrchestrationExecutionStatus.CANCELLED.name());
                     execEntity.setCompletedAt(Instant.now().toEpochMilli());
                     executionMapper.updateById(execEntity);
                     liveContexts.remove(executionId);
@@ -578,11 +581,11 @@ public class OrchestrationService {
         if (entity == null) {
             throw new IllegalArgumentException("执行实例不存在: " + executionId);
         }
-        if (!"RUNNING".equals(entity.getStatus())) {
+        if (!OrchestrationExecutionStatus.RUNNING.name().equals(entity.getStatus())) {
             throw new IllegalStateException("仅 RUNNING 状态可暂停，当前状态: " + entity.getStatus());
         }
         orchestrationEngine.pause(executionId);
-        entity.setStatus("PAUSED");
+        entity.setStatus(OrchestrationExecutionStatus.PAUSED.name());
         executionMapper.updateById(entity);
         log.info("暂停编排执行: executionId={}", executionId);
     }
@@ -596,7 +599,7 @@ public class OrchestrationService {
         if (entity == null) {
             throw new IllegalArgumentException("执行实例不存在: " + executionId);
         }
-        if (!"PAUSED".equals(entity.getStatus())) {
+        if (!OrchestrationExecutionStatus.PAUSED.name().equals(entity.getStatus())) {
             throw new IllegalStateException("仅 PAUSED 状态可恢复，当前状态: " + entity.getStatus());
         }
         boolean resumable = orchestrationEngine.isPausable(executionId);
@@ -606,7 +609,7 @@ public class OrchestrationService {
             log.warn("恢复编排执行但无可恢复检查点，保持 PAUSED: executionId={}", executionId);
             return false;
         }
-        entity.setStatus("RUNNING");
+        entity.setStatus(OrchestrationExecutionStatus.RUNNING.name());
         executionMapper.updateById(entity);
         log.info("恢复编排执行: executionId={}", executionId);
         return true;
@@ -647,9 +650,9 @@ public class OrchestrationService {
                         upsertNodeExecution(graphRef, executionId, event);
                     }
                 })
-                .doOnComplete(() -> finishExecution(entity, "SUCCEEDED", null))
-                .doOnError(e -> finishExecution(entity, "FAILED", e.getMessage()))
-                .doOnCancel(() -> finishExecution(entity, "CANCELLED", null));
+                .doOnComplete(() -> finishExecution(entity, OrchestrationExecutionStatus.SUCCEEDED.name(), null))
+                .doOnError(e -> finishExecution(entity, OrchestrationExecutionStatus.FAILED.name(), e.getMessage()))
+                .doOnCancel(() -> finishExecution(entity, OrchestrationExecutionStatus.CANCELLED.name(), null));
     }
 
     private void finishExecution(OrchestrationExecutionEntity entity, String status, String error) {
@@ -666,14 +669,15 @@ public class OrchestrationService {
      */
     public void cancelExecution(String executionId) {
         OrchestrationExecutionEntity entity = executionMapper.selectById(executionId);
-        if (entity != null && ("RUNNING".equals(entity.getStatus()) || "PAUSED".equals(entity.getStatus()))) {
+        if (entity != null && (OrchestrationExecutionStatus.RUNNING.name().equals(entity.getStatus())
+                    || OrchestrationExecutionStatus.PAUSED.name().equals(entity.getStatus()))) {
             // 引擎协作式取消：运行中发信号（当前节点后优雅结束）；已暂停则丢弃检查点
             orchestrationEngine.cancel(executionId);
             OrchestrationContext ctx = liveContexts.get(executionId);
             if (ctx != null) {
                 entity.setVariables(buildCancelSnapshot(ctx, entity));
             }
-            entity.setStatus("CANCELLED");
+            entity.setStatus(OrchestrationExecutionStatus.CANCELLED.name());
             entity.setCompletedAt(Instant.now().toEpochMilli());
             executionMapper.updateById(entity);
             liveContexts.remove(executionId);

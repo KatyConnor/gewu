@@ -5,6 +5,7 @@ import com.baomidou.mybatisplus.extension.plugins.pagination.Page;
 import com.gewu.application.agent.dto.AgentExecutionDTO;
 import com.gewu.common.context.UserContext;
 import com.gewu.common.dto.PageQuery;
+import com.gewu.domain.agent.enums.AgentExecutionStatus;
 import com.gewu.common.result.BusinessException;
 import com.gewu.common.result.PageResult;
 import com.gewu.common.result.ResultCode;
@@ -19,6 +20,18 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
+
+/**
+ * 智能体执行记录应用服务，负责 Agent 执行生命周期的落库与查询。
+ *
+ * <p>职责：创建执行记录（支持 A/B 实验分组）、完成/失败状态流转（记录输出、耗时与 token 消耗）、
+ * 按 Agent 分页查询（仅创建者或 ADMIN 可见）与按当前用户分页查询。
+ * 底层经由 AgentExecutionMapper / AgentMapper（MyBatis-Plus）访问持久化数据。
+ *
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-07-09
+ */
 
 @Slf4j
 @Service
@@ -50,7 +63,7 @@ public class AgentExecutionService {
         execution.setAgentId(agentId);
         execution.setSessionId(sessionId);
         execution.setUserId(UserContext.currentUserId());
-        execution.setStatus("running");
+        execution.setStatus(AgentExecutionStatus.RUNNING.name());
         execution.setInput(input);
         execution.setExperimentGroup(experimentGroup);
         execution.setStartedAt(Instant.now().toEpochMilli());
@@ -66,7 +79,7 @@ public class AgentExecutionService {
         }
 
         long now = Instant.now().toEpochMilli();
-        execution.setStatus("completed");
+        execution.setStatus(AgentExecutionStatus.COMPLETED.name());
         execution.setOutput(output);
         execution.setTokensUsed(tokensUsed);
         execution.setCompletedAt(now);
@@ -84,7 +97,7 @@ public class AgentExecutionService {
         }
 
         long now = Instant.now().toEpochMilli();
-        execution.setStatus("failed");
+        execution.setStatus(AgentExecutionStatus.FAILED.name());
         execution.setErrorMessage(errorMessage);
         execution.setCompletedAt(now);
         execution.setDurationMs(execution.getStartedAt() != null
