@@ -1,0 +1,7 @@
+{
+  "verdict" : "PASS",
+  "detail" : "no-baseline（首轮热身：请人工确认本轮结果合理后，将 latest-run.json 的 summaries 内容固化入 quality-baseline.json）",
+  "checkedAt" : "2026-11-14T12:18:44.323218021Z",
+  "regressions" : { },
+  "latestReportId" : "b0383735-3eda-4a14-8da8-aaa49f1d4905"
+}
