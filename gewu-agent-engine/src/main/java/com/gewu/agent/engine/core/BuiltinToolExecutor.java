@@ -4,6 +4,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.gewu.agent.engine.core.event.AgentEvent;
 import com.gewu.agent.engine.llm.model.Message;
+import com.gewu.agent.engine.hitl.UserInteractionGateway;
+import com.gewu.agent.engine.llm.model.ToolCall;
 import com.gewu.agent.engine.tool.ToolContext;
 import com.gewu.agent.engine.tool.ToolResult;
 import lombok.extern.slf4j.Slf4j;
@@ -27,13 +29,16 @@ class BuiltinToolExecutor {
 
     private final ReactAgentExecutor owner;
     private final com.gewu.agent.engine.tool.FileWorkspaceSpi fileWorkspace;
+    private final com.gewu.agent.engine.hitl.UserInteractionGateway userInteractionGateway;
     private final ObjectMapper objectMapper;
 
     BuiltinToolExecutor(ReactAgentExecutor owner,
                         com.gewu.agent.engine.tool.FileWorkspaceSpi fileWorkspace,
+                        com.gewu.agent.engine.hitl.UserInteractionGateway userInteractionGateway,
                         ObjectMapper objectMapper) {
         this.owner = owner;
         this.fileWorkspace = fileWorkspace;
+        this.userInteractionGateway = userInteractionGateway;
         this.objectMapper = objectMapper;
     }
 
@@ -185,6 +190,66 @@ class BuiltinToolExecutor {
                     .build();
         } catch (Exception e) {
             return ToolResult.builder().success(false).error("计划解析失败: " + e.getMessage()).build();
+        }
+    }
+    /**
+     * ask_user（HITL 问答）：头发 ASK_USER 事件（问题+askId+选项），随后挂起等待用户回答。
+     * 工具 Flux 不完成即整条流在此停留（下一轮推理不启动，心跳保活照常）；
+     * 用户回答（或跳过/超时降级应答）到达后回灌为工具结果，自动续跑。
+     */
+    Flux<AgentEvent> executeAskUserStream(ToolCall tc, ToolContext toolContext, List<Message> messages) {
+        if (userInteractionGateway == null) {
+            String fallback = "（用户交互通道未配置，请基于现有信息自主决策并继续任务）";
+            owner.appendToolMessage(messages, tc, fallback);
+            return Flux.just(owner.toolResultEvent(tc, fallback));
+        }
+        try {
+            JsonNode root = objectMapper.readTree(tc.getArguments() != null ? tc.getArguments() : "{}");
+            String question = root.path("question").asText("");
+            java.util.List<String> options = new java.util.ArrayList<>();
+            if (root.has("options") && root.get("options").isArray()) {
+                root.get("options").forEach(n -> options.add(n.asText()));
+            }
+            if (question.isBlank()) {
+                String output = "提问内容为空，已忽略（请基于现有信息继续任务）";
+                owner.appendToolMessage(messages, tc, output);
+                return Flux.just(owner.toolResultEvent(tc, output));
+            }
+            String askId = "ask-" + java.util.UUID.randomUUID();
+            UserInteractionGateway.AskRequest request = UserInteractionGateway.AskRequest.builder()
+                    .askId(askId)
+                    .sessionId(toolContext.getSessionId())
+                    .question(question)
+                    .options(options)
+                    .timeoutSeconds(owner.config.getAskTimeoutSeconds())
+                    .build();
+            java.util.Map<String, Object> meta = new java.util.LinkedHashMap<>();
+            meta.put("askId", askId);
+            meta.put("question", question);
+            meta.put("options", options);
+            AgentEvent askEvent = AgentEvent.builder()
+                    .type(AgentEvent.ASK_USER)
+                    .metadata(meta)
+                    .build();
+            return Flux.concat(
+                    Flux.just(askEvent),
+                    userInteractionGateway.askQuestion(request)
+                            .map(answer -> {
+                                owner.appendToolMessage(messages, tc, answer);
+                                return owner.toolResultEvent(tc, answer);
+                            })
+                            .onErrorResume(e -> {
+                                log.warn("ask_user 等待回答异常: {}", e.getMessage());
+                                String output = "（提问通道异常，请基于现有信息继续任务）";
+                                owner.appendToolMessage(messages, tc, output);
+                                return reactor.core.publisher.Mono.just(owner.toolResultEvent(tc, output));
+                            })
+                            .flux());
+        } catch (Exception e) {
+            log.warn("ask_user 解析失败: {}", e.getMessage());
+            String output = "提问解析失败: " + e.getMessage();
+            owner.appendToolMessage(messages, tc, output);
+            return Flux.just(owner.toolResultEvent(tc, output));
         }
     }
 }

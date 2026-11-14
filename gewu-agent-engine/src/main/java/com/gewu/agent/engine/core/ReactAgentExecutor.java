@@ -66,7 +66,7 @@ public class ReactAgentExecutor implements AgentExecutor {
     private final MessageBuilder messageBuilder;
     private final SessionContextService sessionContextService;
     private final PersistenceService persistenceService;
-    private final AgentEngineConfig config;
+    final AgentEngineConfig config;
     private final ObjectMapper objectMapper;
     private final MemoryRouter memoryRouter;
     private final MemoryStore memoryStore;
@@ -1065,7 +1065,7 @@ public class ReactAgentExecutor implements AgentExecutor {
 
     private BuiltinToolExecutor builtinTools() {
         if (builtinTools == null) {
-            builtinTools = new BuiltinToolExecutor(this, fileWorkspace, objectMapper);
+            builtinTools = new BuiltinToolExecutor(this, fileWorkspace, userInteractionGateway, objectMapper);
         }
         return builtinTools;
     }
@@ -1246,65 +1246,9 @@ public class ReactAgentExecutor implements AgentExecutor {
         return builtinTools().executePlanToolStream(tc, toolContext, messages);
     }
 
-    /**
-     * ask_user（HITL 问答）：头发 ASK_USER 事件（问题+askId+选项），随后挂起等待用户回答。
-     * 工具 Flux 不完成即整条流在此停留（下一轮推理不启动，心跳保活照常）；
-     * 用户回答（或跳过/超时降级应答）到达后回灌为工具结果，自动续跑。
-     */
+    /** ask_user（HITL 问答）：AE-P2-1 三期步3 委托 BuiltinToolExecutor（逻辑外移） */
     private Flux<AgentEvent> executeAskUserStream(ToolCall tc, ToolContext toolContext, List<Message> messages) {
-        if (userInteractionGateway == null) {
-            String fallback = "（用户交互通道未配置，请基于现有信息自主决策并继续任务）";
-            appendToolMessage(messages, tc, fallback);
-            return Flux.just(toolResultEvent(tc, fallback));
-        }
-        try {
-            JsonNode root = objectMapper.readTree(tc.getArguments() != null ? tc.getArguments() : "{}");
-            String question = root.path("question").asText("");
-            java.util.List<String> options = new java.util.ArrayList<>();
-            if (root.has("options") && root.get("options").isArray()) {
-                root.get("options").forEach(n -> options.add(n.asText()));
-            }
-            if (question.isBlank()) {
-                String output = "提问内容为空，已忽略（请基于现有信息继续任务）";
-                appendToolMessage(messages, tc, output);
-                return Flux.just(toolResultEvent(tc, output));
-            }
-            String askId = "ask-" + java.util.UUID.randomUUID();
-            UserInteractionGateway.AskRequest request = UserInteractionGateway.AskRequest.builder()
-                    .askId(askId)
-                    .sessionId(toolContext.getSessionId())
-                    .question(question)
-                    .options(options)
-                    .timeoutSeconds(config.getAskTimeoutSeconds())
-                    .build();
-            java.util.Map<String, Object> meta = new java.util.LinkedHashMap<>();
-            meta.put("askId", askId);
-            meta.put("question", question);
-            meta.put("options", options);
-            AgentEvent askEvent = AgentEvent.builder()
-                    .type(AgentEvent.ASK_USER)
-                    .metadata(meta)
-                    .build();
-            return Flux.concat(
-                    Flux.just(askEvent),
-                    userInteractionGateway.askQuestion(request)
-                            .map(answer -> {
-                                appendToolMessage(messages, tc, answer);
-                                return toolResultEvent(tc, answer);
-                            })
-                            .onErrorResume(e -> {
-                                log.warn("ask_user 等待回答异常: {}", e.getMessage());
-                                String output = "（提问通道异常，请基于现有信息继续任务）";
-                                appendToolMessage(messages, tc, output);
-                                return reactor.core.publisher.Mono.just(toolResultEvent(tc, output));
-                            })
-                            .flux());
-        } catch (Exception e) {
-            log.warn("ask_user 解析失败: {}", e.getMessage());
-            String output = "提问解析失败: " + e.getMessage();
-            appendToolMessage(messages, tc, output);
-            return Flux.just(toolResultEvent(tc, output));
-        }
+        return builtinTools().executeAskUserStream(tc, toolContext, messages);
     }
 
     /** 同步路径执行 plan_task：AE-P2-1 三期步2 委托 BuiltinToolExecutor（逻辑外移） */
