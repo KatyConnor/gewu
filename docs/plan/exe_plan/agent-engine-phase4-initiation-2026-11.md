@@ -12,7 +12,7 @@
 | 卡片 | AE-PLAN 原触发条件 | 现状核验（2026-11-14 证据） | 触发判定 |
 |---|---|---|---|
 | P4-A 单轨统一再决策 | 编排图 HUMAN/TOOL 治理能力追平 veloflow | **未追平**：veloflow 有权限矩阵（VLF_WORKFLOW_PERMISSION/MATRIX）、委托、待办、通知（24 节点 Handler），编排图仅 HUMAN 审批节点（approval_request 表）+ SSE 通知 | ❄️ 未触发——维持"冻结双轨为正式契约"方向 |
-| **P4-B 多副本化** | 部署形态升级决策 | **deploy/helm/gewu-platform/values.yaml:15 interface replicas=2**（chart 侧已生效：安装即 2 副本，无 enabled 门；集群侧实际部署状态待 §2.5-1 运维确认）；而引擎内存态（liveContexts 执行上下文/ChatRunRegistry/ExecutionControl 注册表/编排内存检查点）与 veloflow 实例锁（WorkflowScheduler:56 ReentrantLock）均未适配 | 🔴 **已触发，风险敞口为条件式**（chart 部署态下 SSE 跨实例/暂停恢复跨副本/veloflow 并发锁三面敞口并存；SSE 面已被配置侧 sseDistributed=true 关闭——F-02 校正） |
+| **P4-B 多副本化** | 部署形态升级决策 | **deploy/helm/gewu-platform/values.yaml:15 interface replicas=2**（chart 侧已生效：安装即 2 副本，无 enabled 门；集群侧实际部署状态待 §2.5-1 运维确认）；而引擎内存态（liveContexts 执行上下文/ChatRunRegistry/ExecutionControl 注册表/编排内存检查点）与 veloflow 实例锁（WorkflowScheduler:56 ReentrantLock）均未适配 | 🔴→🟡 **已触发→敞口=条件式**（2026-11-14 用户确认：未 K8s 部署、无 release——判定表第三行成立；P4-B 转为**首次 K8s 部署前置清单**，部署前必须完成锁 CAS 化+粘性路由验证） |
 | P4-C 上下文压缩深化 | AE-P1-1 接线后长会话实测不达标 | D-6 灰度分派机制就绪但默认 REACT 未开启（复评待知识库灌入）；ContextCompactor 宿主实现为"放弃压缩"NoOp | ⏸ 前置未熟——随复评数据触发 |
 | P4-D 评测 CI 门禁 | 阶段 2 复评基建稳定 | 评测基建已稳定运行（EvaluationService/ExperimentService/跑批器；reeval 触发器 AE-P1-3 已建）；JaCoCo 棘轮已在（五包 ≥0.70） | 🟢 **前置已熟**——最便宜且为 A/B 提供数据基础 |
 
@@ -80,11 +80,15 @@
 
 跑批调度复用 AE-P1-3 触发器基建；基准文件（quality-baseline.json）入库；PR 门禁脚本比对棘轮（±5% 容差内放行，超出标红待评）。工作量 ≈ **3 人日**。风险：Judge 供应商波动 → 双 Judge 取中位数（45 号已有多 Judge 经验）。
 
+**✅ 已实施（2026-11-14）**：`QualityBaselineRunner`（定时跑批+latest-run.json+棘轮只紧不松+gate-state.json）+ `scripts/quality-gate.py`（CI 本地比对，exit 0/1）+ `tests/quality/` 文件族；测试 5/5（热身/容差内棘轮不松/超容差 FAIL/提升上调）。CI 接线：Jenkins stage 加 `python3 scripts/quality-gate.py --strict`。
+
 ---
 
 ## 四、P4-A 单轨统一冻结立项卡片（P2，轻量动作）
 
 **触发未成立**（治理能力未追平，§一）。按长期-10 准则的"否则"分支执行**冻结动作**：①run_workflow/run_orchestration_graph 两互操作工具与 FlowAiBridge 三方法宣布为**正式集成契约**（加契约测试锁定，防止静默破坏）②文档声明双轨稳态（28 号边界 + 本立项修订 ADR-001 为"双轨并存、互操作契约化"）。工作量 ≈ **1 人日**（契约测试 2-3 个）。触发条件持续监控：编排图治理能力每迭代盘点一次。
+
+**✅ 已实施（2026-11-14）**：ADR-001 修订注记（本节即修订记录）+ 契约测试锁定：`RunWorkflowToolContractTest` 4/4（工具面/行为面/超时面/降级面）+ `FlowAiBridgeContractTest` 2/2（SPI 方法面与嵌套 record 反射锁定）——契约面漂移即测试失败。
 
 ---
 
@@ -98,10 +102,10 @@
 
 | # | 决策点 | 建议 |
 |---|---|---|
-| 1 | P4-B 是否本轮立项开工 | **建议是**（helm 2 副本证据 + 风险敞口；8 人日） |
+| 1 | P4-B 是否本轮立项开工 | **转为首次 K8s 部署前置清单**（2026-11-14 用户确认未部署无 release——敞口=条件式；部署前必须完成锁 CAS 化+粘性验证） |
 | 2 | P4-B 锁方案 | 建议先 DB CAS（ADR-4B-1），Redisson 备选 |
-| 3 | P4-D 是否本轮立项 | **建议是**（3 人日，方案 B 定时棘轮） |
-| 4 | P4-A 冻结动作 | 建议随批执行（1 人日契约测试） |
+| 3 | P4-D 是否本轮立项 | **✅ 已实施**（2026-11-14：QualityBaselineRunner+门禁脚本，5/5） |
+| 4 | P4-A 冻结动作 | **✅ 已实施**（契约测试 4/4+2/2 锁定 + ADR-001 修订注记） |
 | 5 | P4-C | 维持挂起（触发器已登记） |
 | 6 | Tomcat 3.3 升级窗口 | 请运维确认是否与 P4-B 合并 |
 

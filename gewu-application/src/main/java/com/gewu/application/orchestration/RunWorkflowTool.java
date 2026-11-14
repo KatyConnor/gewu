@@ -24,6 +24,10 @@ import java.util.concurrent.TimeUnit;
  * <p>安全边界：仅允许已发布流程；单次等待时长帽
  * {@code agent.engine.tool.workflow.timeout-seconds}（默认 300s），
  * 超时实例仍在后台执行并如实告知；触发类型 MANUAL，发起人记当前用户。
+ *
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-09-28
  */
 @Slf4j
 @ToolProvider(category = "WORKFLOW")
@@ -55,7 +59,7 @@ public class RunWorkflowTool implements Tool {
     private final ObjectMapper objectMapper;
 
     @Value("${agent.engine.tool.workflow.timeout-seconds:300}")
-    private long timeoutSeconds = 300;
+    long timeoutSeconds = 300;
 
     public RunWorkflowTool(ObjectProvider<WorkflowInstanceService> instanceServiceProvider,
                            ObjectMapper objectMapper) {
