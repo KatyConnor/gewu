@@ -53,8 +53,12 @@
 
 ### 2.5 前置条件（需用户/运维确认）
 
-1. helm chart replicas=2 是否已实际部署（或仅 chart 就绪）——**决定敞口紧迫度**；
-2. Redis 是否在部署清单（SSE distributed 前置）；
+1. **helm chart replicas=2 是否已实际部署——核查命令清单（2026-11-14 补，部署机上执行；开发机已探明不构成事实来源：无 helm/kubectl，依赖容器化+应用进程形态）**：
+   - Helm 路径：`helm list -A`（有无 release）→ `helm get values <release>`（**部署时实际下发的 values 才是事实**，非仓库 chart）→ `helm get manifest <release> | grep -B2 -A2 replicas`
+   - K8s 实况：`kubectl get deploy -A | grep -i gewu` → `kubectl get pods -o wide`（Pod 数与节点分布 = 副本数的直接证据）
+   - 运行时侧证（免 kubectl）：interface 各实例日志的 machine-id/instance 标识是否出现 ≥2 个不同值；dragonfly 中 SSE 频道订阅者数（`redis-cli -h <dragonfly> pubsub numsub <sse 频道>`）；网关 upstream 健康实例数
+   - 判定表：release 存在且 replicas=2 → **敞口现网成立，P4-B 立即排期**；release 存在但 replicas=1 → chart 就绪未生效，P4-B 维持触发待升级窗口；无 release → chart 仅就绪，敞口=条件式（维持 P0 建议但紧迫度降级）
+2. Redis 是否在部署清单（SSE distributed 前置）——**部分已答**：开发机 dragonfly v1.27.1 在跑（shared-redis 容器），生产部署清单待运维确认；
 3. Tomcat 3.3 升级窗口是否可与本项合并。
 
 ---
