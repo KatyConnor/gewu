@@ -54,9 +54,21 @@ public class QualityBaselineRunner {
     String outputDir;
     @Value("${gewu.evaluation.quality-gate.cron:0 40 3 * * *}")
     String cron;
+    /** 首跑开关（P4-D 首跑）：应用就绪即执行一次跑批（本地/环境热身；日常用定时与开关控制） */
+    @Value("${gewu.evaluation.quality-gate.first-run-on-startup:false}")
+    boolean firstRunOnStartup;
 
     public QualityBaselineRunner(ObjectProvider<EvaluationRunner> evaluationRunner) {
         this.evaluationRunner = evaluationRunner;
+    }
+
+    /** P4-D 首跑入口：应用就绪且 first-run-on-startup=true 时执行一次（产出 latest-run/gate-state 供人工确认固化） */
+    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+    public void firstRunOnReady() {
+        if (firstRunOnStartup) {
+            String result = tryRun("startup-first-run");
+            log.info("P4-D 首跑（startup-first-run）: {}", result);
+        }
     }
 
     @Scheduled(cron = "${gewu.evaluation.quality-gate.cron:0 40 3 * * *}")
