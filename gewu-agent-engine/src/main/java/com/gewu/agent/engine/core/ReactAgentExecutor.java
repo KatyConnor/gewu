@@ -1058,6 +1058,17 @@ public class ReactAgentExecutor implements AgentExecutor {
     }
 
     // ==================== 内置工具执行（S9：plan_task / 文件工具） ====================
+    // AE-P2-1 三期：执行逻辑分步外移至 BuiltinToolExecutor（本类保留薄分派）
+
+    /** 内置工具执行器（懒初始化：@RequiredArgsConstructor 生成构造器，构造后按需装配） */
+    private BuiltinToolExecutor builtinTools;
+
+    private BuiltinToolExecutor builtinTools() {
+        if (builtinTools == null) {
+            builtinTools = new BuiltinToolExecutor(this, fileWorkspace, objectMapper);
+        }
+        return builtinTools;
+    }
 
     private boolean isBuiltinTool(String name) {
         return PLAN_TOOL_NAME.equals(name)
@@ -1108,94 +1119,9 @@ public class ReactAgentExecutor implements AgentExecutor {
                 .flux();
     }
 
-    /** 文件工具执行（S9 F3）：read/write/edit/list，经 FileWorkspaceSpi 路由到会话工作空间 */
+    /** 文件工具执行（S9 F3）：AE-P2-1 三期步1 委托 BuiltinToolExecutor（逻辑外移，行为逐字节一致） */
     private ToolResult executeFileTool(ToolCall tc, ToolContext toolContext) {
-        if (fileWorkspace == null || !fileWorkspace.available()) {
-            return ToolResult.builder().success(false).error("文件工具未配置").build();
-        }
-        String name = tc.getName();
-        String args = tc.getArguments() != null ? tc.getArguments() : "{}";
-        try {
-            JsonNode root = objectMapper.readTree(args);
-            String path = root.path("path").asText("");
-            // list_dir 的 path 可省略（默认工作空间根，与 LIST_DIR_SCHEMA required:[] 一致）
-            if (path.isBlank() && !LIST_DIR_TOOL.equals(name)) {
-                return ToolResult.builder().success(false).error("缺少 path 参数").build();
-            }
-            switch (name) {
-                case READ_FILE_TOOL -> {
-                    String content = fileWorkspace.readFile(toolContext, path);
-                    if (content == null) {
-                        return ToolResult.builder().success(false).error(
-                                "文件不存在: " + path
-                                        + "（path 应为相对当前工作空间根目录的路径，不要以 / 开头或加 workspace/ 前缀；"
-                                        + "@global/ 前缀可只读访问全局资源；可用 list_dir 查看根目录内容后重试）").build();
-                    }
-                    // 内容截断保护（与外发工具同款输出上限策略，默认 10KB）
-                    return ToolResult.builder().success(true)
-                            .output(appendNestedEntry(truncate(content, 10 * 1024), toolContext, path, fileWorkspace))
-                            .build();
-                }
-                case WRITE_FILE_TOOL -> {
-                    String content = root.path("content").asText("");
-                    fileWorkspace.writeFile(toolContext, path, content);
-                    invalidateNestedProbeCache(toolContext, path);
-                    return ToolResult.builder().success(true)
-                            .output(appendNestedEntry("已写入 " + path + "（" + content.length() + " 字符）", toolContext, path, fileWorkspace))
-                            .build();
-                }
-                case EDIT_FILE_TOOL -> {
-                    String oldText = root.path("old_text").asText("");
-                    String newText = root.path("new_text").asText("");
-                    if (oldText.isEmpty()) {
-                        return ToolResult.builder().success(false).error("缺少 old_text 参数").build();
-                    }
-                    String current = fileWorkspace.readFile(toolContext, path);
-                    if (current == null) {
-                        return ToolResult.builder().success(false).error(
-                                "文件不存在: " + path
-                                        + "（path 应为相对当前工作空间根目录的路径，不要以 / 开头或加 workspace/ 前缀；"
-                                        + "可用 list_dir 查看根目录内容后重试）").build();
-                    }
-                    int idx = current.indexOf(oldText);
-                    if (idx < 0) {
-                        return ToolResult.builder().success(false)
-                                .error("未找到要替换的文本（old_text 不匹配）: " + path).build();
-                    }
-                    if (current.indexOf(oldText, idx + 1) >= 0) {
-                        return ToolResult.builder().success(false)
-                                .error("old_text 在文件中多处匹配，请提供更长的唯一上下文").build();
-                    }
-                    String updated = current.substring(0, idx) + newText + current.substring(idx + oldText.length());
-                    fileWorkspace.writeFile(toolContext, path, updated);
-                    // 起始行号与增删行数随结果下发：前端过程时间线据此渲染 zcode 风格差异块（+N -N / 红绿行号）
-                    int startLine = 1;
-                    for (int i = 0; i < idx; i++) {
-                        if (current.charAt(i) == '\n') startLine++;
-                    }
-                    int[] diff = diffLineCounts(oldText, newText);
-                    invalidateNestedProbeCache(toolContext, path);
-                    return ToolResult.builder().success(true)
-                            .output(appendNestedEntry("已编辑 " + path + "（第 " + startLine + " 行起，+" + diff[0] + " -" + diff[1] + "）", toolContext, path, fileWorkspace))
-                            .build();
-                }
-                case LIST_DIR_TOOL -> {
-                    List<String> entries = fileWorkspace.listDir(toolContext, path);
-                    if (entries.isEmpty()) {
-                        return ToolResult.builder().success(true).output("(空目录)").build();
-                    }
-                    return ToolResult.builder().success(true)
-                            .output(truncate(String.join("\n", entries), 4096)).build();
-                }
-                default -> {
-                    return ToolResult.builder().success(false).error("未知内置工具: " + name).build();
-                }
-            }
-        } catch (Exception e) {
-            log.warn("文件工具执行失败: err={}", e.getMessage());
-            // 通用文案（CR L3-SEC-020 邻域：原始异常可能含沙箱内部路径，不进模型上下文）
-            return ToolResult.builder().success(false).error("文件操作失败，请重试或调整参数").build();
-        }
+        return builtinTools().executeFileTool(tc, toolContext);
     }
 
     /** 写/编辑入口文件本身时失效探针缓存（模型新建子目录入口文件可被即时发现）。包私有以便直测。 */
@@ -2236,7 +2162,8 @@ public class ReactAgentExecutor implements AgentExecutor {
         }
     }
 
-    private String truncate(String text, int maxLength) {
+    /** 文本截断（AE-P2-1 三期：包级可见，BuiltinToolExecutor 共享 helper） */
+    String truncate(String text, int maxLength) {
         if (text == null) return "";
         return text.length() <= maxLength ? text : text.substring(0, maxLength);
     }
