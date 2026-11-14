@@ -1241,46 +1241,9 @@ public class ReactAgentExecutor implements AgentExecutor {
         return new int[]{n - common, m - common};
     }
 
-    /** 流式路径执行 plan_task：发计划事件（首次创建/后续更新）+ 工具结果事件，并回灌 tool 消息 */
+    /** 流式路径执行 plan_task：AE-P2-1 三期步2 委托 BuiltinToolExecutor（逻辑外移） */
     private Flux<AgentEvent> executePlanToolStream(ToolCall tc, ToolContext toolContext, List<Message> messages) {
-        boolean firstCall;
-        try {
-            JsonNode root = objectMapper.readTree(tc.getArguments() != null ? tc.getArguments() : "{}");
-            ToolContext.PlanState state = planStateOf(toolContext);
-            firstCall = state.getSteps().isEmpty();
-            applyPlanState(state, root);
-            // 计划正文落盘（可选 markdown 参数）：保存到会话工作空间 plan/ 目录，
-            // 前端"查看完整计划"经文件内容接口读取预览；planPath 随计划事件与 done 快照透传
-            String markdown = root.path("markdown").asText("");
-            if (!markdown.isBlank() && fileWorkspace != null && fileWorkspace.available()) {
-                try {
-                    String planPath = "plan/plan-" + java.time.format.DateTimeFormatter
-                            .ofPattern("yyyyMMdd-HHmmss")
-                            .withZone(java.time.ZoneId.systemDefault())
-                            .format(java.time.Instant.now()) + ".md";
-                    fileWorkspace.writeFile(toolContext, planPath, markdown);
-                    state.setPlanPath(planPath);
-                } catch (Exception e) {
-                    log.warn("计划文件写入失败（不影响计划清单）: {}", e.getMessage());
-                }
-            }
-            String output = "任务清单已更新：" + state.getSteps().size() + " 项步骤"
-                    + (state.getPlanPath() != null ? "（计划文件: " + state.getPlanPath() + "）" : "");
-            appendToolMessage(messages, tc, output);
-            AgentEvent.AgentEventBuilder eventBuilder = AgentEvent.builder()
-                    .type(firstCall ? AgentEvent.PLAN_CREATED : AgentEvent.PLAN_UPDATED)
-                    .planTitle(state.getTitle())
-                    .plan(state.getSteps());
-            if (state.getPlanPath() != null) {
-                eventBuilder.metadata(new java.util.LinkedHashMap<>(java.util.Map.of("planPath", state.getPlanPath())));
-            }
-            return Flux.just(eventBuilder.build(), toolResultEvent(tc, output));
-        } catch (Exception e) {
-            log.warn("plan_task 解析失败: {}", e.getMessage());
-            String output = "计划解析失败: " + e.getMessage();
-            appendToolMessage(messages, tc, output);
-            return Flux.just(toolResultEvent(tc, output));
-        }
+        return builtinTools().executePlanToolStream(tc, toolContext, messages);
     }
 
     /**
@@ -1344,18 +1307,9 @@ public class ReactAgentExecutor implements AgentExecutor {
         }
     }
 
-    /** 同步路径执行 plan_task：仅更新计划状态并返回工具结果（同步无事件流） */
+    /** 同步路径执行 plan_task：AE-P2-1 三期步2 委托 BuiltinToolExecutor（逻辑外移） */
     private ToolResult executePlanToolSync(String arguments, ToolContext toolContext) {
-        try {
-            JsonNode root = objectMapper.readTree(arguments != null ? arguments : "{}");
-            ToolContext.PlanState state = planStateOf(toolContext);
-            applyPlanState(state, root);
-            return ToolResult.builder().success(true)
-                    .output("任务清单已更新：" + state.getSteps().size() + " 项步骤")
-                    .build();
-        } catch (Exception e) {
-            return ToolResult.builder().success(false).error("计划解析失败: " + e.getMessage()).build();
-        }
+        return builtinTools().executePlanToolSync(arguments, toolContext);
     }
 
     // ==================== 子代理派生（spawn_subagents） ====================
@@ -1758,14 +1712,14 @@ public class ReactAgentExecutor implements AgentExecutor {
                 .build();
     }
 
-    private ToolContext.PlanState planStateOf(ToolContext toolContext) {
+    ToolContext.PlanState planStateOf(ToolContext toolContext) {
         if (toolContext.getPlanState() == null) {
             toolContext.setPlanState(new ToolContext.PlanState());
         }
         return toolContext.getPlanState();
     }
 
-    private void applyPlanState(ToolContext.PlanState state, JsonNode root) {
+    void applyPlanState(ToolContext.PlanState state, JsonNode root) {
         List<AgentEvent.PlanStepInfo> steps = new ArrayList<>();
         JsonNode stepsNode = root.path("steps");
         if (stepsNode.isArray()) {
@@ -1786,7 +1740,7 @@ public class ReactAgentExecutor implements AgentExecutor {
         state.setSteps(steps);
     }
 
-    private void appendToolMessage(List<Message> messages, ToolCall tc, String output) {
+    void appendToolMessage(List<Message> messages, ToolCall tc, String output) {
         synchronized (messages) {
             messages.add(Message.builder()
                     .role("tool")
@@ -1797,7 +1751,7 @@ public class ReactAgentExecutor implements AgentExecutor {
         }
     }
 
-    private AgentEvent toolResultEvent(ToolCall tc, String output) {
+    AgentEvent toolResultEvent(ToolCall tc, String output) {
         return AgentEvent.builder()
                 .type(AgentEvent.TOOL_RESULT)
                 .toolResult(AgentEvent.ToolResultInfo.builder()

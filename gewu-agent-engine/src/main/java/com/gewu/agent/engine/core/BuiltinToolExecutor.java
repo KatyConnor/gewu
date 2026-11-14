@@ -7,6 +7,7 @@ import com.gewu.agent.engine.llm.model.Message;
 import com.gewu.agent.engine.tool.ToolContext;
 import com.gewu.agent.engine.tool.ToolResult;
 import lombok.extern.slf4j.Slf4j;
+import java.util.List;
 import reactor.core.publisher.Flux;
 
 /**
@@ -127,6 +128,63 @@ class BuiltinToolExecutor {
             log.warn("文件工具执行失败: err={}", e.getMessage());
             // 通用文案（CR L3-SEC-020 邻域：原始异常可能含沙箱内部路径，不进模型上下文）
             return ToolResult.builder().success(false).error("文件操作失败，请重试或调整参数").build();
+        }
+    }
+
+    /** 流式路径执行 plan_task：发计划事件（首次创建/后续更新）+ 工具结果事件，并回灌 tool 消息 */
+    Flux<AgentEvent> executePlanToolStream(com.gewu.agent.engine.llm.model.ToolCall tc, ToolContext toolContext,
+                                           List<Message> messages) {
+        boolean firstCall;
+        try {
+            JsonNode root = objectMapper.readTree(tc.getArguments() != null ? tc.getArguments() : "{}");
+            ToolContext.PlanState state = owner.planStateOf(toolContext);
+            firstCall = state.getSteps().isEmpty();
+            owner.applyPlanState(state, root);
+            // 计划正文落盘（可选 markdown 参数）：保存到会话工作空间 plan/ 目录，
+            // 前端"查看完整计划"经文件内容接口读取预览；planPath 随计划事件与 done 快照透传
+            String markdown = root.path("markdown").asText("");
+            if (!markdown.isBlank() && fileWorkspace != null && fileWorkspace.available()) {
+                try {
+                    String planPath = "plan/plan-" + java.time.format.DateTimeFormatter
+                            .ofPattern("yyyyMMdd-HHmmss")
+                            .withZone(java.time.ZoneId.systemDefault())
+                            .format(java.time.Instant.now()) + ".md";
+                    fileWorkspace.writeFile(toolContext, planPath, markdown);
+                    state.setPlanPath(planPath);
+                } catch (Exception e) {
+                    log.warn("计划文件写入失败（不影响计划清单）: {}", e.getMessage());
+                }
+            }
+            String output = "任务清单已更新：" + state.getSteps().size() + " 项步骤"
+                    + (state.getPlanPath() != null ? "（计划文件: " + state.getPlanPath() + "）" : "");
+            owner.appendToolMessage(messages, tc, output);
+            AgentEvent.AgentEventBuilder eventBuilder = AgentEvent.builder()
+                    .type(firstCall ? AgentEvent.PLAN_CREATED : AgentEvent.PLAN_UPDATED)
+                    .planTitle(state.getTitle())
+                    .plan(state.getSteps());
+            if (state.getPlanPath() != null) {
+                eventBuilder.metadata(new java.util.LinkedHashMap<>(java.util.Map.of("planPath", state.getPlanPath())));
+            }
+            return Flux.just(eventBuilder.build(), owner.toolResultEvent(tc, output));
+        } catch (Exception e) {
+            log.warn("plan_task 解析失败: {}", e.getMessage());
+            String output = "计划解析失败: " + e.getMessage();
+            owner.appendToolMessage(messages, tc, output);
+            return Flux.just(owner.toolResultEvent(tc, output));
+        }
+    }
+
+    /** 同步路径执行 plan_task：仅更新计划状态并返回工具结果（同步无事件流） */
+    ToolResult executePlanToolSync(String arguments, ToolContext toolContext) {
+        try {
+            JsonNode root = objectMapper.readTree(arguments != null ? arguments : "{}");
+            ToolContext.PlanState state = owner.planStateOf(toolContext);
+            owner.applyPlanState(state, root);
+            return ToolResult.builder().success(true)
+                    .output("任务清单已更新：" + state.getSteps().size() + " 项步骤")
+                    .build();
+        } catch (Exception e) {
+            return ToolResult.builder().success(false).error("计划解析失败: " + e.getMessage()).build();
         }
     }
 }
