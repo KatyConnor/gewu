@@ -82,6 +82,12 @@
 
 **✅ 已实施（2026-11-14）**：`QualityBaselineRunner`（定时跑批+latest-run.json+棘轮只紧不松+gate-state.json）+ `scripts/quality-gate.py`（CI 本地比对，exit 0/1）+ `tests/quality/` 文件族；测试 5/5（热身/容差内棘轮不松/超容差 FAIL/提升上调）。CI 接线：Jenkins stage 加 `python3 scripts/quality-gate.py --strict`。
 
+**✅ 首跑完成（2026-11-14）**：12/12 场景真实执行（ark-code/glm-5.3-flash）——baseline 0.828/100%、wenshi 0.802/83.3%，基线已固化（棘轮生效）。
+
+**✅ 前置清单·veloflow 锁 DB CAS 化已实施（2026-11-15）**：`WorkflowInstance` 实体 @Version（MP 乐观锁，主库 OptimisticLockerInnerInterceptor 已在）+ V76 迁移（version 列）+ 挂起/恢复状态位条件 CAS + onCompletion 变量合并写版本 CAS 重试（≤3 次耗尽尽力推进自愈）；本地 ReentrantLock 保留（JVM 内互斥叠加跨副本版本守护）。veloflow 全量 60/60 绿。
+
+**⏳ 前置清单·网关粘性路由（待实施）**：现网关为 SCG 静态直连 `uri: http://localhost:8081`（非服务发现 LB）——多副本需改 `lb://gewu-interface` + Spring Cloud LoadBalancer 会话粘性（ServiceInstanceListSupplier 会话亲和或前置 nginx 一致性哈希）+ SSE distributed 部署态验证（helm 已配 sseDistributed=true、代码路径 SseEventManager/SseDistributedConfig 已核验存在）。此项涉及 LB 基建选型，随首次 K8s 部署窗口实施。
+
 ---
 
 ## 四、P4-A 单轨统一冻结立项卡片（P2，轻量动作）

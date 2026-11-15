@@ -36,7 +36,9 @@ import java.util.concurrent.locks.ReentrantLock;
  * <p>并发控制：onCompletion 按实例 JVM 锁串行化（防并行分支完成回调的变量竞态）；
  * 节点完成幂等（状态机原子更新吞掉重复回调）。多副本部署需升级分布式锁（51 号开放问题）。
  *
- * @since 1.0.0
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-09-27
  */
 @Slf4j
 @Component
@@ -170,6 +172,9 @@ public class WorkflowScheduler {
     /**
      * 节点完成回调（幂等）：原子推进终态 → 写变量 → 推进出边。
      * 重复回调/已取消节点被状态机原子更新吞掉（affected=0 直接忽略）。
+     * <p>P4-B 多副本：实例变量合并写走版本 CAS（MP @Version + OptimisticLocker，
+     * 冲突重试 ≤3 次；耗尽后以最后一次读到的变量尽力推进——下次节点完成会重新
+     * 读取合并，自愈）。重试结束后以 final 承载供后续 lambda 捕获。
      */
     public void onCompletion(String instanceId, WorkflowNodeContext.Completion completion) {
         lock(instanceId, () -> {
@@ -189,31 +194,51 @@ public class WorkflowScheduler {
                 return;
             }
             nodeInstance.setStatus(completion.success() ? "completed" : "failed");
-            WorkflowInstance instance = instanceMapper.selectById(instanceId);
-            if (instance == null) {
+            WorkflowInstance current = instanceMapper.selectById(instanceId);
+            if (current == null) {
                 return; // 实例已不存在（级联删除等）：仅留痕节点终态
             }
-            if (instance == null || !"running".equals(instance.getStatus())) {
+            if (!"running".equals(current.getStatus())) {
                 return; // 实例已暂停/终止：节点终态已留痕，不再推进
             }
             if (!completion.success()) {
                 // onError 语义 P1 默认 fail（51 号 §八 onError 三态中的默认；goto 错误分支列 P2）
-                failInstance(instance, "节点 " + nodeInstance.getNodeName() + " 执行失败: "
+                failInstance(current, "节点 " + nodeInstance.getNodeName() + " 执行失败: "
                         + truncate(completion.outputJson()));
                 return;
             }
-            // 写变量：nodeId → 输出（同编排约定），供表达式与下游引用
-            Map<String, Object> variables = reloadVariables(instance.getId());
+            // 写变量：nodeId → 输出（同编排约定），供表达式与下游引用。
+            // P4-B 多副本：变量合并写走版本 CAS（乐观锁冲突重试 ≤3 次；
+            // 耗尽后以最后一次读到的变量尽力推进——下次节点完成会重新读取合并，自愈）
             WorkflowNode completedNode = nodeMapper.selectById(nodeInstance.getNodeId());
-            variables.put(varKey(completedNode), completion.outputJson());
-            log.debug("节点完成写变量: instanceId={}, varKey={}, keys={}",
-                    instanceId, varKey(completedNode), variables.keySet());
-            Object parsed = parseJson(completion.outputJson());
-            if (parsed instanceof Map<?, ?> map) {
-                map.forEach((k, v) -> variables.putIfAbsent(String.valueOf(k), v));
+            WorkflowInstance fresh = current;
+            Map<String, Object> lastVariables = reloadVariables(fresh.getId());
+            boolean variablesWritten = false;
+            for (int attempt = 0; attempt < 3 && !variablesWritten; attempt++) {
+                if (attempt > 0) {
+                    WorkflowInstance reloaded = instanceMapper.selectById(instanceId);
+                    if (reloaded == null || !"running".equals(reloaded.getStatus())) {
+                        log.warn("乐观锁重试期间实例停转，尽力推进: instanceId={}", instanceId);
+                        break;
+                    }
+                    fresh = reloaded;
+                }
+                // 每轮独立局部变量（lambda 捕获要求 effectively final；跨轮经 lastVariables 传递）
+                final Map<String, Object> attemptVariables = reloadVariables(fresh.getId());
+                attemptVariables.put(varKey(completedNode), completion.outputJson());
+                log.debug("节点完成写变量: instanceId={}, varKey={}, keys={}",
+                        instanceId, varKey(completedNode), attemptVariables.keySet());
+                Object parsed = parseJson(completion.outputJson());
+                if (parsed instanceof Map<?, ?> map) {
+                    map.forEach((k, v) -> attemptVariables.putIfAbsent(String.valueOf(k), v));
+                }
+                fresh.setVariables(writeJson(attemptVariables));
+                lastVariables = attemptVariables;
+                variablesWritten = instanceMapper.updateById(fresh) > 0;
             }
-            instance.setVariables(writeJson(variables));
-            instanceMapper.updateById(instance);
+            // 重试结束后以 final 承载供后续 lambda 捕获（fresh/lastVariables 循环内可变，已定格）
+            final WorkflowInstance settled = fresh;
+            final Map<String, Object> settledVariables = lastVariables;
 
             // 人工任务判定与驳回回退（52 号 P2，53 号 §3.2）
             String nodeType = nodeInstance.getNodeType() == null ? "" : nodeInstance.getNodeType();
@@ -222,7 +247,7 @@ public class WorkflowScheduler {
                     && nodeInstance.getBranchKey().startsWith("approver-")) {
                 WorkflowNode approvalNode = nodeMapper.selectById(nodeInstance.getNodeId());
                 if (approvalNode != null) {
-                    judgeApproval(instance, approvalNode, nodeInstance, variables);
+                    judgeApproval(settled, approvalNode, nodeInstance, settledVariables);
                     return;
                 }
             }
@@ -231,20 +256,20 @@ public class WorkflowScheduler {
             // respond 节点：payload 落实例列并通知同步返回链路（P3 二期，53 号 §3.3）
             if (node != null && "respond".equals(node.getNodeType())) {
                 instanceMapper.update(null, new LambdaUpdateWrapper<WorkflowInstance>()
-                        .eq(WorkflowInstance::getId, instance.getId())
+                        .eq(WorkflowInstance::getId, settled.getId())
                         .set(WorkflowInstance::getRespondPayload, completion.outputJson()));
-                runtimeListeners.forEach(l -> l.onRespond(instance.getId(), completion.outputJson()));
+                runtimeListeners.forEach(l -> l.onRespond(settled.getId(), completion.outputJson()));
             }
             // event-wait 节点离开等待：清理该节点残留订阅（幂等）
             if (node != null && "event-wait".equals(node.getNodeType())) {
                 runtimeListeners.forEach(l -> l.onEventWaitNodeSettled(
-                        instance.getId(), nodeInstance.getId()));
+                        settled.getId(), nodeInstance.getId()));
             }
             if (node != null) {
-                advanceFrom(instance, node, nodeInstance.getBranchKey(),
-                        nodeInstance.getIteration() == null ? 0 : nodeInstance.getIteration(), variables);
+                advanceFrom(settled, node, nodeInstance.getBranchKey(),
+                        nodeInstance.getIteration() == null ? 0 : nodeInstance.getIteration(), settledVariables);
             } else {
-                checkBranchEnd(instance);
+                checkBranchEnd(settled);
             }
         });
     }

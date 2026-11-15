@@ -38,6 +38,10 @@ import java.util.stream.Collectors;
 
 /**
  * 工作流实例应用服务 — 实例启动、节点流转、挂起/恢复/终止及通知审计.
+ *
+ * @author 牛牛
+ * @version 1.0.0
+ * @since 2026-09-27
  */
 @Slf4j
 @Service
@@ -436,8 +440,14 @@ public class WorkflowInstanceService {
         if (!"running".equals(instance.getStatus())) {
             throw VeloflowException.of(VeloflowErrorCode.FLOW_INVALID_STATE, "仅运行中的实例可挂起");
         }
-        instance.setStatus("suspended");
-        workflowInstanceMapper.updateById(instance);
+        // P4-B 多副本：状态位 CAS（WHERE status=running）——两副本并发挂起/推进仅一方生效
+        int updated = workflowInstanceMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<WorkflowInstance>()
+                .eq(WorkflowInstance::getId, instanceId)
+                .eq(WorkflowInstance::getStatus, "running")
+                .set(WorkflowInstance::getStatus, "suspended"));
+        if (updated == 0) {
+            throw VeloflowException.of(VeloflowErrorCode.FLOW_INVALID_STATE, "仅运行中的实例可挂起");
+        }
     }
 
     @Transactional
@@ -446,8 +456,14 @@ public class WorkflowInstanceService {
         if (!"suspended".equals(instance.getStatus())) {
             throw VeloflowException.of(VeloflowErrorCode.FLOW_INVALID_STATE, "仅挂起的实例可恢复");
         }
-        instance.setStatus("running");
-        workflowInstanceMapper.updateById(instance);
+        // P4-B 多副本：状态位 CAS（WHERE status=suspended）
+        int updated = workflowInstanceMapper.update(null, new com.baomidou.mybatisplus.core.conditions.update.LambdaUpdateWrapper<WorkflowInstance>()
+                .eq(WorkflowInstance::getId, instanceId)
+                .eq(WorkflowInstance::getStatus, "suspended")
+                .set(WorkflowInstance::getStatus, "running"));
+        if (updated == 0) {
+            throw VeloflowException.of(VeloflowErrorCode.FLOW_INVALID_STATE, "仅挂起的实例可恢复");
+        }
     }
 
     @Transactional
