@@ -214,19 +214,8 @@ public class ReactAgentExecutor implements AgentExecutor {
         // 轮次闸门等级感知：上限取预算账本的 maxRounds（随 L1/L2/L3 等级与截断重试扩容变化），
         // 而非固定的 config.maxToolRounds——否则 L3 的 20 轮预算永远先被 10 轮执行器闸门卡住
         for (int round = 0; round < plan.budget.getMaxRounds(); round++) {
-            // 时间预算滚动续期（S9 方案A）：时间满额但 Token/轮次健康 → 续期不终止
-            budgetController.renewTimeBudget(plan.budget);
-            // 预算检查：熔断则终止（仅 Token/轮次，配置金额上限后含成本维）
-            if (budgetController.shouldStop(plan.budget)) {
-                log.warn("预算熔断: tokenUtil={}, timeUtil={}, costUtil={}, round={}",
-                        plan.budget.getTokenUtilization(), plan.budget.getTimeUtilization(),
-                        plan.budget.getCostUtilization(), round);
-                recordMetricSafe("agent.budget.exceeded", 1, Map.of(
-                        "agentId", agentId != null ? agentId : "unknown", "reason", "sync_loop"));
-                throw AgentEngineException.of("BUDGET_EXCEEDED",
-                        budgetExceededMessage(plan.budget)
-                                + ", time=" + plan.budget.getElapsedMs() + "ms/" + plan.budget.getTimeBudgetMs() + "ms");
-            }
+            // 循环头（AE-P2-1 三期步5 委托 BudgetHook：先续期、后熔断——熔断抛 BUDGET_EXCEEDED）
+            budgetHook().roundHead(plan.budget, agentId, round);
 
             LlmRequest llmRequest = LlmRequest.builder()
                     .model(plan.model)
@@ -251,22 +240,11 @@ public class ReactAgentExecutor implements AgentExecutor {
                 throw e;
             }
 
-            // 记录预算消耗（优化2：成本按模型定价对输入/输出拆分计价；
-            // usage 缺失拆分时全部计入输出侧——保守高估，利于金额熔断）
+            // 轮次记账（AE-P2-1 三期步5 委托 BudgetHook：拆分+计价+消耗集中）
             LlmResponse.Usage usage = response.getUsage();
-            long promptTokens = usage != null && usage.getPromptTokens() != null ? usage.getPromptTokens() : 0;
-            long tokens;
-            long completionTokens;
-            if (usage != null && usage.getTotalTokens() != null && usage.getTotalTokens() > 0) {
-                tokens = usage.getTotalTokens();
-                completionTokens = usage.getCompletionTokens() != null
-                        ? usage.getCompletionTokens() : Math.max(0, tokens - promptTokens);
-            } else {
-                tokens = promptTokens;
-                completionTokens = 0;
-            }
-            budgetController.consume(plan.budget, tokens,
-                    budgetController.calculateCost(plan.model, promptTokens, completionTokens));
+            long[] usageSplit = budgetHook().consumeRound(plan.budget, plan.model, usage);
+            long tokens = usageSplit[0];
+            long completionTokens = usageSplit[1];
 
             if (response.getToolCalls() == null || response.getToolCalls().isEmpty()) {
                 boolean truncated = "length".equals(response.getFinishReason());
@@ -283,10 +261,8 @@ public class ReactAgentExecutor implements AgentExecutor {
                     // 主动升级预算：token/时间预算随 max_tokens 同步放大，否则重试轮次
                     // 会在循环头的 shouldStop 处被熔断（尤其 L1 级仅 30s 时间预算）。
                     // consume() 会累计 currentRound，重试也占轮次，需同步扩容 maxRounds
-                    plan.budget.setTokenBudget(plan.budget.getTokenBudget() * 2);
-                    plan.budget.setTimeBudgetMs(Math.max(plan.budget.getTimeBudgetMs() * 2,
-                            plan.budget.getElapsedMs() * 3));
-                    plan.budget.setMaxRounds(plan.budget.getMaxRounds() + 1);
+                    // 预算同步扩容（AE-P2-1 三期步5 委托 BudgetHook：token×2/时间×2 或 elapsed×3/轮次+1）
+                    budgetHook().expandForTruncationRetry(plan.budget);
                     log.warn("推理模型回复被截断（finish=length，正文{}），自动扩大 max_tokens 至 {} 重试（第 {}/{} 次）",
                             blankContent ? "为空" : "不完整", currentMaxTokens, truncationRetries, MAX_TRUNCATION_RETRIES);
                     continue;
@@ -1048,7 +1024,7 @@ public class ReactAgentExecutor implements AgentExecutor {
     }
 
     /** 熔断原因文案：token 维 + 配置了金额上限时的 cost 维（可辨识具体触发维度） */
-    private String budgetExceededMessage(BudgetContext budget) {
+    String budgetExceededMessage(BudgetContext budget) {
         StringBuilder msg = new StringBuilder("预算耗尽: token=")
                 .append(budget.getTokenConsumed()).append("/").append(budget.getTokenBudget());
         if (budget.getCostBudget() > 0) {
@@ -1062,12 +1038,21 @@ public class ReactAgentExecutor implements AgentExecutor {
 
     /** 内置工具执行器（懒初始化：@RequiredArgsConstructor 生成构造器，构造后按需装配） */
     private BuiltinToolExecutor builtinTools;
+    /** 预算钩子（AE-P2-1 三期步5：循环头/记账/自愈扩容集中，懒初始化） */
+    private BudgetHook budgetHook;
 
     private BuiltinToolExecutor builtinTools() {
         if (builtinTools == null) {
             builtinTools = new BuiltinToolExecutor(this, fileWorkspace, userInteractionGateway, objectMapper);
         }
         return builtinTools;
+    }
+
+    private BudgetHook budgetHook() {
+        if (budgetHook == null) {
+            budgetHook = new BudgetHook(this, budgetController);
+        }
+        return budgetHook;
     }
 
     private boolean isBuiltinTool(String name) {
