@@ -39,6 +39,7 @@ public class WenshiReevaluationTrigger {
     private final ObjectProvider<EvaluationRunner> evaluationRunner;
 
     @Value("${gewu.evaluation.reeval.first-run-on-startup:false}")
+    boolean firstRunOnStartup;
     @Value("${gewu.evaluation.reeval.enabled:false}")
     boolean enabled;
     @Value("${gewu.evaluation.reeval.fragment-threshold:500}")
