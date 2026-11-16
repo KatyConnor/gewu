@@ -38,6 +38,7 @@ public class WenshiReevaluationTrigger {
     private final ObjectProvider<SemanticFragmentMapper> semanticFragmentMapper;
     private final ObjectProvider<EvaluationRunner> evaluationRunner;
 
+    @Value("${gewu.evaluation.reeval.first-run-on-startup:false}")
     @Value("${gewu.evaluation.reeval.enabled:false}")
     boolean enabled;
     @Value("${gewu.evaluation.reeval.fragment-threshold:500}")
@@ -60,6 +61,15 @@ public class WenshiReevaluationTrigger {
     @Scheduled(cron = "${gewu.evaluation.reeval.cron:0 30 3 * * *}")
     public void scheduledReevalCheck() {
         tryRun("scheduled");
+    }
+
+    /** reeval 首评入口：应用就绪且 first-run-on-startup=true 时执行一次（P4-D 同款模式） */
+    @org.springframework.context.event.EventListener(org.springframework.boot.context.event.ApplicationReadyEvent.class)
+    public void firstRunOnReady() {
+        if (firstRunOnStartup) {
+            String result = tryRun("startup-first-run");
+            log.info("Wenshi 复评首评（startup-first-run）: {}", result);
+        }
     }
 
     /**
