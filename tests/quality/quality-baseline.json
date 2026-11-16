@@ -1,0 +1,21 @@
+{
+  "_comment": "质量基准棘轮基线（P4-D 真实 LLM 首跑 2026-11-17 固化：baseline 0.75/100%、wenshi 0.75/100%，glm-5.3-flash via agent-plan，12 次真实调用 194s，模拟回退 0 次）。棘轮只紧不松：评分提升自动上调，跌幅超 5% 触发 REGRESS 阻断。",
+  "frozenAt": "2026-11-17",
+  "sourceReportId": "ff048770-5acc-4651-9aea-47354d3ac037",
+  "summaries": {
+    "wenshi": {
+      "baselineName": "wenshi",
+      "avgScore": 0.75,
+      "successRate": 1.0,
+      "totalScenarios": 6,
+      "successCount": 6
+    },
+    "baseline": {
+      "baselineName": "baseline",
+      "avgScore": 0.75,
+      "successRate": 1.0,
+      "totalScenarios": 6,
+      "successCount": 6
+    }
+  }
+}

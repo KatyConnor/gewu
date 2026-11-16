@@ -1,20 +1,20 @@
 {
-  "reportId" : "b0383735-3eda-4a14-8da8-aaa49f1d4905",
+  "reportId" : "ff048770-5acc-4651-9aea-47354d3ac037",
   "summaries" : {
     "wenshi" : {
       "baselineName" : "wenshi",
-      "avgScore" : 0.8021387016464727,
-      "successRate" : 0.8333333333333334,
+      "avgScore" : 0.75,
+      "successRate" : 1.0,
       "totalScenarios" : 6,
-      "successCount" : 5
+      "successCount" : 6
     },
     "baseline" : {
       "baselineName" : "baseline",
-      "avgScore" : 0.8281668267767479,
+      "avgScore" : 0.75,
       "successRate" : 1.0,
       "totalScenarios" : 6,
       "successCount" : 6
     }
   },
-  "generatedAt" : "2026-11-14T12:18:44.101627592Z"
+  "generatedAt" : "2026-11-16T22:58:18.941196881Z"
 }
